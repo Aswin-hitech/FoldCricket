@@ -73,7 +73,7 @@ def _broadcast_snapshot(room_id: str, requesting_player_id: str | None = None) -
 # ---------------------------------------------------------------------------
 
 @socketio.on("connect")
-def on_connect(auth):
+def on_connect(auth=None):
     headers = {k.lower(): v for k, v in request.headers.items()}
     client_ip = get_client_ip(headers, request.remote_addr)
     log_ip_event_async(ip=client_ip, action="socket_connect", headers=headers)

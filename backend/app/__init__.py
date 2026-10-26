@@ -19,7 +19,10 @@ def create_app(config: type = Config) -> Flask:
     app.config.from_object(config)
 
     # Extensions
-    cors.init_app(app, origins=config.CORS_ORIGINS, supports_credentials=True)
+    if config.CORS_ORIGINS == "*":
+        cors.init_app(app, resources={r"/*": {"origins": "*"}})
+    else:
+        cors.init_app(app, origins=config.CORS_ORIGINS, supports_credentials=True)
     socketio.init_app(
         app,
         cors_allowed_origins=config.SOCKETIO_CORS_ALLOWED_ORIGINS,

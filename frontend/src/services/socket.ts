@@ -5,7 +5,8 @@
 
 import { io, Socket } from 'socket.io-client'
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ''
+const rawBackend = import.meta.env.VITE_BACKEND_URL || ''
+const BACKEND_URL = rawBackend.trim().replace(/\/+$/, '')
 
 let socket: Socket | null = null
 

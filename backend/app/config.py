@@ -12,13 +12,16 @@ class Config:
     DEBUG: bool = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 
     # CORS
-    CORS_ORIGINS: list[str] = os.getenv(
-        "CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"
-    ).split(",")
+    raw_cors: str = os.getenv("CORS_ORIGINS", "*").strip()
+    if raw_cors == "*" or not raw_cors:
+        CORS_ORIGINS: str | list[str] = "*"
+        SOCKETIO_CORS_ALLOWED_ORIGINS: str = "*"
+    else:
+        CORS_ORIGINS: list[str] = [o.strip() for o in raw_cors.split(",") if o.strip()]
+        SOCKETIO_CORS_ALLOWED_ORIGINS: str | list[str] = CORS_ORIGINS
 
     # Socket.IO
     SOCKETIO_ASYNC_MODE: str = os.getenv("SOCKETIO_ASYNC_MODE", "threading")
-    SOCKETIO_CORS_ALLOWED_ORIGINS: str | list[str] = CORS_ORIGINS
 
     # Game
     DELIVERY_TIMEOUT_SECONDS: int = int(os.getenv("DELIVERY_TIMEOUT_SECONDS", "15"))

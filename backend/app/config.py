@@ -13,12 +13,15 @@ class Config:
 
     # CORS
     raw_cors: str = os.getenv("CORS_ORIGINS", "*").strip()
-    if raw_cors == "*" or not raw_cors:
+    if raw_cors == "*" or not raw_cors or "your-app.vercel.app" in raw_cors or "*" in [x.strip() for x in raw_cors.split(",")]:
         CORS_ORIGINS: str | list[str] = "*"
         SOCKETIO_CORS_ALLOWED_ORIGINS: str = "*"
     else:
-        CORS_ORIGINS: list[str] = [o.strip() for o in raw_cors.split(",") if o.strip()]
-        SOCKETIO_CORS_ALLOWED_ORIGINS: str | list[str] = CORS_ORIGINS
+        origins = [o.strip() for o in raw_cors.split(",") if o.strip()]
+        if "https://fold-cricket.vercel.app" not in origins:
+            origins.append("https://fold-cricket.vercel.app")
+        CORS_ORIGINS: list[str] = origins
+        SOCKETIO_CORS_ALLOWED_ORIGINS: list[str] = origins
 
     # Socket.IO
     SOCKETIO_ASYNC_MODE: str = os.getenv("SOCKETIO_ASYNC_MODE", "threading")

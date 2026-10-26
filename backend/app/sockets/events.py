@@ -597,10 +597,71 @@ def on_match_settings(data):
         if not (1 <= overs_int <= 10):
             return emit("settings:updated", _err("overs_must_be_between_1_and_10"))
         room.overs = overs_int
-        repo.save_room(room)
 
+    team_a_name = (data or {}).get("team_a_name")
+    if team_a_name and isinstance(team_a_name, str):
+        room.team_a_name = team_a_name.strip()[:24] or "Team A"
+
+    team_b_name = (data or {}).get("team_b_name")
+    if team_b_name and isinstance(team_b_name, str):
+        room.team_b_name = team_b_name.strip()[:24] or "Team B"
+
+    repo.save_room(room)
     emit("settings:updated", _ok())
     _broadcast_snapshot(room_id)
+
+
+@socketio.on("room:update_teams")
+def on_room_update_teams(data):
+    player = _require_player()
+    if not player:
+        return emit("room:teams_updated", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("room:teams_updated", _err("room_not_found"))
+
+    mem = repo.get_membership(room_id, player.id)
+    if not mem:
+        return emit("room:teams_updated", _err("not_in_room"))
+
+    team_a_name = (data or {}).get("team_a_name")
+    if team_a_name and isinstance(team_a_name, str):
+        room.team_a_name = team_a_name.strip()[:24] or "Team A"
+
+    team_b_name = (data or {}).get("team_b_name")
+    if team_b_name and isinstance(team_b_name, str):
+        room.team_b_name = team_b_name.strip()[:24] or "Team B"
+
+    repo.save_room(room)
+    _broadcast_snapshot(room_id)
+    emit("room:teams_updated", _ok())
+
+
+@socketio.on("voice:state")
+def on_voice_state(data):
+    player = _require_player()
+    if not player:
+        return
+    room_id = (data or {}).get("room_id", "")
+    is_speaking = bool((data or {}).get("is_speaking", False))
+    is_muted = bool((data or {}).get("is_muted", True))
+    socketio.emit(
+        "voice:state_changed",
+        {
+            "player_id": player.id,
+            "player_name": player.display_name,
+            "is_speaking": is_speaking,
+            "is_muted": is_muted,
+        },
+        room=room_id,
+    )
+
+
+@socketio.on("ping_check")
+def on_ping_check(data):
+    emit("pong_ack", data)
 
 
 # ---------------------------------------------------------------------------

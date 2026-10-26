@@ -39,6 +39,8 @@ export interface RoomInfo {
   capacity: number
   rules_version: string
   toss?: TossInfo | null
+  team_a_name?: string
+  team_b_name?: string
 }
 
 export interface MatchInfo {
@@ -58,6 +60,15 @@ export interface MatchInfo {
   delivery_deadline: string | null
   winner: string | null
   result_summary: string | null
+  team_a_name?: string
+  team_b_name?: string
+}
+
+export interface VoiceState {
+  player_id: string
+  player_name: string
+  is_speaking: boolean
+  is_muted: boolean
 }
 
 export interface DeliveryInfo {

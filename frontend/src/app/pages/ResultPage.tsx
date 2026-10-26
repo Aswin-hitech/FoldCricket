@@ -45,14 +45,14 @@ export default function ResultPage() {
       <div className={styles.content}>
         <div className={styles.trophy}>🏆</div>
         <h1 className={styles.title}>
-          {winner === 'TIE' ? "It's a Tie!" : winner ? `Team ${winner} Wins!` : 'Match Complete'}
+          {winner === 'TIE' ? "It's a Tie!" : winner === 'A' ? `${match?.team_a_name || 'Team A'} Wins!` : winner === 'B' ? `${match?.team_b_name || 'Team B'} Wins!` : 'Match Complete'}
         </h1>
         <p className={styles.summary}>{match?.result_summary ?? ''}</p>
 
         {/* Scorecard */}
         <div className={styles.scorecard}>
           <TeamScore
-            label="Team A"
+            label={match?.team_a_name || 'Team A'}
             team="A"
             runs={teamATotal}
             wickets={match?.team_a_wickets ?? 0}
@@ -61,7 +61,7 @@ export default function ResultPage() {
           />
           <div className={styles.vs}>VS</div>
           <TeamScore
-            label="Team B"
+            label={match?.team_b_name || 'Team B'}
             team="B"
             runs={teamBTotal}
             wickets={match?.team_b_wickets ?? 0}

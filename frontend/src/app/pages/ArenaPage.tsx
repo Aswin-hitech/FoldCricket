@@ -7,6 +7,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { sound } from '../../services/sound'
+import { HandGesture } from '../components/HandGesture'
+import { NetworkIndicator } from '../components/NetworkIndicator'
+import { VoiceChat } from '../components/VoiceChat'
 import type { DeliveryReveal, MatchInfo, MemberInfo } from '../../services/types'
 import styles from './ArenaPage.module.css'
 
@@ -22,10 +25,13 @@ export default function ArenaPage() {
     chatMessages,
     lastReveal,
     matchFinished,
+    pingLatency,
+    voiceStates,
     syncRoom,
     selectBowler,
     submitPick,
     sendChat,
+    updateVoiceState,
   } = useSocket(sessionToken)
 
   const [chatInput, setChatInput] = useState('')
@@ -167,6 +173,7 @@ export default function ArenaPage() {
   return (
     <div className={styles.arena}>
       {/* Header */}
+      {/* Header */}
       <header className={styles.header}>
         <div className={styles.headerBrand}>
           <img src="/logo.jpg" alt="FoldCricket" className={styles.headerBrandLogo} />
@@ -182,9 +189,19 @@ export default function ArenaPage() {
           <span className={styles.metaItem}>
             Ball {match.current_ball + 1}/6
           </span>
-          {status === 'disconnected' && (
-            <span className={styles.connBadge} data-disconnected>⚠ Reconnecting…</span>
-          )}
+
+          {/* Voice Chat Microphone facility */}
+          <VoiceChat
+            roomId={roomId || ''}
+            myPlayerId={myPlayerId}
+            myDisplayName={myMembership?.player.display_name || ''}
+            voiceStates={voiceStates}
+            onVoiceStateChange={updateVoiceState}
+          />
+
+          {/* Real-time Internet Speed Indicator with signal bars & reconnecting banner */}
+          <NetworkIndicator status={status} latency={pingLatency} />
+
           <button
             type="button"
             onClick={() => setIsMuted(sound.toggleMute())}
@@ -205,7 +222,7 @@ export default function ArenaPage() {
           {/* Scoreboard */}
           <div className={styles.scoreboard}>
             <ScoreCard
-              label="Team A"
+              label={match.team_a_name || 'Team A'}
               team="A"
               runs={match.team_a_runs}
               wickets={match.team_a_wickets}
@@ -226,7 +243,7 @@ export default function ArenaPage() {
               )}
             </div>
             <ScoreCard
-              label="Team B"
+              label={match.team_b_name || 'Team B'}
               team="B"
               runs={match.team_b_runs}
               wickets={match.team_b_wickets}
@@ -243,6 +260,7 @@ export default function ArenaPage() {
               members={members}
               isMe={isActiveBatter}
               submitted={currentDelivery?.batter_submitted}
+              pickRevealed={revealAnimation ? revealAnimation.batter_pick : null}
             />
             <div className={styles.stageCenter}>
               {/* Countdown */}
@@ -264,38 +282,45 @@ export default function ArenaPage() {
               members={members}
               isMe={isActiveBowler}
               submitted={currentDelivery?.bowler_submitted}
+              pickRevealed={revealAnimation ? revealAnimation.bowler_pick : null}
             />
-          </div>
 
-          {/* Reveal animation with special styles for Sixes & Fours */}
-          {revealAnimation && (
-            <div
-              className={`${styles.revealBanner} ${
-                revealAnimation.result === 'OUT'
-                  ? styles.revealOut
-                  : revealAnimation.runs_scored === 6
-                  ? styles.revealSix
-                  : revealAnimation.runs_scored === 4
-                  ? styles.revealFour
-                  : styles.revealRuns
-              }`}
-            >
-              <div className={styles.revealPicks}>
-                <span>{revealAnimation.batter_pick}</span>
-                <span className={styles.revealVs}>vs</span>
-                <span>{revealAnimation.bowler_pick}</span>
+            {/* Stage Popup: WICKET !!! or +Runs popup */}
+            {revealAnimation && (
+              <div className={styles.stagePopupWrapper}>
+                {revealAnimation.result === 'OUT' ? (
+                  <div className={styles.wicketPopup}>
+                    <span className={styles.wicketEmoji}>💥</span>
+                    <div className={styles.wicketTitle}>WICKET !!!</div>
+                    <div className={styles.wicketSub}>Equal numbers matched — Batter is OUT!</div>
+                  </div>
+                ) : (
+                  <div
+                    className={`${styles.runsPopup} ${
+                      revealAnimation.runs_scored === 6
+                        ? styles.runsSix
+                        : revealAnimation.runs_scored === 4
+                        ? styles.runsFour
+                        : styles.runsNormal
+                    }`}
+                  >
+                    <span className={styles.runsScoreText}>
+                      +{revealAnimation.runs_scored}
+                    </span>
+                    <span className={styles.runsScoreLabel}>
+                      {revealAnimation.runs_scored === 6
+                        ? 'MAXIMUM! 6 RUNS'
+                        : revealAnimation.runs_scored === 4
+                        ? 'BOUNDARY! 4 RUNS'
+                        : revealAnimation.runs_scored === 1
+                        ? 'RUN'
+                        : 'RUNS'}
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className={styles.revealResult}>
-                {revealAnimation.result === 'OUT'
-                  ? '❌ OUT!'
-                  : revealAnimation.runs_scored === 6
-                  ? '💥 MAXIMUM! SIX RUNS!'
-                  : revealAnimation.runs_scored === 4
-                  ? '⚡ BOUNDARY! FOUR RUNS!'
-                  : `✅ +${revealAnimation.runs_scored} RUNS`}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Bowler selection */}
           {needsBowlerSelect && (
@@ -315,14 +340,19 @@ export default function ArenaPage() {
             </div>
           )}
 
-          {/* Number pad */}
+          {/* Number pad with 1, 2, 3, 4, 6 and realistic hand gestures */}
           {isActivePlayer && match.active_bowler_id && (
             <div className={styles.numberPad}>
-              <p className={styles.padLabel}>
-                {isActiveBatter ? 'Pick your batting number' : 'Pick your bowling number'}
-              </p>
+              <div className={styles.padHeader}>
+                <p className={styles.padLabel}>
+                  {isActiveBatter ? '🏏 Batter: Pick your run shot' : '🎯 Bowler: Pick your delivery'}
+                </p>
+                <span className={styles.padSubLabel}>
+                  Traditional Hand Cricket: 1, 2, 3, 4, or 6
+                </span>
+              </div>
               <div className={styles.pad}>
-                {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
+                {[1, 2, 3, 4, 6].map(n => (
                   <button
                     key={n}
                     className={`${styles.padBtn} ${selectedPick === n ? styles.padBtnSelected : ''} ${pickSubmitted ? styles.padBtnDisabled : ''}`}
@@ -331,16 +361,8 @@ export default function ArenaPage() {
                     aria-label={`Pick ${n}`}
                     aria-pressed={selectedPick === n}
                   >
-                    {/* Reserved image slot for future finger notation (.png / .jpg) */}
-                    <div className={styles.fingerNotationSlot} data-finger={n}>
-                      <img
-                        src={`/fingers/finger_${n}.png`}
-                        alt={`Finger ${n}`}
-                        className={styles.fingerImg}
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none'
-                        }}
-                      />
+                    <div className={styles.gestureSlot}>
+                      <HandGesture number={n} size={36} />
                     </div>
                     <span className={styles.padBtnNumber}>{n}</span>
                   </button>
@@ -351,7 +373,7 @@ export default function ArenaPage() {
                 onClick={handlePickSubmit}
                 disabled={selectedPick === null || pickSubmitted}
               >
-                {pickSubmitted ? '✅ Submitted' : '🎯 Submit Pick'}
+                {pickSubmitted ? '✅ Pick Locked & Sent' : selectedPick !== null ? `🎯 Lock In ${selectedPick} Runs` : '👉 Choose 1, 2, 3, 4, or 6'}
               </button>
             </div>
           )}
@@ -440,13 +462,14 @@ function ScoreCard({
 }
 
 function ActivePlayer({
-  label, playerId, members, isMe, submitted
+  label, playerId, members, isMe, submitted, pickRevealed
 }: {
   label: string
   playerId: string | null
   members: MemberInfo[]
   isMe: boolean
   submitted?: boolean
+  pickRevealed?: number | null
 }) {
   const member = members.find(m => m.player.id === playerId)
   return (
@@ -458,6 +481,17 @@ function ActivePlayer({
       {isMe && <div className={styles.activePlayerYou}>YOU</div>}
       {submitted && <div className={styles.activePlayerSubmitted}>✅ Submitted</div>}
       {!submitted && playerId && <div className={styles.activePlayerWaiting}>⏳ Choosing…</div>}
+
+      {/* Pick reveal below player card with realistic finger gesture */}
+      {pickRevealed !== undefined && pickRevealed !== null && (
+        <div className={styles.pickRevealContainer}>
+          <span className={styles.pickLabelTag}>CHOSE</span>
+          <div className={styles.pickBadge}>
+            <HandGesture number={pickRevealed} size={32} animated />
+            <span className={styles.pickBadgeNum}>{pickRevealed}</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -474,7 +508,10 @@ function RosterList({
 
   return (
     <div className={styles.roster}>
-      {[{ label: 'Team A', players: teamA, team: 'A' }, { label: 'Team B', players: teamB, team: 'B' }].map(t => (
+      {[
+        { label: match.team_a_name || 'Team A', players: teamA, team: 'A' },
+        { label: match.team_b_name || 'Team B', players: teamB, team: 'B' }
+      ].map(t => (
         <div key={t.team} className={styles.rosterTeam}>
           <h4 className={styles.rosterTeamLabel} data-team={t.team}>{t.label}</h4>
           {t.players.map(m => (

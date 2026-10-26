@@ -120,6 +120,8 @@ class Room:
     overs: int = 2
     allowed_overs: list = field(default_factory=lambda: list(range(1, 11)))
     toss: Optional[dict] = None
+    team_a_name: str = "Team A"
+    team_b_name: str = "Team B"
 
     def to_public_dict(self) -> dict:
         return {
@@ -132,6 +134,8 @@ class Room:
             "capacity": self.capacity,
             "rules_version": self.rules_version,
             "toss": self.toss,
+            "team_a_name": getattr(self, "team_a_name", "Team A"),
+            "team_b_name": getattr(self, "team_b_name", "Team B"),
         }
 
 
@@ -145,6 +149,8 @@ class Match:
     room_id: str = ""
     phase: InningsPhase = InningsPhase.FIRST
     overs: int = 2
+    team_a_name: str = "Team A"
+    team_b_name: str = "Team B"
 
     # Scoring
     team_a_runs: int = 0

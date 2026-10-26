@@ -276,6 +276,8 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
         team_b_extra_wickets=extra_b,
         batting_team=batting_team,
         phase=InningsPhase.FIRST,
+        team_a_name=getattr(room, "team_a_name", "Team A"),
+        team_b_name=getattr(room, "team_b_name", "Team B"),
     )
     match._team_a_size = len(team_a)
     match._team_b_size = len(team_b)
@@ -481,6 +483,8 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
             ),
             "winner": match.winner,
             "result_summary": match.result_summary,
+            "team_a_name": getattr(match, "team_a_name", getattr(room, "team_a_name", "Team A")),
+            "team_b_name": getattr(match, "team_b_name", getattr(room, "team_b_name", "Team B")),
         }
 
         raw_delivery = repo.get_current_delivery(match.id)

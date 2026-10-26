@@ -8,6 +8,8 @@ import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { CoinTossModal } from '../components/CoinTossModal'
 import { Footer } from '../components/Footer'
+import { NetworkIndicator } from '../components/NetworkIndicator'
+import { VoiceChat } from '../components/VoiceChat'
 import { sound } from '../../services/sound'
 import type { MemberInfo, RoomInfo } from '../../services/types'
 import styles from './RoomPage.module.css'
@@ -22,6 +24,8 @@ export default function RoomPage() {
     status,
     snapshot,
     chatMessages,
+    pingLatency,
+    voiceStates,
     syncRoom,
     startMatch,
     callToss,
@@ -30,6 +34,8 @@ export default function RoomPage() {
     setReady,
     assignTeam,
     updateSettings,
+    updateTeams,
+    updateVoiceState,
     sendChat,
   } = useSocket(sessionToken)
 
@@ -127,6 +133,18 @@ export default function RoomPage() {
   const teamB = members.filter(m => m.team === 'B')
   const allReady = members.length >= 2 && members.every(m => m.readiness === 'READY')
 
+  function handleUpdateTeamAName(newName: string) {
+    if (!roomId) return
+    sound.playClick()
+    updateTeams(roomId, newName, room?.team_b_name || 'Team B')
+  }
+
+  function handleUpdateTeamBName(newName: string) {
+    if (!roomId) return
+    sound.playClick()
+    updateTeams(roomId, room?.team_a_name || 'Team A', newName)
+  }
+
   return (
     <div className={styles.page}>
       {/* Header */}
@@ -143,6 +161,18 @@ export default function RoomPage() {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Voice Chat Microphone facility */}
+          <VoiceChat
+            roomId={roomId || ''}
+            myPlayerId={myPlayerId}
+            myDisplayName={myMembership?.player.display_name || ''}
+            voiceStates={voiceStates}
+            onVoiceStateChange={updateVoiceState}
+          />
+
+          {/* Real-time Internet Speed Indicator with signal bars & reconnecting banner */}
+          <NetworkIndicator status={status} latency={pingLatency} />
+
           <ThemeToggle />
           {room && (
             <div className={styles.joinInfo}>
@@ -205,20 +235,22 @@ export default function RoomPage() {
 
           <div className={styles.teamsGrid}>
             <TeamColumn
-              label="Team A"
+              label={room?.team_a_name || 'Team A'}
               members={teamA}
               myPlayerId={myPlayerId}
               isHost={isHost}
               team="A"
               onAssign={handleAssignTeam}
+              onUpdateTeamName={handleUpdateTeamAName}
             />
             <TeamColumn
-              label="Team B"
+              label={room?.team_b_name || 'Team B'}
               members={teamB}
               myPlayerId={myPlayerId}
               isHost={isHost}
               team="B"
               onAssign={handleAssignTeam}
+              onUpdateTeamName={handleUpdateTeamBName}
             />
           </div>
 
@@ -344,6 +376,7 @@ function TeamColumn({
   isHost,
   team,
   onAssign,
+  onUpdateTeamName,
 }: {
   label: string
   members: MemberInfo[]
@@ -351,10 +384,56 @@ function TeamColumn({
   isHost: boolean
   team: 'A' | 'B'
   onAssign: (playerId: string, team: 'A' | 'B') => void
+  onUpdateTeamName: (newName: string) => void
 }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [nameInput, setNameInput] = useState(label)
+
+  useEffect(() => {
+    setNameInput(label)
+  }, [label])
+
+  const handleSave = () => {
+    setIsEditing(false)
+    const trimmed = nameInput.trim()
+    if (trimmed && trimmed !== label) {
+      onUpdateTeamName(trimmed)
+    }
+  }
+
   return (
     <div className={`${styles.teamCol} ${team === 'A' ? styles.teamColA : styles.teamColB}`}>
-      <h3 className={styles.teamLabel}>{label}</h3>
+      <div className={styles.teamHeaderRow}>
+        {isEditing ? (
+          <div className={styles.teamEditBox}>
+            <input
+              type="text"
+              value={nameInput}
+              onChange={e => setNameInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
+              className={styles.teamNameInput}
+              maxLength={24}
+              autoFocus
+            />
+            <button type="button" className={styles.saveBtn} onClick={handleSave}>✓</button>
+          </div>
+        ) : (
+          <div className={styles.teamTitleWrap}>
+            <h3 className={styles.teamLabel}>{label}</h3>
+            <button
+              type="button"
+              className={styles.editTeamBtn}
+              onClick={() => setIsEditing(true)}
+              title="Edit Team Name"
+              aria-label="Edit Team Name"
+            >
+              ✏️
+            </button>
+          </div>
+        )}
+        <span className={styles.memberCountBadge}>{members.length} Players</span>
+      </div>
+
       {members.length === 0 && <p className={styles.emptyTeam}>No players yet</p>}
       {members.map(m => (
         <div

@@ -20,6 +20,8 @@ interface UseSocketReturn {
   lastReveal: DeliveryReveal | null
   matchFinished: { winner: string; result_summary: string } | null
   lastError: string | null
+  pingLatency: number | null
+  voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
 
   register: (displayName: string, sessionToken?: string) => void
   createRoom: (mode: string, overs: number) => void
@@ -35,6 +37,8 @@ interface UseSocketReturn {
   ackRules: (roomId: string) => void
   assignTeam: (roomId: string, playerId: string, team: string) => void
   updateSettings: (roomId: string, overs: number) => void
+  updateTeams: (roomId: string, teamAName: string, teamBName: string) => void
+  updateVoiceState: (roomId: string, isSpeaking: boolean, isMuted: boolean) => void
   sendVoiceSignal: (roomId: string, targetId: string, signal: unknown) => void
 }
 
@@ -48,6 +52,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [lastReveal, setLastReveal] = useState<DeliveryReveal | null>(null)
   const [matchFinished, setMatchFinished] = useState<{ winner: string; result_summary: string } | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
+  const [pingLatency, setPingLatency] = useState<number | null>(null)
+  const [voiceStates, setVoiceStates] = useState<Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>>({})
 
   useEffect(() => {
     const s = socketRef.current
@@ -57,9 +63,18 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setStatus('connected')
     }
 
-    const onConnect = () => setStatus('connected')
-    const onDisconnect = () => setStatus('disconnected')
-    const onConnectError = () => setStatus('error')
+    const onConnect = () => {
+      setStatus('connected')
+      s.emit('ping_check', Date.now())
+    }
+    const onDisconnect = () => {
+      setStatus('disconnected')
+      setPingLatency(null)
+    }
+    const onConnectError = () => {
+      setStatus('error')
+      setPingLatency(null)
+    }
     const onSnapshot = (data: RoomSnapshot) => setSnapshot(data)
     const onChatMessage = (msg: ChatMessage) =>
       setChatMessages((prev) => [...prev.slice(-199), msg])
@@ -72,6 +87,22 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     const onRoomJoined = (data: { success: boolean; error?: string }) => {
       if (!data.success) setLastError(data.error || 'unknown_error')
     }
+    const onPongAck = (sentTime: number) => {
+      if (typeof sentTime === 'number') {
+        const rtt = Math.max(1, Date.now() - sentTime)
+        setPingLatency(rtt)
+      }
+    }
+    const onVoiceStateChanged = (data: { player_id: string; player_name: string; is_speaking: boolean; is_muted: boolean }) => {
+      setVoiceStates((prev) => ({
+        ...prev,
+        [data.player_id]: {
+          is_speaking: data.is_speaking,
+          is_muted: data.is_muted,
+          player_name: data.player_name,
+        },
+      }))
+    }
 
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
@@ -82,8 +113,18 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('match:finished', onMatchFinished)
     s.on('room:created', onRoomCreated)
     s.on('room:joined', onRoomJoined)
+    s.on('pong_ack', onPongAck)
+    s.on('voice:state_changed', onVoiceStateChanged)
+
+    // Regular ping heartbeats every 3.5s
+    const pingInterval = setInterval(() => {
+      if (s.connected) {
+        s.emit('ping_check', Date.now())
+      }
+    }, 3500)
 
     return () => {
+      clearInterval(pingInterval)
       s.off('connect', onConnect)
       s.off('disconnect', onDisconnect)
       s.off('connect_error', onConnectError)
@@ -93,6 +134,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('match:finished', onMatchFinished)
       s.off('room:created', onRoomCreated)
       s.off('room:joined', onRoomJoined)
+      s.off('pong_ack', onPongAck)
+      s.off('voice:state_changed', onVoiceStateChanged)
     }
   }, [])
 
@@ -156,6 +199,14 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('match:settings', { room_id: roomId, overs })
   }, [])
 
+  const updateTeams = useCallback((roomId: string, teamAName: string, teamBName: string) => {
+    socketRef.current.emit('room:update_teams', { room_id: roomId, team_a_name: teamAName, team_b_name: teamBName })
+  }, [])
+
+  const updateVoiceState = useCallback((roomId: string, isSpeaking: boolean, isMuted: boolean) => {
+    socketRef.current.emit('voice:state', { room_id: roomId, is_speaking: isSpeaking, is_muted: isMuted })
+  }, [])
+
   const sendVoiceSignal = useCallback((roomId: string, targetId: string, signal: unknown) => {
     socketRef.current.emit('voice:signal', { room_id: roomId, target_player_id: targetId, signal })
   }, [])
@@ -167,6 +218,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     lastReveal,
     matchFinished,
     lastError,
+    pingLatency,
+    voiceStates,
     register,
     createRoom,
     joinRoom,
@@ -181,6 +234,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     ackRules,
     assignTeam,
     updateSettings,
+    updateTeams,
+    updateVoiceState,
     sendVoiceSignal,
   }
 }

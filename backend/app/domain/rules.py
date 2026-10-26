@@ -169,17 +169,19 @@ class GameRules:
 
     @staticmethod
     def _determine_winner(match: Match) -> None:
+        name_a = getattr(match, "team_a_name", "Team A") or "Team A"
+        name_b = getattr(match, "team_b_name", "Team B") or "Team B"
         if match.team_a_runs > match.team_b_runs:
             match.winner = "A"
             diff = match.team_a_runs - match.team_b_runs
-            match.result_summary = f"Team A wins by {diff} run{'s' if diff != 1 else ''}"
+            match.result_summary = f"{name_a} wins by {diff} run{'s' if diff != 1 else ''}"
         elif match.team_b_runs > match.team_a_runs:
             match.winner = "B"
             # Calculate wickets in hand
             wlimit_b = match.wicket_limit("B")
             wickets_remaining = wlimit_b - match.team_b_wickets
             match.result_summary = (
-                f"Team B wins by {wickets_remaining} wicket{'s' if wickets_remaining != 1 else ''}"
+                f"{name_b} wins by {wickets_remaining} wicket{'s' if wickets_remaining != 1 else ''}"
             )
         else:
             match.winner = "TIE"

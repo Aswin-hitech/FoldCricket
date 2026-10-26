@@ -9,12 +9,15 @@ import { ThemeToggle } from '../../context/ThemeContext'
 import { logClientSession } from '../../services/telemetry'
 import { sound } from '../../services/sound'
 import { Footer } from '../components/Footer'
+import { NetworkIndicator } from '../components/NetworkIndicator'
+import { useSocket } from '../../hooks/useSocket'
 import styles from './LandingPage.module.css'
 
 type Tab = 'create' | 'join'
 
 export default function LandingPage() {
   const navigate = useNavigate()
+  const { status, pingLatency } = useSocket()
   const [tab, setTab] = useState<Tab>('create')
   const [displayName, setDisplayName] = useState('')
   const [joinCode, setJoinCode] = useState('')
@@ -90,8 +93,9 @@ export default function LandingPage() {
 
   return (
     <div className={styles.page}>
-      {/* Top action bar with Light/Dark Theme toggle */}
+      {/* Top action bar with Internet Speed & Light/Dark Theme toggle */}
       <div className={styles.topBar}>
+        <NetworkIndicator status={status} latency={pingLatency} showReconnectingBanner={false} />
         <ThemeToggle />
       </div>
 
@@ -240,7 +244,7 @@ export default function LandingPage() {
         </div>
 
         <p className={styles.rules}>
-          <strong>Authentic Rules:</strong> Choose numbers 1 through 10 each delivery. If the batter and bowler choose the same number, the batter is OUT. Otherwise, the batter scores their chosen number.
+          <strong>Authentic Rules:</strong> Choose numbers <strong>1, 2, 3, 4, or 6</strong> each delivery. If batter and bowler pick the same number, it is a <strong>WICKET !!!</strong> Otherwise, the batter scores their chosen number.
         </p>
       </main>
 

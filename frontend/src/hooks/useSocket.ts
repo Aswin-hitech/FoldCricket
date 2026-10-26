@@ -8,6 +8,7 @@ import { connectSocket, disconnectSocket } from '../services/socket'
 import type {
   ChatMessage,
   DeliveryReveal,
+  PausedInfo,
   RoomSnapshot,
 } from '../services/types'
 
@@ -22,6 +23,7 @@ interface UseSocketReturn {
   lastError: string | null
   pingLatency: number | null
   voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
+  pausedInfo: PausedInfo | null
 
   register: (displayName: string, sessionToken?: string) => void
   createRoom: (mode: string, overs: number) => void
@@ -32,6 +34,8 @@ interface UseSocketReturn {
   decideToss: (roomId: string, decision: 'BAT' | 'BOWL') => void
   selectBowler: (roomId: string, bowlerId: string) => void
   submitPick: (roomId: string, pick: number) => void
+  pauseMatch: (roomId: string) => void
+  resumeMatch: (roomId: string) => void
   sendChat: (roomId: string, text: string) => void
   setReady: (roomId: string, ready: boolean) => void
   ackRules: (roomId: string) => void
@@ -54,6 +58,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [lastError, setLastError] = useState<string | null>(null)
   const [pingLatency, setPingLatency] = useState<number | null>(null)
   const [voiceStates, setVoiceStates] = useState<Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>>({})
+  const [pausedInfo, setPausedInfo] = useState<PausedInfo | null>(null)
 
   useEffect(() => {
     const s = socketRef.current
@@ -75,7 +80,14 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setStatus('error')
       setPingLatency(null)
     }
-    const onSnapshot = (data: RoomSnapshot) => setSnapshot(data)
+    const onSnapshot = (data: RoomSnapshot) => {
+      setSnapshot(data)
+      if (data?.room?.status === 'PAUSED' || data?.room?.is_paused) {
+        setPausedInfo(prev => prev || { paused: true, reason: 'Game Paused' })
+      } else if (data?.room?.status === 'INNINGS_ACTIVE') {
+        setPausedInfo(null)
+      }
+    }
     const onChatMessage = (msg: ChatMessage) =>
       setChatMessages((prev) => [...prev.slice(-199), msg])
     const onDeliveryReveal = (reveal: DeliveryReveal) => setLastReveal(reveal)
@@ -103,6 +115,12 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
         },
       }))
     }
+    const onMatchPaused = (info: PausedInfo) => {
+      setPausedInfo(info)
+    }
+    const onMatchResumed = () => {
+      setPausedInfo(null)
+    }
 
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
@@ -115,6 +133,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('room:joined', onRoomJoined)
     s.on('pong_ack', onPongAck)
     s.on('voice:state_changed', onVoiceStateChanged)
+    s.on('match:paused', onMatchPaused)
+    s.on('match:resumed', onMatchResumed)
 
     // Regular ping heartbeats every 3.5s
     const pingInterval = setInterval(() => {
@@ -136,6 +156,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('room:joined', onRoomJoined)
       s.off('pong_ack', onPongAck)
       s.off('voice:state_changed', onVoiceStateChanged)
+      s.off('match:paused', onMatchPaused)
+      s.off('match:resumed', onMatchResumed)
     }
   }, [])
 
@@ -211,6 +233,14 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('voice:signal', { room_id: roomId, target_player_id: targetId, signal })
   }, [])
 
+  const pauseMatch = useCallback((roomId: string) => {
+    socketRef.current.emit('match:pause', { room_id: roomId })
+  }, [])
+
+  const resumeMatch = useCallback((roomId: string) => {
+    socketRef.current.emit('match:resume', { room_id: roomId })
+  }, [])
+
   return {
     status,
     snapshot,
@@ -220,6 +250,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     lastError,
     pingLatency,
     voiceStates,
+    pausedInfo,
     register,
     createRoom,
     joinRoom,
@@ -229,6 +260,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     decideToss,
     selectBowler,
     submitPick,
+    pauseMatch,
+    resumeMatch,
     sendChat,
     setReady,
     ackRules,

@@ -29,9 +29,12 @@ export default function ArenaPage() {
     matchFinished,
     pingLatency,
     voiceStates,
+    pausedInfo,
     syncRoom,
     selectBowler,
     submitPick,
+    pauseMatch,
+    resumeMatch,
     sendChat,
     updateVoiceState,
   } = useSocket(sessionToken)
@@ -54,6 +57,7 @@ export default function ArenaPage() {
   const isActivePlayer = isActiveBatter || isActiveBowler
   const isHost = myMembership?.is_host ?? false
   const isCaptain = myMembership?.is_captain ?? false
+  const isPaused = snapshot?.room?.status === 'PAUSED' || snapshot?.room?.is_paused || (pausedInfo?.paused ?? false)
 
   // Instant room sync on mount & reconnect
   useEffect(() => {
@@ -149,9 +153,40 @@ export default function ArenaPage() {
     selectBowler(roomId, bowlerId)
   }
 
+  const currentDelivery = snapshot?.current_delivery
+
+  // Seamless delivery progression: automatically unlock keypad when server starts a new delivery
+  useEffect(() => {
+    if (isActiveBatter) {
+      if (!currentDelivery || !currentDelivery.batter_submitted) {
+        setPickSubmitted(false)
+      }
+    } else if (isActiveBowler) {
+      if (!currentDelivery || !currentDelivery.bowler_submitted) {
+        setPickSubmitted(false)
+      }
+    } else {
+      setPickSubmitted(false)
+    }
+  }, [
+    currentDelivery?.batter_submitted,
+    currentDelivery?.bowler_submitted,
+    isActiveBatter,
+    isActiveBowler,
+    match?.current_ball,
+    match?.current_over,
+    match?.phase,
+  ])
+
   // Smooth loading without getting stuck
   if (!match) {
-    if (snapshot?.room && snapshot.room.status !== 'INNINGS_ACTIVE' && snapshot.room.status !== 'MATCH_COMPLETE') {
+    if (
+      snapshot?.room &&
+      snapshot.room.status !== 'INNINGS_ACTIVE' &&
+      snapshot.room.status !== 'MATCH_COMPLETE' &&
+      snapshot.room.status !== 'PAUSED' &&
+      snapshot.room.status !== 'INNINGS_BREAK'
+    ) {
       navigate(`/room/${roomId}`)
       return null
     }
@@ -175,7 +210,6 @@ export default function ArenaPage() {
   const bowlingTeam = match.batting_team === 'A' ? 'B' : 'A'
   const bowlingMembers = members.filter(m => m.team === bowlingTeam)
   const needsBowlerSelect = !match.active_bowler_id && (isCaptain || isHost) && myMembership?.team === bowlingTeam
-  const currentDelivery = snapshot?.current_delivery
 
   return (
     <div className={styles.arena}>
@@ -217,6 +251,16 @@ export default function ArenaPage() {
             aria-label={isMuted ? 'Unmute Sound Effects' : 'Mute Sound Effects'}
           >
             {isMuted ? '🔇 Muted' : '🔊 Sound'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => roomId && (isPaused ? resumeMatch(roomId) : pauseMatch(roomId))}
+            className={styles.audioToggleBtn}
+            title={isPaused ? 'Resume Match' : 'Pause Match'}
+            aria-label={isPaused ? 'Resume Match' : 'Pause Match'}
+          >
+            {isPaused ? '▶️ Resume' : '⏸️ Pause'}
           </button>
           <ThemeToggle />
         </div>
@@ -429,6 +473,49 @@ export default function ArenaPage() {
             <div className={styles.finishedEmoji}>🏆</div>
             <h2 className={styles.finishedTitle}>{matchFinished.result_summary}</h2>
             <p className={styles.finishedSub}>Redirecting to results…</p>
+          </div>
+        </div>
+      )}
+
+      {/* Paused / Reconnecting Overlay */}
+      {isPaused && (
+        <div className={styles.pausedOverlay} role="dialog" aria-modal aria-label="Match Paused">
+          <div className={styles.pausedCard}>
+            <div className={styles.pausedPulseRing}>
+              <div className={styles.pausedSpinner} />
+            </div>
+            <div className={styles.pausedBadge}>MATCH PAUSED</div>
+            <h2 className={styles.pausedTitle}>
+              {pausedInfo?.reason === 'player_disconnected'
+                ? 'Player Disconnected'
+                : 'Match Paused'}
+            </h2>
+            <p className={styles.pausedDesc}>
+              {pausedInfo?.reason === 'player_disconnected'
+                ? `${pausedInfo?.player_name || 'A player'} lost connection. The match is paused while waiting for reconnection.`
+                : 'The match is paused. Timers and delivery countdowns are frozen.'}
+            </p>
+            {pausedInfo?.grace_seconds && (
+              <div className={styles.graceTimerBox}>
+                <span>⏱️ Reconnection window active: {pausedInfo.grace_seconds}s</span>
+              </div>
+            )}
+            <div className={styles.pausedBtnRow}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => roomId && syncRoom(roomId)}
+              >
+                🔄 Refresh Connection
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => roomId && resumeMatch(roomId)}
+              >
+                ▶️ Resume Match
+              </button>
+            </div>
           </div>
         </div>
       )}

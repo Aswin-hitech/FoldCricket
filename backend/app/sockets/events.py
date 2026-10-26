@@ -34,7 +34,7 @@ RULES_TEXT = """
 1. Each player picks a number from **1 to 10** per delivery.
 2. If both picks are **equal** → the batter is **OUT**.
 3. If picks are **different** → the batter scores their chosen number.
-4. Each delivery has a **15-second** server-enforced deadline.
+4. Each delivery has a **25-second** server-enforced deadline.
 5. An innings ends when the over limit or wicket limit is reached.
 6. The second innings target = first innings runs + 1.
 7. A disconnect starts a **120-second** grace period.
@@ -95,6 +95,7 @@ def on_connect(auth=None):
         ]
         for mem in memberships:
             join_room(mem.room_id)
+            _handle_player_reconnected(mem.room_id, player.id)
             _broadcast_snapshot(mem.room_id)
 
 
@@ -107,6 +108,38 @@ def _all_memberships_for_player(player_id: str):
                 yield m
 
 
+def _cancel_delivery_timer(room_id: str) -> None:
+    key = f"delivery:{room_id}"
+    timer = _delivery_timers.pop(key, None)
+    if timer:
+        timer.cancel()
+
+
+def _handle_player_reconnected(room_id: str, player_id: str) -> None:
+    """Clear grace timer and unpause match if all players reconnected."""
+    key = f"{room_id}:{player_id}"
+    timer = _grace_timers.pop(key, None)
+    if timer:
+        timer.cancel()
+
+    room = repo.get_room(room_id)
+    if room and room.status == RoomStatus.PAUSED:
+        members = repo.get_room_members(room_id)
+        all_connected = all(
+            (repo.get_player(m.player_id) and repo.get_player(m.player_id).connection_state == ConnectionState.CONNECTED)
+            for m in members
+        )
+        if all_connected:
+            room.status = RoomStatus.INNINGS_ACTIVE
+            repo.save_room(room)
+            match = repo.get_match_by_room(room_id)
+            if match and match.active_bowler_id and not match.winner:
+                match.delivery_deadline = datetime.utcnow() + timedelta(seconds=room_service.DELIVERY_TIMEOUT_SECONDS)
+                repo.save_match(match)
+                _schedule_delivery_timer(room_id, match.id)
+            socketio.emit("match:resumed", {"paused": False}, room=room_id)
+
+
 @socketio.on("disconnect")
 def on_disconnect():
     player = repo.get_player_by_socket(request.sid)
@@ -117,16 +150,35 @@ def on_disconnect():
     repo.update_player_socket(player.id, None)
     repo.save_player(player)
 
-    # Notify rooms and start grace timers
+    # Notify rooms, pause active gameplay, and start grace timers
     for mem in _all_memberships_for_player(player.id):
         room = repo.get_room(mem.room_id)
-        if room and room.status == RoomStatus.INNINGS_ACTIVE:
+        if room and room.status in (RoomStatus.INNINGS_ACTIVE, RoomStatus.TOSS):
+            # Pause room immediately
+            room.status = RoomStatus.PAUSED
+            repo.save_room(room)
+
+            # Freeze delivery timer while paused
+            _cancel_delivery_timer(mem.room_id)
+
+            socketio.emit(
+                "match:paused",
+                {
+                    "paused": True,
+                    "reason": "player_disconnected",
+                    "player_id": player.id,
+                    "player_name": player.display_name,
+                    "grace_seconds": room_service.RECONNECT_GRACE_SECONDS,
+                },
+                room=mem.room_id,
+            )
             socketio.emit(
                 "player:disconnect",
-                {"player_id": player.id, "grace_seconds": room_service.RECONNECT_GRACE_SECONDS},
+                {"player_id": player.id, "player_name": player.display_name, "grace_seconds": room_service.RECONNECT_GRACE_SECONDS},
                 room=mem.room_id,
             )
             _start_grace_timer(player.id, mem.room_id)
+            _broadcast_snapshot(mem.room_id)
 
 
 _grace_timers: dict[str, threading.Timer] = {}
@@ -144,7 +196,7 @@ def _start_grace_timer(player_id: str, room_id: str) -> None:
         if player and player.connection_state == ConnectionState.DISCONNECTED:
             # Apply forfeit
             room = repo.get_room(room_id)
-            if room and room.status == RoomStatus.INNINGS_ACTIVE:
+            if room and room.status in (RoomStatus.INNINGS_ACTIVE, RoomStatus.PAUSED):
                 match = repo.get_match_by_room(room_id)
                 if match:
                     mem = repo.get_membership(room_id, player_id)
@@ -274,6 +326,7 @@ def on_room_sync(data):
     room = repo.get_room(room_id)
     if room:
         join_room(room.id)
+        _handle_player_reconnected(room.id, player.id)
         snapshot = room_service.get_room_snapshot(room.id, player.id)
         emit("room:snapshot", snapshot)
 
@@ -424,6 +477,8 @@ def on_toss_decide(data):
         room=room_id,
     )
     socketio.emit("match:started", _ok({"match_id": match.id}), room=room_id)
+    if room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
+        _schedule_delivery_timer(room_id, match.id)
     _broadcast_snapshot(room_id)
 
 
@@ -478,6 +533,9 @@ def on_delivery_submit(data):
     emit("delivery:ack", _ok({"pick_received": True}))
 
     if resolved_delivery:
+        # Cancel previous delivery timer immediately
+        _cancel_delivery_timer(room_id)
+
         # Broadcast result
         socketio.emit(
             "delivery:reveal",
@@ -492,6 +550,9 @@ def on_delivery_submit(data):
                 {"winner": match.winner, "result_summary": match.result_summary},
                 room=room_id,
             )
+        elif room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
+            # Reschedule delivery timer for next delivery!
+            _schedule_delivery_timer(room_id, match.id)
     else:
         # Waiting for other player's pick
         _broadcast_snapshot(room_id)
@@ -690,12 +751,80 @@ def _schedule_delivery_timer(room_id: str, match_id: str) -> None:
                     {"winner": match.winner, "result_summary": match.result_summary},
                     room=room_id,
                 )
+            else:
+                room = repo.get_room(room_id)
+                if room and room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
+                    _schedule_delivery_timer(room_id, match.id)
 
     from ..services.room_service import DELIVERY_TIMEOUT_SECONDS
     timer = threading.Timer(DELIVERY_TIMEOUT_SECONDS + 1, timeout_check)
     timer.daemon = True
     timer.start()
     _delivery_timers[key] = timer
+
+
+# ---------------------------------------------------------------------------
+# Manual Pause / Resume
+# ---------------------------------------------------------------------------
+
+@socketio.on("match:pause")
+def on_match_pause(data):
+    player = _require_player()
+    if not player:
+        return emit("match:pause_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("match:pause_ack", _err("room_not_found"))
+
+    if room.status not in (RoomStatus.INNINGS_ACTIVE, RoomStatus.TOSS):
+        return emit("match:pause_ack", _err("cannot_pause_current_state"))
+
+    room.status = RoomStatus.PAUSED
+    repo.save_room(room)
+    _cancel_delivery_timer(room_id)
+
+    socketio.emit(
+        "match:paused",
+        {
+            "paused": True,
+            "reason": "manual_pause",
+            "player_id": player.id,
+            "player_name": player.display_name,
+        },
+        room=room_id,
+    )
+    _broadcast_snapshot(room_id)
+    emit("match:pause_ack", _ok())
+
+
+@socketio.on("match:resume")
+def on_match_resume(data):
+    player = _require_player()
+    if not player:
+        return emit("match:resume_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("match:resume_ack", _err("room_not_found"))
+
+    if room.status != RoomStatus.PAUSED:
+        return emit("match:resume_ack", _err("match_not_paused"))
+
+    room.status = RoomStatus.INNINGS_ACTIVE
+    repo.save_room(room)
+
+    match = repo.get_match_by_room(room_id)
+    if match and match.active_bowler_id and not match.winner:
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=room_service.DELIVERY_TIMEOUT_SECONDS)
+        repo.save_match(match)
+        _schedule_delivery_timer(room_id, match.id)
+
+    socketio.emit("match:resumed", {"paused": False}, room=room_id)
+    _broadcast_snapshot(room_id)
+    emit("match:resume_ack", _ok())
 
 
 # ---------------------------------------------------------------------------

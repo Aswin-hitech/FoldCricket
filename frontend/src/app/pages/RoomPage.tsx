@@ -341,7 +341,7 @@ export default function RoomPage() {
               <p>1. Each player picks a number from <strong>1 to 10</strong> per delivery.</p>
               <p>2. If both picks are <strong>equal → the batter is OUT</strong>.</p>
               <p>3. If picks differ → the batter scores <strong>their chosen number</strong>.</p>
-              <p>4. Each delivery has a <strong>15-second</strong> server-enforced deadline.</p>
+              <p>4. Each delivery has a <strong>25-second</strong> server-enforced deadline.</p>
               <p>5. An innings ends when the <strong>over limit or wicket limit</strong> is reached.</p>
               <p>6. Second innings target = first innings runs + 1.</p>
               <p>7. A disconnect starts a <strong>120-second</strong> grace period; then forfeit applies.</p>

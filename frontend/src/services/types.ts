@@ -41,6 +41,15 @@ export interface RoomInfo {
   toss?: TossInfo | null
   team_a_name?: string
   team_b_name?: string
+  is_paused?: boolean
+}
+
+export interface PausedInfo {
+  paused: boolean
+  reason?: 'player_disconnected' | 'manual_pause' | string
+  player_id?: string
+  player_name?: string
+  grace_seconds?: number
 }
 
 export interface MatchInfo {

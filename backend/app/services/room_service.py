@@ -14,6 +14,7 @@ from typing import Optional
 from ..domain.models import (
     ConnectionState,
     Delivery,
+    DeliveryResult,
     GameMode,
     InningsPhase,
     Match,
@@ -32,7 +33,7 @@ from ..security.utils import (
     validate_display_name,
 )
 
-DELIVERY_TIMEOUT_SECONDS = 15
+DELIVERY_TIMEOUT_SECONDS = 25
 RECONNECT_GRACE_SECONDS = 120
 
 
@@ -283,11 +284,19 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
     match._team_b_size = len(team_b)
 
     batting_mems = team_a if batting_team == "A" else team_b
-    match.active_batter_id = batting_mems[0].player_id
+    bowling_mems = team_b if batting_team == "A" else team_a
+    match.active_batter_id = batting_mems[0].player_id if batting_mems else None
+
+    # In SOLO mode or 1v1, auto-assign the lone bowler so players never get stuck
+    if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
+        match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
 
     for m in members:
         if m.team == batting_team and m.player_id == match.active_batter_id:
             m.role = PlayerRole.BATTER
+        elif m.team == match.bowling_team and m.player_id == match.active_bowler_id:
+            m.role = PlayerRole.BOWLER
         else:
             m.role = PlayerRole.SPECTATOR
         repo.save_membership(m)
@@ -336,6 +345,91 @@ def select_bowler(room: Room, captain: Player, bowler_player_id: str) -> Match:
     return match
 
 
+def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, Delivery]:
+    """
+    Seamlessly updates delivery, match score, innings changeover, next batter,
+    and resets the delivery deadline for the next ball.
+    """
+    repo.save_delivery(outcome.delivery)
+
+    if outcome.match_ended:
+        room.status = RoomStatus.MATCH_COMPLETE
+        match.delivery_deadline = None
+        repo.save_room(room)
+        repo.save_match(match)
+        return match, outcome.delivery
+
+    members = repo.get_room_members(room.id)
+    team_a = [m for m in members if m.team == "A"]
+    team_b = [m for m in members if m.team == "B"]
+
+    if outcome.innings_ended:
+        # First innings completed -> start 2nd innings immediately without locking
+        room.status = RoomStatus.INNINGS_ACTIVE
+        repo.save_room(room)
+
+        batting_mems = team_a if match.batting_team == "A" else team_b
+        bowling_mems = team_b if match.batting_team == "A" else team_a
+
+        match.active_batter_id = batting_mems[0].player_id if batting_mems else None
+
+        if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
+            match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
+            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+        else:
+            match.active_bowler_id = None
+            match.delivery_deadline = None
+
+        for m in members:
+            if m.team == match.batting_team and m.player_id == match.active_batter_id:
+                m.role = PlayerRole.BATTER
+            elif m.team == match.bowling_team and m.player_id == match.active_bowler_id:
+                m.role = PlayerRole.BOWLER
+            else:
+                m.role = PlayerRole.SPECTATOR
+            repo.save_membership(m)
+
+        repo.save_match(match)
+        return match, outcome.delivery
+
+    # Normal delivery within the same innings
+    # 1. Did a wicket fall? Assign next batter if in team match
+    if outcome.delivery.result == DeliveryResult.OUT:
+        batting_mems = team_a if match.batting_team == "A" else team_b
+        wickets = match.batting_wickets
+        if batting_mems:
+            next_idx = wickets % len(batting_mems)
+            match.active_batter_id = batting_mems[next_idx].player_id
+
+    # 2. Did the over complete?
+    over_completed = (match.current_ball == 0)
+    if over_completed:
+        bowling_mems = team_b if match.batting_team == "A" else team_a
+        if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
+            match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
+            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+        else:
+            # Captain needs to choose new bowler for next over
+            match.active_bowler_id = None
+            match.delivery_deadline = None
+    else:
+        # Continuing over with same bowler -> start fresh 25-second countdown
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+
+    # Sync player roles
+    for m in members:
+        if m.team == match.batting_team and m.player_id == match.active_batter_id:
+            m.role = PlayerRole.BATTER
+        elif m.team == match.bowling_team and m.player_id == match.active_bowler_id:
+            m.role = PlayerRole.BOWLER
+        else:
+            m.role = PlayerRole.SPECTATOR
+        repo.save_membership(m)
+
+    repo.save_match(match)
+    return match, outcome.delivery
+
+
 def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[Delivery]]:
     """
     Submit a batter or bowler pick.
@@ -354,8 +448,8 @@ def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[
     if err:
         raise ValueError(err)
 
-    # Check deadline
-    if match.delivery_deadline and datetime.utcnow() > match.delivery_deadline:
+    # Check deadline with 2.5s network skew tolerance
+    if match.delivery_deadline and (datetime.utcnow() - match.delivery_deadline).total_seconds() > 2.5:
         raise ValueError("deadline_expired")
 
     # Get or create current delivery
@@ -392,18 +486,7 @@ def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[
     # If both have submitted, resolve immediately
     if delivery.batter_pick is not None and delivery.bowler_pick is not None:
         outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
-        # Update delivery and match
-        repo.save_delivery(outcome.delivery)
-        repo.save_match(outcome.match)
-
-        if outcome.match_ended:
-            room.status = RoomStatus.MATCH_COMPLETE
-            repo.save_room(room)
-        elif outcome.innings_ended:
-            room.status = RoomStatus.INNINGS_BREAK
-            repo.save_room(room)
-
-        return outcome.match, outcome.delivery
+        return _advance_gameplay_state(room, match, outcome)
 
     return match, None
 
@@ -434,17 +517,7 @@ def resolve_timeout(room_id: str) -> Optional[tuple[Match, Delivery]]:
         return None
 
     outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
-    repo.save_delivery(outcome.delivery)
-    repo.save_match(outcome.match)
-
-    if outcome.match_ended:
-        room.status = RoomStatus.MATCH_COMPLETE
-        repo.save_room(room)
-    elif outcome.innings_ended:
-        room.status = RoomStatus.INNINGS_BREAK
-        repo.save_room(room)
-
-    return outcome.match, outcome.delivery
+    return _advance_gameplay_state(room, match, outcome)
 
 
 def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:

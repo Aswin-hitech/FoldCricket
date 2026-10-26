@@ -136,6 +136,7 @@ class Room:
             "toss": self.toss,
             "team_a_name": getattr(self, "team_a_name", "Team A"),
             "team_b_name": getattr(self, "team_b_name", "Team B"),
+            "is_paused": self.status == RoomStatus.PAUSED,
         }
 
 

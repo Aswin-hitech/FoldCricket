@@ -37,6 +37,8 @@ export default function ArenaPage() {
     resumeMatch,
     sendChat,
     updateVoiceState,
+    incomingVoiceSignal,
+    sendVoiceSignal,
   } = useSocket(sessionToken)
 
   const [chatInput, setChatInput] = useState('')
@@ -238,6 +240,9 @@ export default function ArenaPage() {
             myDisplayName={myMembership?.player.display_name || ''}
             voiceStates={voiceStates}
             onVoiceStateChange={updateVoiceState}
+            members={members}
+            incomingVoiceSignal={incomingVoiceSignal}
+            onSendSignal={sendVoiceSignal}
           />
 
           {/* Real-time Internet Speed Indicator with signal bars & reconnecting banner */}

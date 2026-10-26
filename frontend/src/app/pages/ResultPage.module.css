@@ -299,15 +299,67 @@
   gap: 6px;
 }
 
+/* Responsive Mobile & Tablet */
 @media (max-width: 600px) {
+  .topBar {
+    padding: 12px 16px;
+  }
+
+  .content {
+    padding: 0 14px;
+    margin: 16px auto 32px;
+    gap: 16px;
+  }
+
+  .trophy {
+    font-size: 3.8rem;
+  }
+
+  .title {
+    font-size: 1.8rem;
+  }
+
+  .summary {
+    font-size: 0.9rem;
+  }
+
   .scorecard {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto;
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
+
   .vs {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    display: none;
   }
-  .title { font-size: 1.8rem; }
-  .actions button { width: 100%; }
+
+  .teamScore {
+    padding: 16px 12px;
+  }
+
+  .thankYouCard {
+    padding: 20px 14px;
+  }
+
+  .thankYouTitle {
+    font-size: 1.2rem;
+  }
+
+  .thankYouText {
+    font-size: 0.85rem;
+  }
+
+  .autoReturnBanner {
+    font-size: 0.82rem;
+    padding: 6px 14px;
+  }
+
+  .actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .actions button {
+    width: 100%;
+  }
 }

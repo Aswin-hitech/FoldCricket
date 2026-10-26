@@ -36,6 +36,8 @@ export default function RoomPage() {
     updateSettings,
     updateTeams,
     updateVoiceState,
+    incomingVoiceSignal,
+    sendVoiceSignal,
     sendChat,
   } = useSocket(sessionToken)
 
@@ -160,7 +162,7 @@ export default function RoomPage() {
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className={styles.headerRight}>
           {/* Voice Chat Microphone facility */}
           <VoiceChat
             roomId={roomId || ''}
@@ -168,6 +170,9 @@ export default function RoomPage() {
             myDisplayName={myMembership?.player.display_name || ''}
             voiceStates={voiceStates}
             onVoiceStateChange={updateVoiceState}
+            members={members}
+            incomingVoiceSignal={incomingVoiceSignal}
+            onSendSignal={sendVoiceSignal}
           />
 
           {/* Real-time Internet Speed Indicator with signal bars & reconnecting banner */}

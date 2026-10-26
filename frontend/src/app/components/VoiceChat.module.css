@@ -125,3 +125,24 @@
   cursor: pointer;
   z-index: 100;
 }
+
+/* Mobile & Tablet responsiveness */
+@media (max-width: 600px) {
+  .micBtn {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    gap: 4px;
+  }
+
+  .speakerPill {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+  }
+}
+
+@media (max-width: 380px) {
+  .micLabel {
+    display: none;
+  }
+}
+

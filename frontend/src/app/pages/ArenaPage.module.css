@@ -763,8 +763,8 @@
   animation: pulse 1.5s infinite;
 }
 
-/* Responsive */
-@media (max-width: 900px) {
+/* Responsive Tablet & Mobile */
+@media (max-width: 1024px) {
   .layout {
     grid-template-columns: 1fr;
   }
@@ -775,30 +775,140 @@
     border-top: 1px solid var(--color-border);
   }
 
-  .pad {
-    grid-template-columns: repeat(5, 1fr);
+  .rosterSection {
+    max-height: 200px;
+  }
+
+  .chatSection {
+    height: 260px;
   }
 }
 
 @media (max-width: 600px) {
+  .header {
+    padding: 8px 10px;
+    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .headerBrand {
+    justify-content: space-between;
+    width: 100%;
+    font-size: 1.05rem;
+  }
+
+  .headerBrandLogo {
+    width: 24px;
+    height: 24px;
+  }
+
+  .headerMeta {
+    justify-content: space-between;
+    width: 100%;
+    gap: 6px;
+    font-size: 0.75rem;
+  }
+
+  .metaItem {
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+  }
+
+  .mainPanel {
+    padding: 12px 8px;
+    gap: 12px;
+  }
+
   .scoreboard {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto;
+    padding: 12px 10px;
+    gap: 8px;
+  }
+
+  .scoreRuns {
+    font-size: clamp(1.8rem, 6.5vw, 2.3rem);
+  }
+
+  .scoreTeam {
+    font-size: 0.85rem;
+  }
+
+  .scoreSub {
+    font-size: 0.72rem;
   }
 
   .vsSection {
     grid-column: 1 / -1;
     grid-row: 2;
+    margin-top: 4px;
   }
 
   .stage {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto;
+    gap: 8px;
   }
 
   .stageCenter {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+
+  .pitchContainer {
+    width: 100%;
+    max-width: 100%;
+    padding: 10px 4px;
+    overflow: hidden;
+  }
+
+  .numberPad {
+    padding: 14px 10px;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .pad {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    width: 100%;
+  }
+
+  .padBtn {
+    padding: 6px 2px 4px;
+    border-radius: 10px;
+    min-height: 64px;
+  }
+
+  .gestureSlot {
+    height: 26px;
+  }
+
+  .padBtnNumber {
+    font-size: 1.15rem;
+  }
+
+  .submitBtn {
+    width: 100%;
+    max-width: 100%;
+    padding: 12px;
+    font-size: 0.95rem;
+  }
+
+  .chatSection {
+    height: 220px;
+    padding: 10px;
+  }
+
+  .pausedCard {
+    padding: 24px 16px;
+    margin: 10px;
+    max-width: 100%;
+  }
+
+  .pausedTitle {
+    font-size: 1.3rem;
   }
 }
 

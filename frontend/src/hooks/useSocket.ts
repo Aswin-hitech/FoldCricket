@@ -24,6 +24,7 @@ interface UseSocketReturn {
   pingLatency: number | null
   voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
   pausedInfo: PausedInfo | null
+  incomingVoiceSignal: { from_player_id: string; signal: unknown; timestamp: number } | null
 
   register: (displayName: string, sessionToken?: string) => void
   createRoom: (mode: string, overs: number) => void
@@ -59,6 +60,11 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [pingLatency, setPingLatency] = useState<number | null>(null)
   const [voiceStates, setVoiceStates] = useState<Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>>({})
   const [pausedInfo, setPausedInfo] = useState<PausedInfo | null>(null)
+  const [incomingVoiceSignal, setIncomingVoiceSignal] = useState<{
+    from_player_id: string
+    signal: unknown
+    timestamp: number
+  } | null>(null)
 
   useEffect(() => {
     const s = socketRef.current
@@ -122,6 +128,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setPausedInfo(null)
     }
 
+    const onVoiceSignal = (data: { from_player_id: string; signal: unknown }) => {
+      setIncomingVoiceSignal({ ...data, timestamp: Date.now() })
+    }
+
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
     s.on('connect_error', onConnectError)
@@ -133,6 +143,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('room:joined', onRoomJoined)
     s.on('pong_ack', onPongAck)
     s.on('voice:state_changed', onVoiceStateChanged)
+    s.on('voice:signal', onVoiceSignal)
     s.on('match:paused', onMatchPaused)
     s.on('match:resumed', onMatchResumed)
 
@@ -156,6 +167,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('room:joined', onRoomJoined)
       s.off('pong_ack', onPongAck)
       s.off('voice:state_changed', onVoiceStateChanged)
+      s.off('voice:signal', onVoiceSignal)
       s.off('match:paused', onMatchPaused)
       s.off('match:resumed', onMatchResumed)
     }
@@ -251,6 +263,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     pingLatency,
     voiceStates,
     pausedInfo,
+    incomingVoiceSignal,
     register,
     createRoom,
     joinRoom,

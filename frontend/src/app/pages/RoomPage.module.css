@@ -92,6 +92,13 @@
   letter-spacing: 0.15em;
 }
 
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 /* Main layout */
 .layout {
   display: grid;
@@ -449,19 +456,88 @@
   color: var(--color-text);
 }
 
-/* Responsive */
-@media (max-width: 768px) {
+/* Responsive Mobile & Tablet */
+@media (max-width: 1024px) {
   .layout {
     grid-template-columns: 1fr;
   }
 
   .chatPanel {
-    height: 50vh;
+    height: 420px;
     border-top: 1px solid var(--color-border);
     border-right: none;
+  }
+}
+
+@media (min-width: 601px) and (max-width: 1024px) {
+  .teamsGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  
+  .teamsPanel {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 600px) {
+  .header {
+    padding: 10px 14px;
+    gap: 10px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .headerLeft {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .headerRight {
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .joinInfo {
+    gap: 4px;
+  }
+
+  .joinCode {
+    font-size: 1.15rem;
+    letter-spacing: 0.1em;
+  }
+
+  .teamsPanel {
+    padding: 14px 12px;
+    gap: 16px;
   }
 
   .teamsGrid {
     grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .quickChips {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .chipBtn {
+    flex: 1 1 calc(20% - 4px);
+    min-width: 26px;
+    padding: 6px 2px;
+    font-size: 0.8rem;
+  }
+
+  .chatPanel {
+    height: 340px;
+    padding: 14px 12px;
+  }
+
+  .modal {
+    padding: 20px 16px;
+    margin: 12px;
   }
 }

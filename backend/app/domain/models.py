@@ -118,7 +118,8 @@ class Room:
     created_at: datetime = field(default_factory=datetime.utcnow)
     # Match settings
     overs: int = 2
-    allowed_overs: list = field(default_factory=lambda: [1, 2, 5, 10])
+    allowed_overs: list = field(default_factory=lambda: list(range(1, 11)))
+    toss: Optional[dict] = None
 
     def to_public_dict(self) -> dict:
         return {
@@ -127,8 +128,10 @@ class Room:
             "mode": self.mode.value,
             "status": self.status.value,
             "overs": self.overs,
+            "allowed_overs": self.allowed_overs,
             "capacity": self.capacity,
             "rules_version": self.rules_version,
+            "toss": self.toss,
         }
 
 

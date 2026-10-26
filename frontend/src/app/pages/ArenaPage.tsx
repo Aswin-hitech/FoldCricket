@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
+import { sound } from '../../services/sound'
 import type { DeliveryReveal, MatchInfo, MemberInfo } from '../../services/types'
 import styles from './ArenaPage.module.css'
 
@@ -21,6 +22,7 @@ export default function ArenaPage() {
     chatMessages,
     lastReveal,
     matchFinished,
+    syncRoom,
     selectBowler,
     submitPick,
     sendChat,
@@ -31,6 +33,7 @@ export default function ArenaPage() {
   const [pickSubmitted, setPickSubmitted] = useState(false)
   const [revealAnimation, setRevealAnimation] = useState<DeliveryReveal | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [isMuted, setIsMuted] = useState(() => sound.isMuted())
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -43,24 +46,45 @@ export default function ArenaPage() {
   const isHost = myMembership?.is_host ?? false
   const isCaptain = myMembership?.is_captain ?? false
 
-  // Handle match finished
+  // Instant room sync on mount & reconnect
+  useEffect(() => {
+    if (roomId) {
+      syncRoom(roomId)
+    }
+  }, [roomId, syncRoom, status])
+
+  // Handle match finished with celebration sound
   useEffect(() => {
     if (matchFinished) {
-      setTimeout(() => navigate(`/room/${roomId}/result`), 3000)
+      sound.playWin()
+      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 3500)
+      return () => clearTimeout(timer)
     }
   }, [matchFinished, navigate, roomId])
 
-  // Handle reveal animation
+  // Handle reveal animation and sound effects
   useEffect(() => {
     if (lastReveal) {
       setRevealAnimation(lastReveal)
       setPickSubmitted(false)
       setSelectedPick(null)
-      setTimeout(() => setRevealAnimation(null), 3000)
+
+      if (lastReveal.result === 'OUT') {
+        sound.playOut()
+      } else if (lastReveal.runs_scored === 6) {
+        sound.playSix()
+      } else if (lastReveal.runs_scored === 4) {
+        sound.playFour()
+      } else {
+        sound.playRuns(lastReveal.runs_scored)
+      }
+
+      const timer = setTimeout(() => setRevealAnimation(null), 3000)
+      return () => clearTimeout(timer)
     }
   }, [lastReveal])
 
-  // Countdown timer
+  // Countdown timer with tick sound
   useEffect(() => {
     if (countdownRef.current) clearInterval(countdownRef.current)
     if (!match?.delivery_deadline) { setCountdown(null); return }
@@ -69,6 +93,9 @@ export default function ArenaPage() {
       const deadline = new Date(match.delivery_deadline!).getTime()
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
       setCountdown(remaining)
+      if (remaining <= 5 && remaining > 0) {
+        sound.playTick()
+      }
       if (remaining <= 0 && countdownRef.current) clearInterval(countdownRef.current)
     }
     tick()
@@ -83,11 +110,13 @@ export default function ArenaPage() {
 
   function handlePickSelect(pick: number) {
     if (pickSubmitted || !isActivePlayer) return
+    sound.playClick()
     setSelectedPick(pick)
   }
 
   function handlePickSubmit() {
     if (selectedPick === null || pickSubmitted || !roomId) return
+    sound.playClick()
     submitPick(roomId, selectedPick)
     setPickSubmitted(true)
   }
@@ -96,20 +125,36 @@ export default function ArenaPage() {
     e.preventDefault()
     const text = chatInput.trim()
     if (!text || !roomId) return
+    sound.playClick()
     sendChat(roomId, text)
     setChatInput('')
   }
 
   function handleBowlerSelect(bowlerId: string) {
     if (!roomId) return
+    sound.playClick()
     selectBowler(roomId, bowlerId)
   }
 
-  if (status === 'connecting' || !match) {
+  // Smooth loading without getting stuck
+  if (!match) {
+    if (snapshot?.room && snapshot.room.status !== 'INNINGS_ACTIVE' && snapshot.room.status !== 'MATCH_COMPLETE') {
+      navigate(`/room/${roomId}`)
+      return null
+    }
+
     return (
       <div className={styles.centered}>
         <div className={styles.loader} />
         <p>Loading arena…</p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          style={{ marginTop: '8px' }}
+          onClick={() => roomId && syncRoom(roomId)}
+        >
+          🔄 Refresh Connection
+        </button>
       </div>
     )
   }
@@ -123,7 +168,10 @@ export default function ArenaPage() {
     <div className={styles.arena}>
       {/* Header */}
       <header className={styles.header}>
-        <div className={styles.headerBrand}>🏏 HandCricket LIVE</div>
+        <div className={styles.headerBrand}>
+          <img src="/logo.jpg" alt="FoldCricket" className={styles.headerBrandLogo} />
+          <span>FoldCricket</span>
+        </div>
         <div className={styles.headerMeta}>
           <span className={styles.metaItem}>
             {match.phase === 'FIRST' ? '1st Innings' : '2nd Innings'}
@@ -137,6 +185,15 @@ export default function ArenaPage() {
           {status === 'disconnected' && (
             <span className={styles.connBadge} data-disconnected>⚠ Reconnecting…</span>
           )}
+          <button
+            type="button"
+            onClick={() => setIsMuted(sound.toggleMute())}
+            className={styles.audioToggleBtn}
+            title={isMuted ? 'Unmute Sound Effects' : 'Mute Sound Effects'}
+            aria-label={isMuted ? 'Unmute Sound Effects' : 'Mute Sound Effects'}
+          >
+            {isMuted ? '🔇 Muted' : '🔊 Sound'}
+          </button>
           <ThemeToggle />
         </div>
       </header>
@@ -210,16 +267,32 @@ export default function ArenaPage() {
             />
           </div>
 
-          {/* Reveal animation */}
+          {/* Reveal animation with special styles for Sixes & Fours */}
           {revealAnimation && (
-            <div className={`${styles.revealBanner} ${revealAnimation.result === 'OUT' ? styles.revealOut : styles.revealRuns}`}>
+            <div
+              className={`${styles.revealBanner} ${
+                revealAnimation.result === 'OUT'
+                  ? styles.revealOut
+                  : revealAnimation.runs_scored === 6
+                  ? styles.revealSix
+                  : revealAnimation.runs_scored === 4
+                  ? styles.revealFour
+                  : styles.revealRuns
+              }`}
+            >
               <div className={styles.revealPicks}>
                 <span>{revealAnimation.batter_pick}</span>
                 <span className={styles.revealVs}>vs</span>
                 <span>{revealAnimation.bowler_pick}</span>
               </div>
               <div className={styles.revealResult}>
-                {revealAnimation.result === 'OUT' ? '❌ OUT!' : `✅ +${revealAnimation.runs_scored} RUNS`}
+                {revealAnimation.result === 'OUT'
+                  ? '❌ OUT!'
+                  : revealAnimation.runs_scored === 6
+                  ? '💥 MAXIMUM! SIX RUNS!'
+                  : revealAnimation.runs_scored === 4
+                  ? '⚡ BOUNDARY! FOUR RUNS!'
+                  : `✅ +${revealAnimation.runs_scored} RUNS`}
               </div>
             </div>
           )}
@@ -258,7 +331,18 @@ export default function ArenaPage() {
                     aria-label={`Pick ${n}`}
                     aria-pressed={selectedPick === n}
                   >
-                    {n}
+                    {/* Reserved image slot for future finger notation (.png / .jpg) */}
+                    <div className={styles.fingerNotationSlot} data-finger={n}>
+                      <img
+                        src={`/fingers/finger_${n}.png`}
+                        alt={`Finger ${n}`}
+                        className={styles.fingerImg}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none'
+                        }}
+                      />
+                    </div>
+                    <span className={styles.padBtnNumber}>{n}</span>
                   </button>
                 ))}
               </div>

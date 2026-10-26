@@ -41,9 +41,20 @@
 
 .headerBrand {
   font-family: var(--font-display);
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   color: var(--color-team-a);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerBrandLogo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border-color);
 }
 
 .headerMeta {
@@ -309,6 +320,40 @@
 .revealRuns .revealResult { color: var(--color-success); }
 .revealOut .revealResult { color: var(--color-danger); }
 
+.revealSix {
+  background: radial-gradient(circle at center, rgba(234, 179, 8, 0.25) 0%, rgba(37, 99, 235, 0.15) 100%) !important;
+  border: 2px solid #eab308 !important;
+  box-shadow: 0 0 24px rgba(234, 179, 8, 0.5) !important;
+  animation: bounceIn 0.5s ease;
+}
+.revealSix .revealResult { color: #eab308 !important; }
+
+.revealFour {
+  background: rgba(37, 99, 235, 0.18) !important;
+  border: 2px solid var(--color-team-a) !important;
+  box-shadow: var(--glow-team-a) !important;
+  animation: bounceIn 0.4s ease;
+}
+.revealFour .revealResult { color: var(--color-team-a) !important; }
+
+.audioToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all var(--transition);
+}
+.audioToggleBtn:hover {
+  background: var(--color-border);
+}
+
 /* Bowler select */
 .bowlerSelect {
   background: var(--color-surface);
@@ -362,7 +407,7 @@
 
 .padBtn {
   aspect-ratio: 1;
-  max-width: 64px;
+  max-width: 68px;
   justify-self: center;
   width: 100%;
   border: 2px solid var(--color-border);
@@ -370,10 +415,37 @@
   background: var(--color-surface-2);
   color: var(--color-text);
   font-family: var(--font-display);
-  font-size: 1.5rem;
-  font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.fingerNotationSlot {
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.fingerImg {
+  max-width: 22px;
+  max-height: 20px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+}
+
+.padBtnNumber {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .padBtn:hover:not(:disabled) {

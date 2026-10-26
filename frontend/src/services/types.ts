@@ -17,6 +17,19 @@ export interface MemberInfo {
   readiness: 'READY' | 'NOT_READY' | 'DISCONNECTED' | 'WAITING_FOR_BOWLER'
 }
 
+export interface TossInfo {
+  state: 'CALLING' | 'FLIPPING' | 'DECIDING' | 'COMPLETED'
+  caller_id: string
+  caller_name: string
+  caller_team: 'A' | 'B'
+  called_choice: 'HEADS' | 'TAILS' | null
+  coin_result: 'HEADS' | 'TAILS' | null
+  winner_id: string | null
+  winner_name: string | null
+  winner_team: 'A' | 'B' | null
+  elected_choice: 'BAT' | 'BOWL' | null
+}
+
 export interface RoomInfo {
   id: string
   join_code: string
@@ -25,6 +38,7 @@ export interface RoomInfo {
   overs: number
   capacity: number
   rules_version: string
+  toss?: TossInfo | null
 }
 
 export interface MatchInfo {

@@ -7,6 +7,8 @@ import { useNavigate } from 'react-router-dom'
 import { connectSocket } from '../../services/socket'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { logClientSession } from '../../services/telemetry'
+import { sound } from '../../services/sound'
+import { Footer } from '../components/Footer'
 import styles from './LandingPage.module.css'
 
 type Tab = 'create' | 'join'
@@ -98,14 +100,14 @@ export default function LandingPage() {
         <div className={styles.heroGlow} />
         <div className={styles.heroContent}>
           <div className={styles.logo}>
-            <span className={styles.logoCricket}>🏏</span>
-            <h1 className={styles.logoText}>HandCricket <span className={styles.live}>LIVE</span></h1>
+            <img src="/logo.jpg" alt="FoldCricket Logo" className={styles.logoImg} />
+            <h1 className={styles.logoText}>FoldCricket</h1>
           </div>
           <p className={styles.tagline}>
-            The classic hand cricket experience — now multiplayer, real-time, in your browser.
+            Pick your vintage school memories here.
           </p>
           <div className={styles.features}>
-            {['Solo & Team Modes', 'Real-time Scoreboard', 'Live Voice Chat', 'TV Broadcast UI'].map(f => (
+            {['Solo & Team Matches', '1–10 Overs Selection', 'Interactive 3D Coin Toss', 'Instant Ball-by-Ball Sync'].map(f => (
               <span key={f} className={styles.featurePill}>✓ {f}</span>
             ))}
           </div>
@@ -166,16 +168,37 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <div className={styles.field}>
-                  <label className={styles.label}>Overs</label>
-                  <div className={styles.oversRow}>
-                    {[1, 2, 5, 10].map(o => (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className={styles.label}>Match Overs</label>
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.15rem' }}>
+                      {overs} {overs === 1 ? 'Over' : 'Overs'} ({overs * 6} Balls)
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    step="1"
+                    value={overs}
+                    onChange={e => {
+                      sound.playClick()
+                      setOvers(Number(e.target.value))
+                    }}
+                    className={styles.rangeSlider}
+                    aria-label="Match Overs Slider"
+                  />
+                  <div className={styles.quickChips}>
+                    {[1, 2, 3, 5, 8, 10].map(o => (
                       <button
                         key={o}
                         type="button"
-                        className={`${styles.oversBtn} ${overs === o ? styles.oversBtnActive : ''}`}
-                        onClick={() => setOvers(o)}
+                        className={`${styles.chipBtn} ${overs === o ? styles.chipBtnActive : ''}`}
+                        onClick={() => {
+                          sound.playClick()
+                          setOvers(o)
+                        }}
                       >
-                        {o}
+                        {o}O
                       </button>
                     ))}
                   </div>
@@ -217,13 +240,11 @@ export default function LandingPage() {
         </div>
 
         <p className={styles.rules}>
-          Choose a number 1–10. If both pick the same → OUT. Otherwise, batter scores their number.
+          <strong>Authentic Rules:</strong> Choose numbers 1 through 10 each delivery. If the batter and bowler choose the same number, the batter is OUT. Otherwise, the batter scores their chosen number.
         </p>
       </main>
 
-      <footer className={styles.footer}>
-        <span>HandCricket Live v1.0</span>
-      </footer>
+      <Footer />
     </div>
   )
 }

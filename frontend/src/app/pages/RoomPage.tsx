@@ -1,11 +1,14 @@
 /**
- * Room/Lobby Page – waiting room, team assignment, rules, start match.
+ * Room/Lobby Page – waiting room, team assignment, rules, toss, start match.
  */
 
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
+import { CoinTossModal } from '../components/CoinTossModal'
+import { Footer } from '../components/Footer'
+import { sound } from '../../services/sound'
 import type { MemberInfo, RoomInfo } from '../../services/types'
 import styles from './RoomPage.module.css'
 
@@ -19,7 +22,10 @@ export default function RoomPage() {
     status,
     snapshot,
     chatMessages,
+    syncRoom,
     startMatch,
+    callToss,
+    decideToss,
     ackRules,
     setReady,
     assignTeam,
@@ -37,32 +43,51 @@ export default function RoomPage() {
   const myMembership = members.find(m => m.player.id === myPlayerId)
   const isHost = myMembership?.is_host ?? false
 
+  // Instant room synchronization on mount & connection
+  useEffect(() => {
+    if (roomId) {
+      syncRoom(roomId)
+    }
+  }, [roomId, syncRoom, status])
+
   // Navigate to arena when match starts
   useEffect(() => {
     if (snapshot?.match && snapshot.room.status === 'INNINGS_ACTIVE') {
       navigate(`/room/${roomId}/arena`)
     }
-  }, [snapshot?.room?.status, navigate, roomId])
+  }, [snapshot?.room?.status, snapshot?.match, navigate, roomId])
 
   useEffect(() => {
     if (room?.overs) setOvers(room.overs)
   }, [room?.overs])
 
   function handleAckRules() {
+    sound.playClick()
     if (roomId) ackRules(roomId)
     setRulesAcked(true)
     setShowRules(false)
   }
 
   function handleReady() {
+    sound.playClick()
     if (roomId) setReady(roomId, true)
   }
 
   function handleStartMatch() {
+    sound.playClick()
     if (roomId) startMatch(roomId)
   }
 
+  function handleCallToss(choice: 'HEADS' | 'TAILS') {
+    if (roomId) callToss(roomId, choice)
+  }
+
+  function handleDecideToss(decision: 'BAT' | 'BOWL') {
+    if (roomId) decideToss(roomId, decision)
+  }
+
   function handleAssignTeam(playerId: string, team: 'A' | 'B') {
+    sound.playClick()
     if (roomId) assignTeam(roomId, playerId, team)
   }
 
@@ -75,15 +100,25 @@ export default function RoomPage() {
     e.preventDefault()
     const text = chatInput.trim()
     if (!text || !roomId) return
+    sound.playClick()
     sendChat(roomId, text)
     setChatInput('')
   }
 
-  if (status === 'connecting') {
+  // Smooth synced loading screen with retry fallback
+  if (status === 'connecting' && !snapshot) {
     return (
       <div className={styles.centered}>
         <div className={styles.loader} />
-        <p>Connecting…</p>
+        <p>Connecting to room…</p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          style={{ marginTop: '8px' }}
+          onClick={() => roomId && syncRoom(roomId)}
+        >
+          🔄 Refresh Connection
+        </button>
       </div>
     )
   }
@@ -97,7 +132,10 @@ export default function RoomPage() {
       {/* Header */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          <span className={styles.logo}>🏏 HandCricket LIVE</span>
+          <div className={styles.logo}>
+            <img src="/logo.jpg" alt="FoldCricket" className={styles.logoImg} />
+            <span>FoldCricket</span>
+          </div>
           {room && (
             <span className={styles.statusBadge} data-status={room.status}>
               {room.status.replace(/_/g, ' ')}
@@ -111,9 +149,13 @@ export default function RoomPage() {
               <span className={styles.joinLabel}>Room Code</span>
               <span className={styles.joinCode}>{room.join_code}</span>
               <button
+                type="button"
                 className="btn btn-secondary"
                 style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                onClick={() => navigator.clipboard.writeText(room.join_code)}
+                onClick={() => {
+                  sound.playClick()
+                  navigator.clipboard.writeText(room.join_code)
+                }}
                 aria-label="Copy room code"
               >
                 Copy
@@ -130,17 +172,34 @@ export default function RoomPage() {
 
           {isHost && (
             <div className={styles.settingsRow}>
-              <span className={styles.settingsLabel}>Overs:</span>
-              {[1, 2, 5, 10].map(o => (
-                <button
-                  key={o}
-                  type="button"
-                  className={`${styles.oversBtn} ${overs === o ? styles.oversBtnActive : ''}`}
-                  onClick={() => handleOversChange(o)}
-                >
-                  {o}
-                </button>
-              ))}
+              <div className={styles.settingsHeader}>
+                <span className={styles.settingsLabel}>Match Overs:</span>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.1rem' }}>
+                  {overs} {overs === 1 ? 'Over' : 'Overs'} ({overs * 6} Balls)
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={overs}
+                onChange={e => handleOversChange(Number(e.target.value))}
+                className={styles.rangeSlider}
+                aria-label="Room Overs Range Slider"
+              />
+              <div className={styles.quickChips}>
+                {[1, 2, 3, 5, 8, 10].map(o => (
+                  <button
+                    key={o}
+                    type="button"
+                    className={`${styles.chipBtn} ${overs === o ? styles.chipBtnActive : ''}`}
+                    onClick={() => handleOversChange(o)}
+                  >
+                    {o}O
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -199,7 +258,7 @@ export default function RoomPage() {
                 disabled={!allReady}
                 title={!allReady ? 'Wait for all players to be ready' : ''}
               >
-                🚀 Start Match
+                🪙 Start Toss & Match
               </button>
             )}
           </div>
@@ -245,7 +304,7 @@ export default function RoomPage() {
       {showRules && (
         <div className={styles.modalOverlay} role="dialog" aria-modal aria-label="Rules">
           <div className={styles.modal}>
-            <h2 className={styles.modalTitle}>📋 HandCricket Rules v1.0</h2>
+            <h2 className={styles.modalTitle}>📋 FoldCricket Match Rules</h2>
             <div className={styles.rulesContent}>
               <p>1. Each player picks a number from <strong>1 to 10</strong> per delivery.</p>
               <p>2. If both picks are <strong>equal → the batter is OUT</strong>.</p>
@@ -262,6 +321,18 @@ export default function RoomPage() {
           </div>
         </div>
       )}
+
+      {/* 3D Animated Coin Toss Modal */}
+      {room?.status === 'TOSS' && (
+        <CoinTossModal
+          toss={room.toss}
+          myPlayerId={myPlayerId}
+          onCall={handleCallToss}
+          onDecide={handleDecideToss}
+        />
+      )}
+
+      <Footer />
     </div>
   )
 }

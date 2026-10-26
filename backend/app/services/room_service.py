@@ -6,6 +6,7 @@ Orchestrates domain models, repositories, and rules.
 from __future__ import annotations
 
 import copy
+import secrets
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -69,8 +70,8 @@ def create_or_restore_player(
 # ---------------------------------------------------------------------------
 
 def create_room(host: Player, mode: str, overs: int) -> tuple[Room, Membership]:
-    allowed_overs = [1, 2, 5, 10]
-    if overs not in allowed_overs:
+    overs = int(overs)
+    if not (1 <= overs <= 10):
         raise ValueError(f"overs_not_allowed: {overs}")
 
     game_mode = GameMode(mode.upper())
@@ -170,11 +171,10 @@ def set_ready(room: Room, player: Player, ready: bool) -> Membership:
     return mem
 
 
-# ---------------------------------------------------------------------------
-# Match service
+# Match & Toss service
 # ---------------------------------------------------------------------------
 
-def start_match(room: Room, host: Player) -> Match:
+def start_toss(room: Room, host: Player) -> dict:
     host_mem = repo.get_membership(room.id, host.id)
     if not host_mem or not host_mem.is_host:
         raise PermissionError("not_host")
@@ -184,10 +184,89 @@ def start_match(room: Room, host: Player) -> Match:
     members = repo.get_room_members(room.id)
     team_a = [m for m in members if m.team == "A"]
     team_b = [m for m in members if m.team == "B"]
-
     if not team_a or not team_b:
         raise ValueError("teams_incomplete")
 
+    room.status = RoomStatus.TOSS
+    room.toss = {
+        "state": "CALLING",
+        "caller_id": host.id,
+        "caller_name": host.display_name,
+        "caller_team": host_mem.team or "A",
+        "called_choice": None,
+        "coin_result": None,
+        "winner_id": None,
+        "winner_name": None,
+        "winner_team": None,
+        "elected_choice": None,
+    }
+    repo.save_room(room)
+    return room.toss
+
+
+def call_toss(room: Room, player: Player, choice: str) -> dict:
+    if room.status != RoomStatus.TOSS or not room.toss:
+        raise ValueError("not_in_toss")
+    if player.id != room.toss.get("caller_id"):
+        raise PermissionError("not_toss_caller")
+
+    choice = choice.strip().upper()
+    if choice not in ("HEADS", "TAILS"):
+        raise ValueError("invalid_toss_choice")
+
+    coin_result = secrets.choice(["HEADS", "TAILS"])
+    members = repo.get_room_members(room.id)
+    caller_mem = repo.get_membership(room.id, player.id)
+    other_mems = [m for m in members if m.team != caller_mem.team]
+    if not other_mems:
+        raise ValueError("opponent_not_found")
+    other_captain = next((m for m in other_mems if m.is_captain), other_mems[0])
+    other_player = repo.get_player(other_captain.player_id)
+
+    if choice == coin_result:
+        winner_id = player.id
+        winner_name = player.display_name
+        winner_team = caller_mem.team
+    else:
+        winner_id = other_player.id
+        winner_name = other_player.display_name
+        winner_team = other_captain.team
+
+    room.toss.update({
+        "state": "DECIDING",
+        "called_choice": choice,
+        "coin_result": coin_result,
+        "winner_id": winner_id,
+        "winner_name": winner_name,
+        "winner_team": winner_team,
+    })
+    repo.save_room(room)
+    return room.toss
+
+
+def decide_toss(room: Room, player: Player, decision: str) -> Match:
+    if room.status != RoomStatus.TOSS or not room.toss:
+        raise ValueError("not_in_toss")
+    if player.id != room.toss.get("winner_id"):
+        raise PermissionError("not_toss_winner")
+
+    decision = decision.strip().upper()
+    if decision not in ("BAT", "BOWL"):
+        raise ValueError("invalid_toss_decision")
+
+    room.toss["elected_choice"] = decision
+    room.toss["state"] = "COMPLETED"
+
+    # Batting team based on toss decision
+    winner_team = room.toss["winner_team"]
+    if decision == "BAT":
+        batting_team = winner_team
+    else:
+        batting_team = "B" if winner_team == "A" else "A"
+
+    members = repo.get_room_members(room.id)
+    team_a = [m for m in members if m.team == "A"]
+    team_b = [m for m in members if m.team == "B"]
     extra_a, extra_b = GameRules.compute_extra_wickets(len(team_a), len(team_b))
 
     match = Match(
@@ -195,28 +274,32 @@ def start_match(room: Room, host: Player) -> Match:
         overs=room.overs,
         team_a_extra_wickets=extra_a,
         team_b_extra_wickets=extra_b,
-        batting_team="A",
+        batting_team=batting_team,
         phase=InningsPhase.FIRST,
     )
-    # Store team sizes for wicket calculation
     match._team_a_size = len(team_a)
     match._team_b_size = len(team_b)
 
-    # Set active batter (first in team A)
-    match.active_batter_id = team_a[0].player_id
+    batting_mems = team_a if batting_team == "A" else team_b
+    match.active_batter_id = batting_mems[0].player_id
 
-    # Assign roles
-    for m in team_a:
-        m.role = PlayerRole.BATTER if m.player_id == match.active_batter_id else PlayerRole.SPECTATOR
-        repo.save_membership(m)
-    for m in team_b:
-        m.role = PlayerRole.SPECTATOR
+    for m in members:
+        if m.team == batting_team and m.player_id == match.active_batter_id:
+            m.role = PlayerRole.BATTER
+        else:
+            m.role = PlayerRole.SPECTATOR
         repo.save_membership(m)
 
     room.status = RoomStatus.INNINGS_ACTIVE
     repo.save_room(room)
     repo.save_match(match)
     return match
+
+
+def start_match(room: Room, host: Player) -> Match:
+    """Legacy start match – falls back to starting with toss if in lobby."""
+    start_toss(room, host)
+    return decide_toss(room, host, "BAT")
 
 
 def select_bowler(room: Room, captain: Player, bowler_player_id: str) -> Match:

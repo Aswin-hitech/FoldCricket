@@ -24,7 +24,10 @@ interface UseSocketReturn {
   register: (displayName: string, sessionToken?: string) => void
   createRoom: (mode: string, overs: number) => void
   joinRoom: (joinCode: string) => void
+  syncRoom: (roomId: string) => void
   startMatch: (roomId: string) => void
+  callToss: (roomId: string, choice: 'HEADS' | 'TAILS') => void
+  decideToss: (roomId: string, decision: 'BAT' | 'BOWL') => void
   selectBowler: (roomId: string, bowlerId: string) => void
   submitPick: (roomId: string, pick: number) => void
   sendChat: (roomId: string, text: string) => void
@@ -36,47 +39,60 @@ interface UseSocketReturn {
 }
 
 export function useSocket(sessionToken?: string): UseSocketReturn {
-  const [status, setStatus] = useState<ConnectionStatus>('connecting')
+  const socketRef = useRef(connectSocket(sessionToken))
+  const [status, setStatus] = useState<ConnectionStatus>(() =>
+    socketRef.current.connected ? 'connected' : 'connecting'
+  )
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [lastReveal, setLastReveal] = useState<DeliveryReveal | null>(null)
   const [matchFinished, setMatchFinished] = useState<{ winner: string; result_summary: string } | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
 
-  const socketRef = useRef(connectSocket(sessionToken))
-
   useEffect(() => {
     const s = socketRef.current
 
-    s.on('connect', () => setStatus('connected'))
-    s.on('disconnect', () => setStatus('disconnected'))
-    s.on('connect_error', () => setStatus('error'))
+    // Synchronize immediate status
+    if (s.connected) {
+      setStatus('connected')
+    }
 
-    s.on('room:snapshot', (data: RoomSnapshot) => setSnapshot(data))
-    s.on('chat:message', (msg: ChatMessage) =>
-      setChatMessages(prev => [...prev.slice(-199), msg])
-    )
-    s.on('delivery:reveal', (reveal: DeliveryReveal) => setLastReveal(reveal))
-    s.on('match:finished', (data: { winner: string; result_summary: string }) =>
+    const onConnect = () => setStatus('connected')
+    const onDisconnect = () => setStatus('disconnected')
+    const onConnectError = () => setStatus('error')
+    const onSnapshot = (data: RoomSnapshot) => setSnapshot(data)
+    const onChatMessage = (msg: ChatMessage) =>
+      setChatMessages((prev) => [...prev.slice(-199), msg])
+    const onDeliveryReveal = (reveal: DeliveryReveal) => setLastReveal(reveal)
+    const onMatchFinished = (data: { winner: string; result_summary: string }) =>
       setMatchFinished(data)
-    )
-    s.on('room:created', (data: { success: boolean; error?: string }) => {
+    const onRoomCreated = (data: { success: boolean; error?: string }) => {
       if (!data.success) setLastError(data.error || 'unknown_error')
-    })
-    s.on('room:joined', (data: { success: boolean; error?: string }) => {
+    }
+    const onRoomJoined = (data: { success: boolean; error?: string }) => {
       if (!data.success) setLastError(data.error || 'unknown_error')
-    })
+    }
+
+    s.on('connect', onConnect)
+    s.on('disconnect', onDisconnect)
+    s.on('connect_error', onConnectError)
+    s.on('room:snapshot', onSnapshot)
+    s.on('chat:message', onChatMessage)
+    s.on('delivery:reveal', onDeliveryReveal)
+    s.on('match:finished', onMatchFinished)
+    s.on('room:created', onRoomCreated)
+    s.on('room:joined', onRoomJoined)
 
     return () => {
-      s.off('connect')
-      s.off('disconnect')
-      s.off('connect_error')
-      s.off('room:snapshot')
-      s.off('chat:message')
-      s.off('delivery:reveal')
-      s.off('match:finished')
-      s.off('room:created')
-      s.off('room:joined')
+      s.off('connect', onConnect)
+      s.off('disconnect', onDisconnect)
+      s.off('connect_error', onConnectError)
+      s.off('room:snapshot', onSnapshot)
+      s.off('chat:message', onChatMessage)
+      s.off('delivery:reveal', onDeliveryReveal)
+      s.off('match:finished', onMatchFinished)
+      s.off('room:created', onRoomCreated)
+      s.off('room:joined', onRoomJoined)
     }
   }, [])
 
@@ -95,8 +111,21 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('room:join', { join_code: joinCode, session_token: token })
   }, [sessionToken])
 
+  const syncRoom = useCallback((roomId: string) => {
+    const token = sessionToken || localStorage.getItem('hcl_session') || ''
+    socketRef.current.emit('room:sync', { room_id: roomId, session_token: token })
+  }, [sessionToken])
+
   const startMatch = useCallback((roomId: string) => {
     socketRef.current.emit('match:start', { room_id: roomId })
+  }, [])
+
+  const callToss = useCallback((roomId: string, choice: 'HEADS' | 'TAILS') => {
+    socketRef.current.emit('toss:call', { room_id: roomId, choice })
+  }, [])
+
+  const decideToss = useCallback((roomId: string, decision: 'BAT' | 'BOWL') => {
+    socketRef.current.emit('toss:decide', { room_id: roomId, decision })
   }, [])
 
   const selectBowler = useCallback((roomId: string, bowlerId: string) => {
@@ -141,7 +170,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     register,
     createRoom,
     joinRoom,
+    syncRoom,
     startMatch,
+    callToss,
+    decideToss,
     selectBowler,
     submitPick,
     sendChat,

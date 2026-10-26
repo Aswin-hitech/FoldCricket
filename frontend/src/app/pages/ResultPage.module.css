@@ -1,18 +1,38 @@
 .page {
   min-height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  flex-direction: column;
   background: var(--bg-gradient-result);
   position: relative;
 }
 
 .topBar {
-  position: absolute;
-  top: 16px;
-  right: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
   z-index: 10;
+}
+
+.brandLockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--color-team-a);
+}
+
+.brandLogo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--border-color);
 }
 
 .content {
@@ -22,7 +42,10 @@
   gap: 24px;
   width: 100%;
   max-width: 700px;
+  margin: 32px auto 48px;
+  padding: 0 24px;
   animation: bounceIn 0.6s ease;
+  flex: 1;
 }
 
 .trophy {

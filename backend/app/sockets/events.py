@@ -258,6 +258,26 @@ def on_room_join(data):
     _broadcast_snapshot(room.id)
 
 
+@socketio.on("room:sync")
+def on_room_sync(data):
+    token = ((data or {}).get("session_token") or "").strip()
+    room_id = (data or {}).get("room_id", "")
+
+    player = repo.get_player_by_session(token) if token else _require_player()
+    if not player:
+        return emit("room:error", _err("not_authenticated"))
+
+    repo.update_player_socket(player.id, request.sid)
+    player.connection_state = ConnectionState.CONNECTED
+    repo.save_player(player)
+
+    room = repo.get_room(room_id)
+    if room:
+        join_room(room.id)
+        snapshot = room_service.get_room_snapshot(room.id, player.id)
+        emit("room:snapshot", snapshot)
+
+
 def _get_or_register_player(data: dict | None):
     """Get player from session token in data."""
     token = ((data or {}).get("session_token") or "").strip()
@@ -333,7 +353,7 @@ def on_ready(data):
 
 
 # ---------------------------------------------------------------------------
-# Match: start, bowler select, delivery
+# Match: toss, start, bowler select, delivery
 # ---------------------------------------------------------------------------
 
 @socketio.on("match:start")
@@ -348,12 +368,62 @@ def on_match_start(data):
         return emit("match:started", _err("room_not_found"))
 
     try:
-        match = room_service.start_match(room, player)
+        toss_data = room_service.start_toss(room, player)
     except (ValueError, PermissionError) as e:
         return emit("match:started", _err(str(e)))
 
-    emit("match:started", _ok({"match_id": match.id}), room=room_id)
-    _schedule_delivery_timer(room_id, match.id)
+    socketio.emit("toss:started", _ok(toss_data), room=room_id)
+    _broadcast_snapshot(room_id)
+
+
+@socketio.on("toss:call")
+def on_toss_call(data):
+    player = _require_player()
+    if not player:
+        return emit("toss:result", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    choice = (data or {}).get("choice", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("toss:result", _err("room_not_found"))
+
+    try:
+        toss_data = room_service.call_toss(room, player, choice)
+    except (ValueError, PermissionError) as e:
+        return emit("toss:result", _err(str(e)))
+
+    socketio.emit("toss:flipped", _ok(toss_data), room=room_id)
+    _broadcast_snapshot(room_id)
+
+
+@socketio.on("toss:decide")
+def on_toss_decide(data):
+    player = _require_player()
+    if not player:
+        return emit("toss:decided", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    decision = (data or {}).get("decision", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("toss:decided", _err("room_not_found"))
+
+    try:
+        match = room_service.decide_toss(room, player, decision)
+    except (ValueError, PermissionError) as e:
+        return emit("toss:decided", _err(str(e)))
+
+    socketio.emit(
+        "toss:decided",
+        _ok({
+            "decision": decision,
+            "batting_team": match.batting_team,
+            "toss": room.toss,
+        }),
+        room=room_id,
+    )
+    socketio.emit("match:started", _ok({"match_id": match.id}), room=room_id)
     _broadcast_snapshot(room_id)
 
 
@@ -523,10 +593,10 @@ def on_match_settings(data):
 
     overs = (data or {}).get("overs")
     if overs is not None:
-        allowed = [1, 2, 5, 10]
-        if int(overs) not in allowed:
-            return emit("settings:updated", _err("overs_not_allowed"))
-        room.overs = int(overs)
+        overs_int = int(overs)
+        if not (1 <= overs_int <= 10):
+            return emit("settings:updated", _err("overs_must_be_between_1_and_10"))
+        room.overs = overs_int
         repo.save_room(room)
 
     emit("settings:updated", _ok())

@@ -2,16 +2,26 @@
  * Result Page – match summary and winner display.
  */
 
+import { useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
+import { Footer } from '../components/Footer'
+import { sound } from '../../services/sound'
 import styles from './ResultPage.module.css'
 
 export default function ResultPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const sessionToken = localStorage.getItem('hcl_session') || undefined
-  const { snapshot } = useSocket(sessionToken)
+  const { snapshot, syncRoom } = useSocket(sessionToken)
+
+  useEffect(() => {
+    if (roomId) {
+      syncRoom(roomId)
+    }
+    sound.playWin()
+  }, [roomId, syncRoom])
 
   const match = snapshot?.match
   const members = snapshot?.members ?? []
@@ -26,6 +36,10 @@ export default function ResultPage() {
   return (
     <div className={styles.page}>
       <div className={styles.topBar}>
+        <div className={styles.brandLockup} onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
+          <img src="/logo.jpg" alt="FoldCricket" className={styles.brandLogo} />
+          <span>FoldCricket</span>
+        </div>
         <ThemeToggle />
       </div>
       <div className={styles.content}>
@@ -68,6 +82,8 @@ export default function ResultPage() {
           </button>
         </div>
       </div>
+
+      <Footer />
     </div>
   )
 }

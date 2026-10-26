@@ -211,13 +211,16 @@
 
 .quickChips {
   display: flex;
-  gap: 8px;
+  gap: 5px;
   margin-top: 6px;
+  flex-wrap: wrap;
 }
 
 .chipBtn {
-  flex: 1;
-  padding: 6px 4px;
+  flex: 1 1 calc(10% - 5px);
+  min-width: 28px;
+  padding: 6px 2px;
+  text-align: center;
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);

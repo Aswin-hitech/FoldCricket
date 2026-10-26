@@ -155,17 +155,20 @@
 
 .quickChips {
   display: flex;
-  gap: 6px;
+  gap: 5px;
+  flex-wrap: wrap;
 }
 
 .chipBtn {
-  flex: 1;
-  padding: 4px 6px;
+  flex: 1 1 calc(10% - 5px);
+  min-width: 28px;
+  padding: 5px 2px;
+  text-align: center;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   color: var(--color-text-dim);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
   transition: all var(--transition);

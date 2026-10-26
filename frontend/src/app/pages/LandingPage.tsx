@@ -192,7 +192,7 @@ export default function LandingPage() {
                     aria-label="Match Overs Slider"
                   />
                   <div className={styles.quickChips}>
-                    {[1, 2, 3, 5, 8, 10].map(o => (
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(o => (
                       <button
                         key={o}
                         type="button"
@@ -202,7 +202,7 @@ export default function LandingPage() {
                           setOvers(o)
                         }}
                       >
-                        {o}O
+                        {o}
                       </button>
                     ))}
                   </div>

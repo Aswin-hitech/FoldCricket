@@ -1,0 +1,73 @@
+# Supabase Bucket IP Logging & Vercel Deployment Guide
+
+This guide explains how to set up the **Supabase Storage Bucket** for logging IP and visit details, and how to deploy the application to **Vercel**.
+
+---
+
+## 1. Setting up Supabase Bucket for IP Logging
+
+The app logs visitor IP addresses, geolocation (country, city, region from Vercel headers), timestamps, and session metadata into JSON files in a Supabase Storage bucket under:
+```
+records/YYYY-MM-DD/<cleaned_ip>_<timestamp_ms>_<action>.json
+```
+
+### Steps:
+1. Log into your [Supabase Dashboard](https://supabase.com/dashboard).
+2. Go to **Storage** in the left sidebar and click **New bucket**:
+   - **Bucket name**: `ip-logs` (or any custom name)
+   - **Public bucket**: Can be private (the service role key or anon key with storage upload policy will write to it)
+   - Click **Save**.
+3. Go to **Project Settings** ➔ **API**:
+   - Copy your **Project URL** (`https://xyzcompany.supabase.co`)
+   - Copy your **anon public key** or **service_role secret key** (recommended for private storage writes).
+
+---
+
+## 2. Deploying the Frontend to Vercel
+
+The frontend is a React + Vite SPA with built-in Vercel serverless functions (`api/log-ip.js`) and SPA rewrite routing (`vercel.json`).
+
+### Step-by-Step Vercel Deployment:
+1. Push your repository to **GitHub** / **GitLab** / **Bitbucket**.
+2. Open your [Vercel Dashboard](https://vercel.com/new) and click **Add New Project** ➔ **Import Git Repository**.
+3. In **Build and Output Settings**:
+   - **Framework Preset**: Vite
+   - **Build Command**: `cd frontend && npm install && npm run build` (or `npm run build` if Root Directory is set to `frontend`)
+   - **Output Directory**: `frontend/dist` (or `dist` if Root Directory is `frontend`)
+4. In **Environment Variables**, add:
+   | Variable | Value | Description |
+   |---|---|---|
+   | `VITE_BACKEND_URL` | `https://your-backend-app.onrender.com` | URL of your Python Socket.IO backend |
+   | `SUPABASE_URL` | `https://your-id.supabase.co` | Supabase Project URL |
+   | `SUPABASE_KEY` | `your-service-role-or-anon-key` | Supabase API Key |
+   | `SUPABASE_BUCKET_NAME` | `ip-logs` | Supabase Storage bucket name |
+5. Click **Deploy**. Vercel will build and serve your app globally with automatic HTTPS.
+
+---
+
+## 3. Hosting the Backend (Python Socket.IO)
+
+Because HandCricket Live relies on stateful real-time Socket.IO connections (15s delivery timer, 120s disconnect grace period), the backend should be hosted on a persistent server platform such as **Render**, **Railway**, **Fly.io**, or any VPS / container host.
+
+### Example: Deploying Backend to Render (Free/Starter):
+1. In [Render](https://dashboard.render.com), click **New Web Service**.
+2. Connect your Git repository.
+3. Configure settings:
+   - **Root Directory**: `backend`
+   - **Environment**: Python 3
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `gunicorn -k eventlet -w 1 run:app --bind 0.0.0.0:$PORT` (or `python run.py`)
+4. Add Environment Variables:
+   - `CORS_ORIGINS`: `https://your-app.vercel.app`
+   - `SUPABASE_URL`: `https://your-id.supabase.co`
+   - `SUPABASE_KEY`: `your-supabase-key`
+   - `SUPABASE_BUCKET_NAME`: `ip-logs`
+5. Copy your Render web service URL (e.g. `https://handcricket-live-api.onrender.com`) and paste it as `VITE_BACKEND_URL` in your Vercel project settings!
+
+---
+
+## 4. Light Mode & Dark Mode
+
+- **Light Mode** is the **default**.
+- Users can switch between Light and Dark mode using the **Sun / Moon toggle button** available in the navigation bar on all pages.
+- The user's selection is stored in `localStorage` under `hcl_theme` and persists across sessions.

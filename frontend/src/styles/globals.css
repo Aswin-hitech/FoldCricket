@@ -1,0 +1,293 @@
+/* ============================================================
+   HandCricket Live – Global CSS
+   Theme Support: Light Mode (Default) & Dark Mode
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ------------------------------------------------------------
+   LIGHT THEME (Default)
+   ------------------------------------------------------------ */
+:root {
+  --theme: light;
+
+  /* Backgrounds & Surfaces */
+  --color-bg: #f4f6fa;
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-border: #e2e8f0;
+  --color-border-subtle: #edf2f7;
+  --color-header-bg: rgba(255, 255, 255, 0.92);
+
+  /* Page Gradients */
+  --bg-gradient-page: radial-gradient(ellipse at top, #e0e7ff 0%, #f4f6fa 65%);
+  --bg-gradient-arena: radial-gradient(ellipse at 20% 0%, #dbeafe 0%, #f4f6fa 65%);
+  --bg-gradient-result: radial-gradient(ellipse at 50% 20%, rgba(22, 163, 74, 0.12) 0%, #f4f6fa 65%);
+
+  /* Teams */
+  --color-team-a: #2563eb;        /* blue */
+  --color-team-a-dim: #1d4ed8;
+  --color-team-b: #ea580c;        /* orange */
+  --color-team-b-dim: #c2410c;
+
+  /* Status */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #0284c7;
+
+  /* Typography Colors */
+  --color-text: #0f172a;
+  --color-text-dim: #334155;
+  --color-text-muted: #64748b;
+
+  /* Shadows & Glows */
+  --glow-team-a: 0 0 16px rgba(37, 99, 235, 0.25);
+  --glow-team-b: 0 0 16px rgba(234, 88, 12, 0.25);
+  --glow-success: 0 0 12px rgba(22, 163, 74, 0.25);
+  --card-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.08);
+
+  /* Typography */
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Rajdhani', sans-serif;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Transitions */
+  --transition: 200ms ease;
+}
+
+/* ------------------------------------------------------------
+   DARK THEME (Opt-in via data-theme="dark")
+   ------------------------------------------------------------ */
+[data-theme="dark"] {
+  --theme: dark;
+
+  /* Backgrounds & Surfaces */
+  --color-bg: #0a0e1a;
+  --color-surface: #111827;
+  --color-surface-2: #1a2235;
+  --color-border: #1e2d45;
+  --color-border-subtle: #172338;
+  --color-header-bg: rgba(17, 24, 39, 0.92);
+
+  /* Page Gradients */
+  --bg-gradient-page: radial-gradient(ellipse at top, #0d1b3e 0%, var(--color-bg) 70%);
+  --bg-gradient-arena: radial-gradient(ellipse at 20% 0%, rgba(15, 30, 70, 0.8) 0%, var(--color-bg) 60%);
+  --bg-gradient-result: radial-gradient(ellipse at 50% 20%, rgba(34, 197, 94, 0.12) 0%, var(--color-bg) 60%);
+
+  /* Teams */
+  --color-team-a: #3b82f6;
+  --color-team-a-dim: #1d4ed8;
+  --color-team-b: #f97316;
+  --color-team-b-dim: #c2410c;
+
+  /* Status */
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-danger: #ef4444;
+  --color-info: #06b6d4;
+
+  /* Typography Colors */
+  --color-text: #e2e8f0;
+  --color-text-dim: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Shadows & Glows */
+  --glow-team-a: 0 0 16px rgba(59, 130, 246, 0.4);
+  --glow-team-b: 0 0 16px rgba(249, 115, 22, 0.4);
+  --glow-success: 0 0 12px rgba(34, 197, 94, 0.3);
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.35);
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+  line-height: 1.5;
+  overflow-x: hidden;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-surface); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+
+/* Focus visible */
+:focus-visible {
+  outline: 2px solid var(--color-team-a);
+  outline-offset: 3px;
+}
+
+/* Utility classes */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slideIn {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes bounceIn {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+  70% { transform: scale(0.9); opacity: 0.9; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Button base */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-decoration: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-team-a);
+  color: white;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-team-a-dim);
+  box-shadow: var(--glow-team-a);
+}
+
+.btn-secondary {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-border);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: white;
+}
+
+.btn-success {
+  background: var(--color-success);
+  color: #ffffff;
+}
+
+/* Card */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--card-shadow);
+}
+
+/* Input */
+.input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  transition: border-color var(--transition), background-color var(--transition);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--color-team-a);
+}
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.badge-a { background: rgba(37, 99, 235, 0.12); color: var(--color-team-a); border: 1px solid rgba(37, 99, 235, 0.25); }
+.badge-b { background: rgba(234, 88, 12, 0.12); color: var(--color-team-b); border: 1px solid rgba(234, 88, 12, 0.25); }
+.badge-success { background: rgba(22, 163, 74, 0.15); color: var(--color-success); border: 1px solid rgba(22, 163, 74, 0.25); }
+.badge-warning { background: rgba(217, 119, 6, 0.15); color: var(--color-warning); border: 1px solid rgba(217, 119, 6, 0.25); }
+.badge-danger { background: rgba(220, 38, 38, 0.15); color: var(--color-danger); border: 1px solid rgba(220, 38, 38, 0.25); }
+
+/* Layout */
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px;
+}

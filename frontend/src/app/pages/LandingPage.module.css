@@ -1,0 +1,250 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-gradient-page);
+  position: relative;
+}
+
+.topBar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 24px 0;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  z-index: 20;
+}
+
+.hero {
+  position: relative;
+  text-align: center;
+  padding: 40px 24px 44px;
+  overflow: hidden;
+}
+
+.heroGlow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(59,130,246,0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.heroContent {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.logoCricket {
+  font-size: 2.5rem;
+  filter: drop-shadow(0 0 12px rgba(59,130,246,0.5));
+}
+
+.logoText {
+  font-family: var(--font-display);
+  font-size: 2.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+}
+
+.live {
+  color: var(--color-team-a);
+  text-shadow: var(--glow-team-a);
+}
+
+.tagline {
+  color: var(--color-text-dim);
+  font-size: 1.05rem;
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.featurePill {
+  background: rgba(59,130,246,0.1);
+  border: 1px solid rgba(59,130,246,0.2);
+  color: var(--color-team-a);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 16px 48px;
+  gap: 20px;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  width: 100%;
+  max-width: 460px;
+  overflow: hidden;
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  flex: 1;
+  padding: 14px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.tab:hover {
+  color: var(--color-text);
+  background: rgba(255,255,255,0.03);
+}
+
+.tabActive {
+  color: var(--color-team-a);
+  border-bottom: 2px solid var(--color-team-a);
+}
+
+.form {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.modeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.modeBtn {
+  padding: 10px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-dim);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.modeBtn:hover { border-color: var(--color-team-a); color: var(--color-text); }
+.modeBtnActive {
+  background: rgba(59,130,246,0.15);
+  border-color: var(--color-team-a);
+  color: var(--color-team-a);
+}
+
+.oversRow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.oversBtn {
+  padding: 10px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-dim);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.oversBtn:hover { border-color: var(--color-team-a); color: var(--color-text); }
+.oversBtnActive {
+  background: rgba(59,130,246,0.15);
+  border-color: var(--color-team-a);
+  color: var(--color-team-a);
+}
+
+.codeInput {
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-size: 1.4rem;
+  text-align: center;
+  font-family: var(--font-display);
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: 0.88rem;
+  padding: 8px 12px;
+  background: rgba(239,68,68,0.1);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-danger);
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.rules {
+  max-width: 460px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.footer {
+  text-align: center;
+  padding: 16px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 420px) {
+  .logoText { font-size: 2rem; }
+  .oversRow { grid-template-columns: repeat(2, 1fr); }
+}

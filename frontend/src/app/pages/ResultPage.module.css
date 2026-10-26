@@ -160,6 +160,143 @@
   gap: 12px;
   flex-wrap: wrap;
   justify-content: center;
+  width: 100%;
+}
+
+.actions button {
+  min-width: 200px;
+}
+
+/* Outcome badges */
+.outcomeBadge {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  padding: 6px 18px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  margin-bottom: -10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+.outcomeBadge[data-type="WIN"] {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+  border: 1.5px solid var(--color-success);
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.3);
+}
+
+.outcomeBadge[data-type="LOSS"] {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-danger);
+  border: 1.5px solid var(--color-danger);
+}
+
+.outcomeBadge[data-type="TIE"] {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1.5px solid #facc15;
+  box-shadow: 0 0 18px rgba(234, 179, 8, 0.3);
+}
+
+.outcomeBadge[data-type="SPECTATOR"] {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--color-team-a);
+  border: 1.5px solid var(--color-team-a);
+}
+
+.titleWin {
+  color: var(--color-success);
+  text-shadow: var(--glow-success);
+}
+
+.titleLoss {
+  color: var(--color-danger);
+  text-shadow: 0 0 18px rgba(239, 68, 68, 0.35);
+}
+
+.titleTie {
+  color: #facc15;
+  text-shadow: 0 0 18px rgba(250, 204, 21, 0.45);
+}
+
+/* Abrupted match notice */
+.abruptedNotice {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+  text-align: center;
+}
+
+/* Thank You Section */
+.thankYouCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.thankYouCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-team-a), var(--color-success), var(--color-team-b));
+}
+
+.thankYouEmoji {
+  font-size: 2.2rem;
+  animation: floatGently 3s ease-in-out infinite;
+}
+
+.thankYouTitle {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.thankYouText {
+  color: var(--color-text-dim);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 520px;
+}
+
+/* Auto return notice */
+.autoReturnBanner {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-team-a);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  padding: 8px 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 @media (max-width: 600px) {
@@ -172,4 +309,5 @@
     grid-row: 2;
   }
   .title { font-size: 1.8rem; }
+  .actions button { width: 100%; }
 }

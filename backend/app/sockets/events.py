@@ -203,7 +203,8 @@ def _start_grace_timer(player_id: str, room_id: str) -> None:
                     if mem:
                         winning_team = "B" if mem.team == "A" else "A"
                         match.winner = winning_team
-                        match.result_summary = f"Team {winning_team} wins by forfeit (opponent disconnected)"
+                        winning_name = getattr(match, "team_b_name", "Team B") if winning_team == "B" else getattr(match, "team_a_name", "Team A")
+                        match.result_summary = f"{winning_name} wins by forfeit (opponent disconnected)"
                         repo.save_match(match)
                         room.status = RoomStatus.MATCH_COMPLETE
                         repo.save_room(room)

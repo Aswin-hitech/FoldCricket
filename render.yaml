@@ -4,8 +4,10 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -k eventlet -w 1 run:app --bind 0.0.0.0:$PORT
+    startCommand: python run.py
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.10"
       - key: FLASK_DEBUG
         value: "false"
       - key: CORS_ORIGINS

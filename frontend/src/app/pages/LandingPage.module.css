@@ -52,6 +52,13 @@
   object-fit: cover;
   box-shadow: 0 8px 24px rgba(37, 99, 235, 0.25);
   border: 2px solid var(--border-color);
+  animation: floatGently 4s ease-in-out infinite;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.logoImg:hover {
+  transform: scale(1.08) rotate(3deg);
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.45);
 }
 
 .logoText {
@@ -89,6 +96,15 @@
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 500;
+  transition: all 0.25s ease;
+  cursor: default;
+}
+
+.featurePill:hover {
+  background: rgba(59,130,246,0.22);
+  transform: translateY(-2px);
+  border-color: rgba(59,130,246,0.4);
+  box-shadow: 0 4px 12px rgba(59,130,246,0.25);
 }
 
 .main {

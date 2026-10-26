@@ -1,0 +1,382 @@
+.pitchContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  position: relative;
+  user-select: none;
+}
+
+/* 22-Yard Pitch Strip */
+.pitchStrip {
+  width: 100%;
+  height: 90px;
+  background: linear-gradient(180deg, #854d0e 0%, #a16207 40%, #ca8a04 60%, #713f12 100%);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.25);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+
+/* Turf subtle grass edges */
+.pitchStrip::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(90deg, #15803d, #22c55e, #16a34a);
+  opacity: 0.8;
+}
+
+.pitchStrip::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(90deg, #15803d, #22c55e, #16a34a);
+  opacity: 0.8;
+}
+
+/* White chalk crease lines */
+.creaseLine {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+  z-index: 2;
+}
+.battingCrease { left: 40px; }
+.bowlingCrease { right: 40px; }
+
+/* Wooden Stumps */
+.stumpsGroup {
+  display: flex;
+  gap: 3px;
+  position: absolute;
+  bottom: 22px;
+  z-index: 3;
+}
+.batterStumps { left: 24px; }
+.bowlerStumps { right: 24px; }
+
+.stump {
+  width: 3.5px;
+  height: 38px;
+  background: linear-gradient(180deg, #fef08a 0%, #b45309 60%, #78350f 100%);
+  border-radius: 2px;
+  box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.4);
+  transition: transform 0.4s ease;
+}
+
+.bail {
+  position: absolute;
+  top: -3px;
+  height: 2.5px;
+  background: #fef08a;
+  border-radius: 1px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  transition: all 0.4s ease;
+}
+.bailLeft { left: 0; width: 8px; }
+.bailRight { right: 0; width: 8px; }
+
+/* Stumps Shattered on WICKET collision */
+.stumpsShattered .stump1 {
+  animation: stumpFly1 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+.stumpsShattered .stump2 {
+  animation: stumpFly2 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+.stumpsShattered .stump3 {
+  animation: stumpFly3 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+.stumpsShattered .bailLeft {
+  animation: bailLaunch1 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+.stumpsShattered .bailRight {
+  animation: bailLaunch2 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes stumpFly1 {
+  0% { transform: rotate(0deg); }
+  100% { transform: translate(-14px, -18px) rotate(-45deg); opacity: 0.8; }
+}
+@keyframes stumpFly2 {
+  0% { transform: rotate(0deg); }
+  100% { transform: translate(-2px, -24px) rotate(15deg); opacity: 0.8; }
+}
+@keyframes stumpFly3 {
+  0% { transform: rotate(0deg); }
+  100% { transform: translate(12px, -16px) rotate(35deg); opacity: 0.8; }
+}
+@keyframes bailLaunch1 {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(-25px, -45px) rotate(-180deg); opacity: 0; }
+}
+@keyframes bailLaunch2 {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(25px, -40px) rotate(190deg); opacity: 0; }
+}
+
+/* Red Leather Cricket Ball */
+.ball {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f87171 0%, #dc2626 50%, #991b1b 90%, #450a0a 100%);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), 0 0 8px rgba(220, 38, 38, 0.6);
+  position: absolute;
+  top: 50%;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.ballSeam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1.5px;
+  background: rgba(255, 255, 255, 0.7);
+  transform: translateX(-50%) rotate(25deg);
+}
+
+.ballShine {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 5px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Ball trajectory: Wicket direct collision */
+.ballWicketHit {
+  animation: ballWicketTraj 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes ballWicketTraj {
+  0% {
+    right: 50px;
+    top: 50%;
+    transform: translateY(-50%) scale(1) rotate(0deg);
+  }
+  65% {
+    right: calc(100% - 44px);
+    top: 52%;
+    transform: translateY(-50%) scale(1.1) rotate(720deg);
+  }
+  80% {
+    right: calc(100% - 30px);
+    top: 30%;
+    transform: translateY(-50%) scale(0.9) rotate(850deg);
+  }
+  100% {
+    right: calc(100% - 20px);
+    top: 60%;
+    transform: translateY(-50%) scale(0.7) rotate(960deg);
+    opacity: 0;
+  }
+}
+
+/* Ball trajectory: Towering SIX Arc over stadium */
+.ballSixArc {
+  animation: ballSixFlight 1.4s cubic-bezier(0.15, 0.9, 0.3, 1) forwards;
+}
+
+@keyframes ballSixFlight {
+  0% {
+    right: 50px;
+    top: 50%;
+    transform: scale(0.9);
+  }
+  30% {
+    right: 50%;
+    top: -20px;
+    transform: scale(1.6);
+    box-shadow: 0 0 24px #facc15, 0 0 12px #eab308;
+  }
+  70% {
+    right: 85%;
+    top: -45px;
+    transform: scale(2.2);
+    box-shadow: 0 0 35px #facc15, 0 0 16px #fbbf24;
+  }
+  100% {
+    right: 110%;
+    top: -80px;
+    transform: scale(0.5);
+    opacity: 0;
+  }
+}
+
+/* Ball trajectory: Boundary supersonic drive */
+.ballFourDrive {
+  animation: ballFourDriveAnim 0.7s cubic-bezier(0.2, 0.8, 0.4, 1) forwards;
+}
+
+@keyframes ballFourDriveAnim {
+  0% {
+    right: 50px;
+    top: 50%;
+    transform: translateY(-50%) scale(1);
+  }
+  30% {
+    right: 60%;
+    top: 50%;
+    transform: translateY(-50%) scale(1.2);
+    box-shadow: 0 0 25px #38bdf8;
+  }
+  100% {
+    right: 120%;
+    top: 50%;
+    transform: translateY(-50%) scale(0.9);
+    opacity: 0;
+  }
+}
+
+/* Ball trajectory: Regular gap roll */
+.ballRunRoll {
+  animation: ballRunRollAnim 1s ease-out forwards;
+}
+
+@keyframes ballRunRollAnim {
+  0% {
+    right: 50px;
+    top: 50%;
+    transform: translateY(-50%) scale(1) rotate(0deg);
+  }
+  100% {
+    right: 80%;
+    top: 35%;
+    transform: translateY(-50%) scale(0.8) rotate(540deg);
+    opacity: 0.3;
+  }
+}
+
+/* Canvas Particle overlay */
+.particleCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 15;
+}
+
+/* Center Delivery Meta */
+.centerMeta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.countdownBadge {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  padding: 4px 12px;
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.countdownNumber {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: #22c55e;
+  line-height: 1;
+}
+
+.countdownSec {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  letter-spacing: 0.06em;
+}
+
+.countdownBadge[data-urgent="true"] {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  animation: pulseUrgent 0.6s infinite;
+}
+
+.countdownBadge[data-urgent="true"] .countdownNumber {
+  color: #ef4444;
+}
+
+@keyframes pulseUrgent {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); box-shadow: 0 0 14px rgba(239, 68, 68, 0.4); }
+}
+
+.statusPill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-warning);
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  padding: 4px 12px;
+  border-radius: 999px;
+  animation: pulse 1.5s infinite;
+}
+
+/* Readiness track */
+.readyTrack {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.readyDot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  background: rgba(150, 150, 150, 0.15);
+  border: 1px solid rgba(150, 150, 150, 0.25);
+  filter: grayscale(1);
+  opacity: 0.6;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.dotReady {
+  filter: grayscale(0);
+  opacity: 1;
+  background: rgba(34, 197, 94, 0.2);
+  border-color: #22c55e;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.6);
+  transform: scale(1.1);
+}
+
+.readyDivider {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}

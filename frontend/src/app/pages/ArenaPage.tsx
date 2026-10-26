@@ -10,6 +10,8 @@ import { sound } from '../../services/sound'
 import { HandGesture } from '../components/HandGesture'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { VoiceChat } from '../components/VoiceChat'
+import { PitchAnimation } from '../components/PitchAnimation'
+import { CelebrationEffects } from '../components/CelebrationEffects'
 import type { DeliveryReveal, MatchInfo, MemberInfo } from '../../services/types'
 import styles from './ArenaPage.module.css'
 
@@ -40,6 +42,7 @@ export default function ArenaPage() {
   const [revealAnimation, setRevealAnimation] = useState<DeliveryReveal | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [isMuted, setIsMuted] = useState(() => sound.isMuted())
+  const [celebrationTrigger, setCelebrationTrigger] = useState<'SIX' | 'FOUR' | 'WICKET' | 'WIN' | null>(null)
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -59,16 +62,17 @@ export default function ArenaPage() {
     }
   }, [roomId, syncRoom, status])
 
-  // Handle match finished with celebration sound
+  // Handle match finished with celebration sound and confetti
   useEffect(() => {
     if (matchFinished) {
       sound.playWin()
+      setCelebrationTrigger('WIN')
       const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 3500)
       return () => clearTimeout(timer)
     }
   }, [matchFinished, navigate, roomId])
 
-  // Handle reveal animation and sound effects
+  // Handle reveal animation, celebration particle triggers, and sound effects
   useEffect(() => {
     if (lastReveal) {
       setRevealAnimation(lastReveal)
@@ -77,10 +81,13 @@ export default function ArenaPage() {
 
       if (lastReveal.result === 'OUT') {
         sound.playOut()
+        setCelebrationTrigger('WICKET')
       } else if (lastReveal.runs_scored === 6) {
         sound.playSix()
+        setCelebrationTrigger('SIX')
       } else if (lastReveal.runs_scored === 4) {
         sound.playFour()
+        setCelebrationTrigger('FOUR')
       } else {
         sound.playRuns(lastReveal.runs_scored)
       }
@@ -262,20 +269,13 @@ export default function ArenaPage() {
               submitted={currentDelivery?.batter_submitted}
               pickRevealed={revealAnimation ? revealAnimation.batter_pick : null}
             />
-            <div className={styles.stageCenter}>
-              {/* Countdown */}
-              {countdown !== null && (
-                <div
-                  className={styles.countdown}
-                  data-urgent={countdown <= 5}
-                >
-                  {countdown}
-                </div>
-              )}
-              {countdown === null && !match.active_bowler_id && (
-                <div className={styles.waitingBowler}>Waiting for bowler selection…</div>
-              )}
-            </div>
+            <PitchAnimation
+              reveal={revealAnimation}
+              countdown={countdown}
+              hasBowler={!!match.active_bowler_id}
+              isBatterSubmitted={!!currentDelivery?.batter_submitted}
+              isBowlerSubmitted={!!currentDelivery?.bowler_submitted}
+            />
             <ActivePlayer
               label="🎯 Bowler"
               playerId={match.active_bowler_id}
@@ -432,6 +432,12 @@ export default function ArenaPage() {
           </div>
         </div>
       )}
+
+      {/* 60fps Celebration Particle Effects on 4, 6, Wicket, and Match Win */}
+      <CelebrationEffects
+        trigger={celebrationTrigger}
+        onComplete={() => setCelebrationTrigger(null)}
+      />
     </div>
   )
 }
@@ -450,10 +456,22 @@ function ScoreCard({
   isBatting: boolean
   target: number | null | undefined
 }) {
+  const [pop, setPop] = useState(false)
+  const prevRuns = useRef(runs)
+
+  useEffect(() => {
+    if (runs !== prevRuns.current) {
+      prevRuns.current = runs
+      setPop(true)
+      const timer = setTimeout(() => setPop(false), 500)
+      return () => clearTimeout(timer)
+    }
+  }, [runs])
+
   return (
     <div className={`${styles.scoreCard} ${isBatting ? styles.scoreCardBatting : ''}`} data-team={team}>
       <div className={styles.scoreLabel}>{label}</div>
-      <div className={styles.scoreRuns}>{runs}</div>
+      <div className={`${styles.scoreRuns} ${pop ? 'scorePopAnim' : ''}`}>{runs}</div>
       <div className={styles.scoreWickets}>-{wickets}</div>
       {isBatting && <div className={styles.battingIndicator}>▶ BATTING</div>}
       {target && <div className={styles.targetLabel}>Target: {target}</div>}

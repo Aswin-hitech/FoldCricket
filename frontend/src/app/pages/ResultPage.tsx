@@ -7,6 +7,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { Footer } from '../components/Footer'
+import { CelebrationEffects } from '../components/CelebrationEffects'
 import { sound } from '../../services/sound'
 import styles from './ResultPage.module.css'
 
@@ -84,6 +85,9 @@ export default function ResultPage() {
       </div>
 
       <Footer />
+
+      {/* Confetti celebration shower for match victory */}
+      <CelebrationEffects trigger="WIN" />
     </div>
   )
 }

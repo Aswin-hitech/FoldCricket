@@ -265,8 +265,9 @@ class GameRules:
             match.winner = "B"
             winning_name = name_b
         else:
+            # Policy for tied Super Over: Declared historic draw/tie to prevent infinite loops
             match.winner = "TIE"
-            match.result_summary = "Super Over tied!"
+            match.result_summary = "Super Over tied! Match drawn after Super Over."
             return
 
         first_batting = getattr(match, "first_batting_team", "A") or "A"

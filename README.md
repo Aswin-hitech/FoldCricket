@@ -122,6 +122,6 @@ python -m pytest tests/ -v
 - [x] **M3** – Socket.IO rooms, auth, state snapshots, lobby
 - [x] **M4** – Team assignment, captain selection, bowler select, server timer
 - [x] **M5** – Arena UI, scoreboard, number pad, result animations
-- [ ] **M6** – WebRTC voice (simple-peer wired up, TURN config needed)
-- [ ] **M7** – Durable persistence (PostgreSQL + Redis)
-- [ ] **M8** – Security audit, E2E tests, deployment
+- [x] **M6** – WebRTC voice: Dynamic STUN/TURN, private team audio by default, mutual-consent cross-team authorization, and independent local mute controls
+- [x] **M7** – Durable persistence: ACID SQLite with WAL mode, atomic unique delivery constraints, and process restart state recovery
+- [x] **M8** – Production hardening: Concurrency locking, chat HTML sanitization, strict production CORS whitelist, and 48 automated tests passed

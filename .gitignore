@@ -57,6 +57,12 @@ htmlcov/
 .nox/
 .hypothesis/
 
+# SQLite Database
+*.db
+*.db-wal
+*.db-shm
+backend/*.db
+
 # Supabase
 .supabase/
 

@@ -1,163 +1,111 @@
 """
-In-memory repositories for V1.
-Replace with database-backed repositories in production.
+HandCricket Live – Repository Interface Layer.
+Delegates to durable SQLite repository (backend/app/repositories/sqlite.py)
+providing ACID transactions, atomic delivery uniqueness constraints, and process restart persistence.
+Includes backward-compatible dictionary facades for test fixtures.
 """
 
 from __future__ import annotations
 
-import threading
-from typing import Dict, List, Optional
+from typing import Any, Dict
 
-from ..domain.models import Delivery, Match, Membership, Player, Room
-
-
-_lock = threading.Lock()
-
-# ---------------------------------------------------------------------------
-# Player repository
-# ---------------------------------------------------------------------------
-_players: Dict[str, Player] = {}        # keyed by player.id
-_players_by_session: Dict[str, str] = {}  # session_token → player_id
-_players_by_socket: Dict[str, str] = {}   # socket_id → player_id
-
-
-def save_player(player: Player) -> Player:
-    with _lock:
-        _players[player.id] = player
-        _players_by_session[player.session_token] = player.id
-        if player.socket_id:
-            _players_by_socket[player.socket_id] = player.id
-    return player
-
-
-def get_player(player_id: str) -> Optional[Player]:
-    return _players.get(player_id)
-
-
-def get_player_by_session(token: str) -> Optional[Player]:
-    pid = _players_by_session.get(token)
-    return _players.get(pid) if pid else None
-
-
-def get_player_by_socket(socket_id: str) -> Optional[Player]:
-    pid = _players_by_socket.get(socket_id)
-    return _players.get(pid) if pid else None
+from .sqlite import (
+    _lock,
+    cleanup_player_voice_permissions,
+    clear_all as _sqlite_clear_all,
+    delete_voice_permission,
+    get_current_delivery,
+    get_deliveries,
+    get_deliveries_for_match,
+    get_match,
+    get_match_by_room,
+    get_match_for_room,
+    get_membership,
+    get_memberships_for_player,
+    get_player,
+    get_player_by_session,
+    get_player_by_socket,
+    get_room,
+    get_room_by_code,
+    get_room_members,
+    get_room_voice_permissions,
+    get_voice_permission,
+    init_db,
+    remove_membership,
+    save_delivery,
+    save_match,
+    save_membership,
+    save_player,
+    save_room,
+    set_voice_permission,
+    update_player_socket,
+)
 
 
-def update_player_socket(player_id: str, socket_id: Optional[str]) -> None:
-    with _lock:
-        player = _players.get(player_id)
-        if not player:
-            return
-        # Remove old socket mapping
-        if player.socket_id and player.socket_id in _players_by_socket:
-            del _players_by_socket[player.socket_id]
-        player.socket_id = socket_id
-        if socket_id:
-            _players_by_socket[socket_id] = player_id
+class _ClearProxyDict(dict):
+    def clear(self):
+        super().clear()
+        _sqlite_clear_all()
 
 
-# ---------------------------------------------------------------------------
-# Room repository
-# ---------------------------------------------------------------------------
-_rooms: Dict[str, Room] = {}             # keyed by room.id
-_rooms_by_code: Dict[str, str] = {}      # join_code → room_id
+_players = _ClearProxyDict()
+_players_by_session = _ClearProxyDict()
+_players_by_socket = _ClearProxyDict()
+_rooms = _ClearProxyDict()
+_rooms_by_code = _ClearProxyDict()
+_memberships = _ClearProxyDict()
+_matches = _ClearProxyDict()
+_match_by_room = _ClearProxyDict()
+_deliveries = _ClearProxyDict()
 
 
-def save_room(room: Room) -> Room:
-    with _lock:
-        _rooms[room.id] = room
-        _rooms_by_code[room.join_code] = room.id
-    return room
+def clear_all():
+    _players.clear()
+    _players_by_session.clear()
+    _players_by_socket.clear()
+    _rooms.clear()
+    _rooms_by_code.clear()
+    _memberships.clear()
+    _matches.clear()
+    _match_by_room.clear()
+    _deliveries.clear()
+    _sqlite_clear_all()
 
 
-def get_room(room_id: str) -> Optional[Room]:
-    return _rooms.get(room_id)
-
-
-def get_room_by_code(code: str) -> Optional[Room]:
-    rid = _rooms_by_code.get(code.upper())
-    return _rooms.get(rid) if rid else None
-
-
-# ---------------------------------------------------------------------------
-# Membership repository
-# ---------------------------------------------------------------------------
-_memberships: Dict[str, List[Membership]] = {}  # room_id → [Membership]
-
-
-def save_membership(m: Membership) -> Membership:
-    with _lock:
-        _memberships.setdefault(m.room_id, [])
-        # Replace if already exists
-        lst = _memberships[m.room_id]
-        for i, existing in enumerate(lst):
-            if existing.player_id == m.player_id:
-                lst[i] = m
-                return m
-        lst.append(m)
-    return m
-
-
-def get_membership(room_id: str, player_id: str) -> Optional[Membership]:
-    for m in _memberships.get(room_id, []):
-        if m.player_id == player_id:
-            return m
-    return None
-
-
-def get_room_members(room_id: str) -> List[Membership]:
-    return list(_memberships.get(room_id, []))
-
-
-# ---------------------------------------------------------------------------
-# Match repository
-# ---------------------------------------------------------------------------
-_matches: Dict[str, Match] = {}          # match_id
-_match_by_room: Dict[str, str] = {}      # room_id → match_id
-
-
-def save_match(match: Match) -> Match:
-    with _lock:
-        _matches[match.id] = match
-        _match_by_room[match.room_id] = match.id
-    return match
-
-
-def get_match(match_id: str) -> Optional[Match]:
-    return _matches.get(match_id)
-
-
-def get_match_by_room(room_id: str) -> Optional[Match]:
-    mid = _match_by_room.get(room_id)
-    return _matches.get(mid) if mid else None
-
-
-# ---------------------------------------------------------------------------
-# Delivery repository
-# ---------------------------------------------------------------------------
-_deliveries: Dict[str, List[Delivery]] = {}  # match_id → [Delivery]
-
-
-def save_delivery(d: Delivery) -> Delivery:
-    with _lock:
-        _deliveries.setdefault(d.match_id, [])
-        lst = _deliveries[d.match_id]
-        for i, ex in enumerate(lst):
-            if ex.id == d.id:
-                lst[i] = d
-                return d
-        lst.append(d)
-    return d
-
-
-def get_deliveries(match_id: str) -> List[Delivery]:
-    return list(_deliveries.get(match_id, []))
-
-
-def get_current_delivery(match_id: str) -> Optional[Delivery]:
-    """Returns the last uncommitted delivery, if any."""
-    for d in reversed(_deliveries.get(match_id, [])):
-        if not d.committed:
-            return d
-    return None
+__all__ = [
+    "_lock",
+    "_players",
+    "_players_by_session",
+    "_players_by_socket",
+    "_rooms",
+    "_rooms_by_code",
+    "_memberships",
+    "_matches",
+    "_match_by_room",
+    "_deliveries",
+    "init_db",
+    "clear_all",
+    "save_player",
+    "get_player",
+    "get_player_by_session",
+    "get_player_by_socket",
+    "update_player_socket",
+    "save_room",
+    "get_room",
+    "get_room_by_code",
+    "save_membership",
+    "get_membership",
+    "get_room_members",
+    "remove_membership",
+    "save_match",
+    "get_match",
+    "get_match_by_room",
+    "save_delivery",
+    "get_deliveries",
+    "get_current_delivery",
+    "set_voice_permission",
+    "get_voice_permission",
+    "get_room_voice_permissions",
+    "delete_voice_permission",
+    "cleanup_player_voice_permissions",
+]

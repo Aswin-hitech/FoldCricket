@@ -8,6 +8,7 @@ import { connectSocket, disconnectSocket } from '../services/socket'
 import type {
   AllOutInfo,
   ChatMessage,
+  CrossTeamVoiceRequest,
   DeliveryReveal,
   InningsBreakInfo,
   PausedInfo,
@@ -31,6 +32,7 @@ interface UseSocketReturn {
   voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
   pausedInfo: PausedInfo | null
   incomingVoiceSignal: { from_player_id: string; signal: unknown; timestamp: number } | null
+  crossTeamRequests: CrossTeamVoiceRequest[]
 
   register: (displayName: string, sessionToken?: string) => void
   createRoom: (mode: string, overs: number) => void
@@ -53,6 +55,9 @@ interface UseSocketReturn {
   updateVoiceState: (roomId: string, isSpeaking: boolean, isMuted: boolean) => void
   setVoiceMode: (roomId: string, mode: string, allowedRecipients: string[]) => void
   sendVoiceSignal: (roomId: string, targetId: string, signal: unknown) => void
+  requestCrossTeamVoice: (roomId: string, targetId: string) => void
+  respondCrossTeamVoice: (roomId: string, senderId: string, accept: boolean) => void
+  revokeCrossTeamVoice: (roomId: string, targetId: string) => void
 }
 
 export function useSocket(sessionToken?: string): UseSocketReturn {
@@ -76,6 +81,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     signal: unknown
     timestamp: number
   } | null>(null)
+  const [crossTeamRequests, setCrossTeamRequests] = useState<CrossTeamVoiceRequest[]>([])
+  const lastSnapshotVersionRef = useRef<number>(-1)
 
   useEffect(() => {
     const s = socketRef.current
@@ -102,6 +109,14 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setPingLatency(null)
     }
     const onSnapshot = (data: RoomSnapshot) => {
+      // Prevent stale snapshots from overwriting newer committed state
+      if (data?.match?.version !== undefined) {
+        if (data.match.version < lastSnapshotVersionRef.current) {
+          return // stale snapshot ignored
+        }
+        lastSnapshotVersionRef.current = data.match.version
+      }
+
       setSnapshot(data)
       if (data?.room?.status === 'PAUSED' || data?.room?.is_paused) {
         setPausedInfo(prev => prev || { paused: true, reason: 'Game Paused' })
@@ -150,6 +165,25 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setIncomingVoiceSignal({ ...data, timestamp: Date.now() })
     }
 
+    const onCrossTeamRequested = (req: CrossTeamVoiceRequest) => {
+      setCrossTeamRequests((prev) => {
+        if (prev.some((r) => r.from_player_id === req.from_player_id)) return prev
+        return [...prev, req]
+      })
+    }
+
+    const onCrossTeamApproved = (data: { room_id: string; peer_id: string; peer_name: string }) => {
+      setCrossTeamRequests((prev) => prev.filter((r) => r.from_player_id !== data.peer_id))
+    }
+
+    const onCrossTeamDeclined = (data: { room_id: string; peer_id: string; peer_name: string }) => {
+      setCrossTeamRequests((prev) => prev.filter((r) => r.from_player_id !== data.peer_id))
+    }
+
+    const onCrossTeamRevoked = (data: { room_id: string; peer_id: string }) => {
+      setCrossTeamRequests((prev) => prev.filter((r) => r.from_player_id !== data.peer_id))
+    }
+
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
     s.on('connect_error', onConnectError)
@@ -165,6 +199,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('pong_ack', onPongAck)
     s.on('voice:state_changed', onVoiceStateChanged)
     s.on('voice:signal', onVoiceSignal)
+    s.on('voice:cross_team_requested', onCrossTeamRequested)
+    s.on('voice:cross_team_approved', onCrossTeamApproved)
+    s.on('voice:cross_team_declined', onCrossTeamDeclined)
+    s.on('voice:cross_team_revoked', onCrossTeamRevoked)
     s.on('match:paused', onMatchPaused)
     s.on('match:resumed', onMatchResumed)
 
@@ -191,6 +229,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('pong_ack', onPongAck)
       s.off('voice:state_changed', onVoiceStateChanged)
       s.off('voice:signal', onVoiceSignal)
+      s.off('voice:cross_team_requested', onCrossTeamRequested)
+      s.off('voice:cross_team_approved', onCrossTeamApproved)
+      s.off('voice:cross_team_declined', onCrossTeamDeclined)
+      s.off('voice:cross_team_revoked', onCrossTeamRevoked)
       s.off('match:paused', onMatchPaused)
       s.off('match:resumed', onMatchResumed)
     }
@@ -276,6 +318,18 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('voice:signal', { room_id: roomId, target_player_id: targetId, signal })
   }, [])
 
+  const requestCrossTeamVoice = useCallback((roomId: string, targetId: string) => {
+    socketRef.current.emit('voice:cross_team_request', { room_id: roomId, target_id: targetId })
+  }, [])
+
+  const respondCrossTeamVoice = useCallback((roomId: string, senderId: string, accept: boolean) => {
+    socketRef.current.emit('voice:cross_team_response', { room_id: roomId, sender_id: senderId, accept })
+  }, [])
+
+  const revokeCrossTeamVoice = useCallback((roomId: string, targetId: string) => {
+    socketRef.current.emit('voice:cross_team_revoke', { room_id: roomId, target_id: targetId })
+  }, [])
+
   const pauseMatch = useCallback((roomId: string) => {
     socketRef.current.emit('match:pause', { room_id: roomId })
   }, [])
@@ -298,6 +352,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     voiceStates,
     pausedInfo,
     incomingVoiceSignal,
+    crossTeamRequests,
     register,
     createRoom,
     joinRoom,
@@ -319,5 +374,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     updateVoiceState,
     setVoiceMode,
     sendVoiceSignal,
+    requestCrossTeamVoice,
+    respondCrossTeamVoice,
+    revokeCrossTeamVoice,
   }
 }

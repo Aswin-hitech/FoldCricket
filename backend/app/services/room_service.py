@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import copy
 import secrets
+import threading
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
+from ..config import Config
 from ..domain.models import (
     ConnectionState,
     Delivery,
@@ -33,8 +35,10 @@ from ..security.utils import (
     validate_display_name,
 )
 
-DELIVERY_TIMEOUT_SECONDS = 25
-RECONNECT_GRACE_SECONDS = 120
+DELIVERY_TIMEOUT_SECONDS = Config.DELIVERY_TIMEOUT_SECONDS
+RECONNECT_GRACE_SECONDS = Config.RECONNECT_GRACE_SECONDS
+
+_match_lock = threading.RLock()
 
 
 # ---------------------------------------------------------------------------
@@ -589,97 +593,100 @@ def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[
     """
     Submit a batter or bowler pick.
     Returns (match, resolved_delivery) – delivery is None if waiting for other player.
+    Thread-safe & atomic under _match_lock.
     """
-    match = repo.get_match_by_room(room.id)
-    if not match:
-        raise ValueError("no_active_match")
+    with _match_lock:
+        match = repo.get_match_by_room(room.id)
+        if not match:
+            raise ValueError("no_active_match")
 
-    mem = repo.get_membership(room.id, player.id)
-    if not mem:
-        raise PermissionError("not_in_room")
+        mem = repo.get_membership(room.id, player.id)
+        if not mem:
+            raise PermissionError("not_in_room")
 
-    # Validate pick
-    err = GameRules.validate_pick(pick)
-    if err:
-        raise ValueError(err)
+        # Validate pick
+        err = GameRules.validate_pick(pick)
+        if err:
+            raise ValueError(err)
 
-    # Check deadline with 2.5s network skew tolerance
-    if match.delivery_deadline and (datetime.utcnow() - match.delivery_deadline).total_seconds() > 2.5:
-        raise ValueError("deadline_expired")
+        # Check deadline with 2.5s network skew tolerance
+        if match.delivery_deadline and (datetime.utcnow() - match.delivery_deadline).total_seconds() > 2.5:
+            raise ValueError("deadline_expired")
 
-    # Get or create current delivery
-    delivery = repo.get_current_delivery(match.id)
-    if delivery is None:
-        delivery = Delivery(
-            match_id=match.id,
-            innings=match.phase,
-            over_index=match.current_over,
-            ball_index=match.current_ball,
-            batter_id=match.active_batter_id,
-            bowler_id=match.active_bowler_id,
-        )
+        # Get or create current delivery
+        delivery = repo.get_current_delivery(match.id)
+        if delivery is None:
+            delivery = Delivery(
+                match_id=match.id,
+                innings=match.phase,
+                over_index=match.current_over,
+                ball_index=match.current_ball,
+                batter_id=match.active_batter_id,
+                bowler_id=match.active_bowler_id,
+            )
+            repo.save_delivery(delivery)
+
+        if delivery.committed:
+            raise ValueError("delivery_already_resolved")
+
+        # Assign pick to correct role
+        is_batter = player.id == match.active_batter_id
+        is_bowler = player.id == match.active_bowler_id
+
+        if is_batter:
+            if delivery.batter_pick is not None:
+                raise ValueError("already_submitted")
+            delivery.batter_pick = pick
+        elif is_bowler:
+            if delivery.bowler_pick is not None:
+                raise ValueError("already_submitted")
+            delivery.bowler_pick = pick
+        else:
+            raise PermissionError("not_active_player")
+
         repo.save_delivery(delivery)
 
-    if delivery.committed:
-        raise ValueError("delivery_already_resolved")
+        # If both have submitted, resolve immediately
+        if delivery.batter_pick is not None and delivery.bowler_pick is not None:
+            outcome = GameRules.resolve_delivery(match, delivery)
+            return _advance_gameplay_state(room, match, outcome)
 
-    # Assign pick to correct role
-    is_batter = player.id == match.active_batter_id
-    is_bowler = player.id == match.active_bowler_id
-
-    if is_batter:
-        if delivery.batter_pick is not None:
-            raise ValueError("already_submitted")
-        delivery.batter_pick = pick
-    elif is_bowler:
-        if delivery.bowler_pick is not None:
-            raise ValueError("already_submitted")
-        delivery.bowler_pick = pick
-    else:
-        raise PermissionError("not_active_player")
-
-    repo.save_delivery(delivery)
-
-    # If both have submitted, resolve immediately
-    if delivery.batter_pick is not None and delivery.bowler_pick is not None:
-        outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
-        return _advance_gameplay_state(room, match, outcome)
-
-    return match, None
+        return match, None
 
 
 def resolve_timeout(room_id: str) -> Optional[tuple[Match, Delivery]]:
     """Called by the server timer when the delivery deadline expires."""
-    room = repo.get_room(room_id)
-    if not room or room.status != RoomStatus.INNINGS_ACTIVE:
-        return None
+    with _match_lock:
+        room = repo.get_room(room_id)
+        if not room or room.status != RoomStatus.INNINGS_ACTIVE:
+            return None
 
-    match = repo.get_match_by_room(room_id)
-    if not match or not match.delivery_deadline:
-        return None
+        match = repo.get_match_by_room(room_id)
+        if not match or not match.delivery_deadline:
+            return None
 
-    if datetime.utcnow() < match.delivery_deadline:
-        return None  # Not yet expired
+        if datetime.utcnow() < match.delivery_deadline:
+            return None  # Not yet expired
 
-    delivery = repo.get_current_delivery(match.id)
-    if delivery is None:
-        delivery = Delivery(
-            match_id=match.id,
-            innings=match.phase,
-            over_index=match.current_over,
-            ball_index=match.current_ball,
-            batter_id=match.active_batter_id,
-            bowler_id=match.active_bowler_id,
-        )
+        delivery = repo.get_current_delivery(match.id)
+        if delivery is None:
+            delivery = Delivery(
+                match_id=match.id,
+                innings=match.phase,
+                over_index=match.current_over,
+                ball_index=match.current_ball,
+                batter_id=match.active_batter_id,
+                bowler_id=match.active_bowler_id,
+            )
 
-    if delivery.committed:
-        return None
+        if delivery.committed:
+            return None
 
-    outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
-    return _advance_gameplay_state(room, match, outcome)
+        outcome = GameRules.resolve_delivery(match, delivery)
+        return _advance_gameplay_state(room, match, outcome)
 
 
-def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
+def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
     """
     Build a complete sanitised state snapshot for a player.
     Secret picks are never included until revealed.
@@ -786,4 +793,133 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
         "match": match_data,
         "current_delivery": current_delivery,
         "recent_deliveries": recent_deliveries,
+        "voice_permissions": [
+            {"sender_id": k[0], "receiver_id": k[1], "status": v}
+            for k, v in repo.get_room_voice_permissions(room_id).items()
+        ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Selective Voice Communication & Cross-Team Mutual Consent Engine
+# ---------------------------------------------------------------------------
+
+def is_voice_signal_authorized(room_id: str | Any, sender_id: str, target_id: str) -> bool:
+    """
+    Authoritative server-side validation of WebRTC signaling.
+    Rules:
+    1. Both sender and target must be active members in room_id.
+    2. In SOLO mode: 1v1 communication is always authorized between the two players.
+    3. In TEAM mode:
+       - If sender and target belong to the SAME team:
+         Authorized (private team communication) unless sender explicitly blocked target in allowed_recipients.
+       - If sender and target belong to DIFFERENT teams:
+         Authorized ONLY if mutual cross-team consent has been requested and accepted ('MUTUAL_ACCEPTED').
+    """
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+
+    if sender_id == target_id:
+        return False
+
+    room = repo.get_room(room_id)
+    if not room:
+        return False
+
+    sender_mem = repo.get_membership(room_id, sender_id)
+    target_mem = repo.get_membership(room_id, target_id)
+    if not sender_mem or not target_mem:
+        return False
+
+    # In SOLO mode, bidirectional communication is fully open between the 2 players
+    if room.mode == GameMode.SOLO:
+        return True
+
+    # In TEAM mode:
+    # A. Same team communication (Private Team Audio)
+    if sender_mem.team and sender_mem.team == target_mem.team:
+        mode = getattr(sender_mem, "voice_mode", "EVERYONE")
+        if mode == "MUTED":
+            return False
+        if mode == "SELECTED_PLAYERS":
+            allowed = getattr(sender_mem, "allowed_recipients", [])
+            if target_id not in allowed:
+                return False
+        return True
+
+    # B. Cross-team communication (Opponents): Requires verified mutual consent
+    status = repo.get_voice_permission(room_id, sender_id, target_id)
+    if status == "MUTUAL_ACCEPTED":
+        return True
+
+    return False
+
+
+def request_cross_team_voice(room_id: str | Any, sender: Player, target_id: str) -> tuple[dict, str]:
+    """Sender requests private voice communication with an opponent."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+    room = repo.get_room(room_id)
+    if not room:
+        raise ValueError("room_not_found")
+
+    sender_mem = repo.get_membership(room_id, sender.id)
+    target_mem = repo.get_membership(room_id, target_id)
+    target_player = repo.get_player(target_id)
+    if not sender_mem or not target_mem or not target_player:
+        raise ValueError("player_not_in_room")
+
+    if sender_mem.team == target_mem.team:
+        raise ValueError("already_teammate")
+
+    # Record pending request
+    repo.set_voice_permission(room_id, sender.id, target_id, "PENDING_REQUEST")
+    req_payload = {
+        "room_id": room_id,
+        "from_player_id": sender.id,
+        "from_player_name": sender.display_name,
+        "from_team": sender_mem.team,
+        "to_player_id": target_id,
+    }
+    return req_payload, target_player.socket_id or ""
+
+
+def respond_cross_team_voice(room_id: str | Any, responder: Player, sender_id: str, accept: bool) -> tuple[bool, str]:
+    """Target player accepts or declines private voice talk with the requesting opponent."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+    room = repo.get_room(room_id)
+    if not room:
+        raise ValueError("room_not_found")
+
+    responder_mem = repo.get_membership(room_id, responder.id)
+    sender_mem = repo.get_membership(room_id, sender_id)
+    sender_player = repo.get_player(sender_id)
+    if not responder_mem or not sender_mem or not sender_player:
+        raise ValueError("player_not_in_room")
+
+    if accept:
+        # Mutual consent established bidirectionally
+        repo.set_voice_permission(room_id, sender_id, responder.id, "MUTUAL_ACCEPTED")
+        repo.set_voice_permission(room_id, responder.id, sender_id, "MUTUAL_ACCEPTED")
+        return True, sender_player.socket_id or ""
+    else:
+        # Declined: remove any pending request
+        repo.delete_voice_permission(room_id, sender_id, responder.id)
+        return False, sender_player.socket_id or ""
+
+
+def revoke_cross_team_voice(room_id: str | Any, player: Player, target_id: str) -> Optional[str]:
+    """Either player revokes cross-team voice communication."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+    repo.delete_voice_permission(room_id, player.id, target_id)
+    target_player = repo.get_player(target_id)
+    return target_player.socket_id if target_player else None
+
+
+def cleanup_player_voice(room_id: str | Any, player_id: str) -> None:
+    """Clean up all voice routing permissions when a player changes team, disconnects, or leaves."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+    repo.cleanup_player_voice_permissions(room_id, player_id)

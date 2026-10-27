@@ -58,6 +58,7 @@ export interface PausedInfo {
 
 export interface MatchInfo {
   id: string
+  version?: number
   phase: 'FIRST' | 'SECOND' | 'SUPER_OVER_FIRST' | 'SUPER_OVER_SECOND'
   overs: number
   wickets?: number
@@ -140,12 +141,27 @@ export interface ResolvedDelivery {
   innings?: string
 }
 
+export interface VoicePermissionEntry {
+  sender_id: string
+  receiver_id: string
+  status: 'MUTUAL_ACCEPTED' | 'PENDING_REQUEST' | 'BLOCKED' | string
+}
+
+export interface CrossTeamVoiceRequest {
+  room_id: string
+  from_player_id: string
+  from_player_name: string
+  from_team: string
+  to_player_id: string
+}
+
 export interface RoomSnapshot {
   room: RoomInfo
   members: MemberInfo[]
   match: MatchInfo | null
   current_delivery: DeliveryInfo | null
   recent_deliveries?: ResolvedDelivery[]
+  voice_permissions?: VoicePermissionEntry[]
 }
 
 export interface ChatMessage {

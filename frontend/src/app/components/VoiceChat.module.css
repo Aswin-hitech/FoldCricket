@@ -167,6 +167,25 @@
   letter-spacing: 0.03em;
 }
 
+.incomingBadge {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 1px 6px;
+  line-height: 1.2;
+  margin-left: 2px;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+  animation: pulseBadge 1.5s infinite;
+}
+
+@keyframes pulseBadge {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
 .modalOverlay {
   position: fixed;
   inset: 0;
@@ -465,6 +484,61 @@
   color: #ef4444 !important;
   font-weight: 800 !important;
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+
+.listenBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.listenBtn:hover {
+  transform: translateY(-1px);
+  border-color: var(--color-team-a);
+}
+
+.listenBtnMuted {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  opacity: 0.9;
+}
+
+.incomingSection {
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.requestCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.requestActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .emptyList {

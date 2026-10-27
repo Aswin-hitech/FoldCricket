@@ -5,6 +5,7 @@ All game logic is delegated to the service layer.
 
 from __future__ import annotations
 
+import html
 import threading
 from datetime import datetime, timedelta
 
@@ -100,12 +101,8 @@ def on_connect(auth=None):
 
 
 def _all_memberships_for_player(player_id: str):
-    """Scan all rooms for this player's memberships (V1 linear scan)."""
-    from ..repositories.memory import _memberships
-    for room_id, members in _memberships.items():
-        for m in members:
-            if m.player_id == player_id:
-                yield m
+    """Scan all rooms for this player's memberships."""
+    return repo.get_memberships_for_player(player_id)
 
 
 def _cancel_delivery_timer(room_id: str) -> None:
@@ -178,6 +175,7 @@ def on_disconnect():
                 room=mem.room_id,
             )
             _start_grace_timer(player.id, mem.room_id)
+            room_service.cleanup_player_voice(mem.room_id, player.id)
             _broadcast_snapshot(mem.room_id)
 
 
@@ -364,6 +362,7 @@ def on_team_assign(data):
     except (ValueError, PermissionError) as e:
         return emit("team:assigned", _err(str(e)))
 
+    room_service.cleanup_player_voice(room.id, target_id)
     emit("team:assigned", _ok())
     _broadcast_snapshot(room_id)
 
@@ -694,12 +693,13 @@ def on_chat_send(data):
     if not mem:
         return emit("chat:error", {"error": "not_in_room"})
 
+    sanitized_text = html.escape(text.strip())
     socketio.emit(
         "chat:message",
         {
             "player_id": player.id,
             "display_name": player.display_name,
-            "text": text.strip(),
+            "text": sanitized_text,
             "timestamp": datetime.utcnow().isoformat(),
         },
         room=room_id,
@@ -738,17 +738,13 @@ def on_voice_signal(data):
         return
 
     room_id = (data or {}).get("room_id", "")
-    mem = repo.get_membership(room_id, player.id)
-    if not mem:
-        return  # silently ignore unauthorised
-
-    target_id = (data or {}).get("target_player_id")
-    if not target_id:
+    target_id = (data or {}).get("target_player_id") or (data or {}).get("target_id")
+    if not room_id or not target_id:
         return
 
-    # Verify target is in the same room
-    target_mem = repo.get_membership(room_id, target_id)
-    if not target_mem:
+    # Authoritative server-side routing & permission enforcement
+    if not room_service.is_voice_signal_authorized(room_id, player.id, target_id):
+        emit("voice:error", _err("unauthorized_voice_route"))
         return
 
     target_player = repo.get_player(target_id)
@@ -757,10 +753,103 @@ def on_voice_signal(data):
             "voice:signal",
             {
                 "from_player_id": player.id,
-                "signal": data.get("signal"),
+                "signal": (data or {}).get("signal"),
+                "timestamp": int(datetime.utcnow().timestamp() * 1000),
             },
             to=target_player.socket_id,
         )
+
+
+@socketio.on("voice:cross_team_request")
+def on_voice_cross_team_request(data):
+    player = _require_player()
+    if not player:
+        return emit("voice:cross_team_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    target_id = (data or {}).get("target_id", "")
+    try:
+        req_payload, target_socket = room_service.request_cross_team_voice(room_id, player, target_id)
+    except (ValueError, PermissionError) as e:
+        return emit("voice:cross_team_ack", _err(str(e)))
+
+    if target_socket:
+        socketio.emit("voice:cross_team_requested", req_payload, to=target_socket)
+    emit("voice:cross_team_ack", _ok({"status": "pending", "target_id": target_id}))
+    _broadcast_snapshot(room_id)
+
+
+@socketio.on("voice:cross_team_response")
+def on_voice_cross_team_response(data):
+    player = _require_player()
+    if not player:
+        return emit("voice:cross_team_response_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    sender_id = (data or {}).get("sender_id", "")
+    accept = bool((data or {}).get("accept", False))
+
+    try:
+        accepted, sender_socket = room_service.respond_cross_team_voice(room_id, player, sender_id, accept)
+    except (ValueError, PermissionError) as e:
+        return emit("voice:cross_team_response_ack", _err(str(e)))
+
+    if accepted:
+        # Notify sender that request was accepted
+        if sender_socket:
+            socketio.emit(
+                "voice:cross_team_approved",
+                {
+                    "room_id": room_id,
+                    "peer_id": player.id,
+                    "peer_name": player.display_name,
+                },
+                to=sender_socket,
+            )
+        # Notify responder of approval as well
+        sender_p = repo.get_player(sender_id)
+        emit(
+            "voice:cross_team_approved",
+            {
+                "room_id": room_id,
+                "peer_id": sender_id,
+                "peer_name": sender_p.display_name if sender_p else "Opponent",
+            },
+        )
+    else:
+        if sender_socket:
+            socketio.emit(
+                "voice:cross_team_declined",
+                {
+                    "room_id": room_id,
+                    "peer_id": player.id,
+                    "peer_name": player.display_name,
+                },
+                to=sender_socket,
+            )
+
+    emit("voice:cross_team_response_ack", _ok({"accepted": accept}))
+    _broadcast_snapshot(room_id)
+
+
+@socketio.on("voice:cross_team_revoke")
+def on_voice_cross_team_revoke(data):
+    player = _require_player()
+    if not player:
+        return emit("voice:cross_team_revoke_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    target_id = (data or {}).get("target_id", "")
+    target_socket = room_service.revoke_cross_team_voice(room_id, player, target_id)
+    if target_socket:
+        socketio.emit(
+            "voice:cross_team_revoked",
+            {"room_id": room_id, "peer_id": player.id},
+            to=target_socket,
+        )
+    emit("voice:cross_team_revoked", {"room_id": room_id, "peer_id": target_id})
+    emit("voice:cross_team_revoke_ack", _ok({"target_id": target_id}))
+    _broadcast_snapshot(room_id)
 
 
 # ---------------------------------------------------------------------------

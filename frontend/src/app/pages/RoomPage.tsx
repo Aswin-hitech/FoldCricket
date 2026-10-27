@@ -40,6 +40,11 @@ export default function RoomPage() {
     updateVoiceState,
     incomingVoiceSignal,
     sendVoiceSignal,
+    setVoiceMode,
+    crossTeamRequests,
+    requestCrossTeamVoice,
+    respondCrossTeamVoice,
+    revokeCrossTeamVoice,
     sendChat,
   } = useSocket(sessionToken)
 
@@ -215,7 +220,13 @@ export default function RoomPage() {
             members={members}
             incomingVoiceSignal={incomingVoiceSignal}
             onSendSignal={sendVoiceSignal}
+            onSetVoiceMode={setVoiceMode}
             isTeamMatch={room?.mode === 'TEAM'}
+            crossTeamRequests={crossTeamRequests}
+            onRequestCrossTeam={requestCrossTeamVoice}
+            onRespondCrossTeam={respondCrossTeamVoice}
+            onRevokeCrossTeam={revokeCrossTeamVoice}
+            voicePermissions={snapshot?.voice_permissions || []}
           />
 
           {/* Real-time Internet Speed Indicator with signal bars */}

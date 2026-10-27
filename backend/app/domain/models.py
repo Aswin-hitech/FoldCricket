@@ -226,13 +226,13 @@ class Match:
         """Configured match wickets or players on team + extra wicket allowance."""
         if getattr(self, "is_super_over", False):
             return 2
+        extra = self.team_a_extra_wickets if team == "A" else self.team_b_extra_wickets
         base = getattr(self, "wickets", None)
         if base is not None and base > 0:
-            return base
+            return base + extra
         # Fallback stored at match creation; default 10 if not set
-        if team == "A":
-            return getattr(self, "_team_a_size", 10) + self.team_a_extra_wickets
-        return getattr(self, "_team_b_size", 10) + self.team_b_extra_wickets
+        team_size = getattr(self, "_team_a_size", 10) if team == "A" else getattr(self, "_team_b_size", 10)
+        return team_size + extra
 
 
 # ---------------------------------------------------------------------------

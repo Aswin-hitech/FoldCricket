@@ -55,6 +55,10 @@ export default function ArenaPage() {
     setVoiceMode,
     incomingVoiceSignal,
     sendVoiceSignal,
+    crossTeamRequests,
+    requestCrossTeamVoice,
+    respondCrossTeamVoice,
+    revokeCrossTeamVoice,
   } = useSocket(sessionToken)
 
   const [chatInput, setChatInput] = useState('')
@@ -675,6 +679,11 @@ export default function ArenaPage() {
               isTeamMatch={isTeamMatch}
               isOpenVoiceList={isVoiceListOpen}
               onCloseVoiceList={() => setIsVoiceListOpen(false)}
+              crossTeamRequests={crossTeamRequests}
+              onRequestCrossTeam={requestCrossTeamVoice}
+              onRespondCrossTeam={respondCrossTeamVoice}
+              onRevokeCrossTeam={revokeCrossTeamVoice}
+              voicePermissions={snapshot?.voice_permissions || []}
             />
           </div>
 

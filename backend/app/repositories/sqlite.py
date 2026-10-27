@@ -133,6 +133,7 @@ def init_db() -> None:
                 active_batter_id TEXT,
                 active_bowler_id TEXT,
                 delivery_deadline TEXT,
+                innings_break_deadline TEXT,
                 winner TEXT,
                 result_summary TEXT,
                 dismissed_batters_a TEXT NOT NULL,
@@ -188,6 +189,10 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_voice_perm_room ON voice_permissions(room_id);
             """
         )
+        try:
+            conn.execute("ALTER TABLE matches ADD COLUMN innings_break_deadline TEXT;")
+        except Exception:
+            pass
 
 
 # Initialize schema on module load
@@ -539,7 +544,7 @@ def save_match(match: Match) -> Match:
                     team_a_runs, team_a_wickets, team_b_runs, team_b_wickets, target,
                     team_a_extra_wickets, team_b_extra_wickets, current_over, current_ball,
                     batting_team, first_batting_team, active_batter_id, active_bowler_id,
-                    delivery_deadline, winner, result_summary, dismissed_batters_a, dismissed_batters_b,
+                    delivery_deadline, innings_break_deadline, winner, result_summary, dismissed_batters_a, dismissed_batters_b,
                     is_all_out, all_out_team, is_all_out_a, is_all_out_b, all_out_announced_a, all_out_announced_b,
                     is_super_over, main_match_team_a_runs, main_match_team_b_runs,
                     main_match_team_a_wickets, main_match_team_b_wickets,
@@ -547,7 +552,7 @@ def save_match(match: Match) -> Match:
                 )
                 VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     phase=excluded.phase,
@@ -569,6 +574,7 @@ def save_match(match: Match) -> Match:
                     active_batter_id=excluded.active_batter_id,
                     active_bowler_id=excluded.active_bowler_id,
                     delivery_deadline=excluded.delivery_deadline,
+                    innings_break_deadline=excluded.innings_break_deadline,
                     winner=excluded.winner,
                     result_summary=excluded.result_summary,
                     dismissed_batters_a=excluded.dismissed_batters_a,
@@ -610,6 +616,7 @@ def save_match(match: Match) -> Match:
                     match.active_batter_id,
                     match.active_bowler_id,
                     match.delivery_deadline.isoformat() if match.delivery_deadline else None,
+                    match.innings_break_deadline.isoformat() if getattr(match, "innings_break_deadline", None) else None,
                     match.winner,
                     match.result_summary,
                     json.dumps(getattr(match, "dismissed_batters_a", [])),
@@ -677,6 +684,13 @@ def _row_to_match(row: sqlite3.Row) -> Match:
         except Exception:
             deadline = None
 
+    break_deadline = None
+    try:
+        if "innings_break_deadline" in row.keys() and row["innings_break_deadline"]:
+            break_deadline = datetime.fromisoformat(row["innings_break_deadline"])
+    except Exception:
+        break_deadline = None
+
     d_a = json.loads(row["dismissed_batters_a"]) if row["dismissed_batters_a"] else []
     d_b = json.loads(row["dismissed_batters_b"]) if row["dismissed_batters_b"] else []
 
@@ -702,6 +716,7 @@ def _row_to_match(row: sqlite3.Row) -> Match:
         active_batter_id=row["active_batter_id"],
         active_bowler_id=row["active_bowler_id"],
         delivery_deadline=deadline,
+        innings_break_deadline=break_deadline,
         winner=row["winner"],
         result_summary=row["result_summary"],
         dismissed_batters_a=d_a,

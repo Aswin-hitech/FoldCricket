@@ -1124,6 +1124,222 @@
 }
 
 /* ============================================================
+   Innings Break Full Screen / Dialog Overlay
+   ============================================================ */
+.inningsBreakOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 550;
+  backdrop-filter: blur(10px);
+  animation: fadeIn 0.3s ease;
+  padding: 20px;
+}
+
+.inningsBreakCard {
+  background: var(--color-surface);
+  border: 2px solid var(--color-team-a);
+  border-radius: var(--radius-lg);
+  padding: 36px 32px;
+  max-width: 500px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: scaleUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.inningsBreakHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.inningsBreakIcon {
+  font-size: 3.2rem;
+  line-height: 1;
+}
+
+.inningsBreakTitle {
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  font-weight: 900;
+  color: var(--color-text);
+  letter-spacing: 0.05em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.inningsBreakSub {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.inningsBreakBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inningsBreakStatRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+}
+
+.inningsBreakStatLabel {
+  font-size: 0.95rem;
+  color: var(--color-text-dim);
+  font-weight: 600;
+}
+
+.statValueHighlight {
+  font-size: 1.25rem;
+  color: var(--color-text);
+  font-family: var(--font-display);
+}
+
+.statTargetHighlight {
+  font-size: 1.35rem;
+  color: #22c55e;
+  font-weight: 800;
+  font-family: var(--font-display);
+}
+
+.countdownBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  margin-top: 4px;
+}
+
+.countdownLabel {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.countdownNumber {
+  font-size: 3.8rem;
+  font-weight: 900;
+  font-family: var(--font-display);
+  color: var(--color-team-a);
+  line-height: 1.1;
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+.countdownUnit {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.startingSoonStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: var(--color-text-dim);
+  font-weight: 600;
+}
+
+.pulseDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulseDotAnim 1.2s infinite;
+}
+
+@keyframes pulseDotAnim {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+/* Second Innings Chase Status Banner */
+.chaseStatusBanner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.chaseTargetCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chaseTargetLabel {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.chaseTargetVal {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: var(--color-secondary);
+  font-family: var(--font-display);
+}
+
+.chaseDivider {
+  width: 1px;
+  height: 36px;
+  background: var(--color-border);
+}
+
+.chaseEquationCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chaseNeedText {
+  font-size: 0.96rem;
+  color: var(--color-text);
+}
+
+.chaseHighlight {
+  font-weight: 800;
+  color: var(--color-secondary);
+}
+
+.chaseSubText {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+/* ============================================================
    L. Responsive Layout Rules
    ============================================================ */
 .inningsBreakBanner {

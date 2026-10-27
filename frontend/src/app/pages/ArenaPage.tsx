@@ -88,6 +88,7 @@ export default function ArenaPage() {
   const hasShownSuperOverRef = useRef(false)
   const shownAllOutRef = useRef<Set<string>>(new Set())
   const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
+  const [breakCountdown, setBreakCountdown] = useState<number>(10)
   const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams'>('game')
   const [isVoiceListOpen, setIsVoiceListOpen] = useState(false)
 
@@ -345,17 +346,39 @@ export default function ArenaPage() {
     }
   }, [showMicPrompt, roomId])
 
-  // Handle Innings Break notification
+  // Innings Break state & server-authoritative countdown synchronization
+  const isInningsBreak =
+    snapshot?.room?.status === 'INNINGS_BREAK' ||
+    Boolean(
+      inningsBreak &&
+        !match?.winner &&
+        match?.phase === 'SECOND' &&
+        match?.current_over === 0 &&
+        match?.current_ball === 0 &&
+        snapshot?.room?.status !== 'INNINGS_ACTIVE'
+    )
+
   useEffect(() => {
-    if (inningsBreak || (match?.phase === 'SECOND' && match.current_over === 0 && match.current_ball === 0 && !match.winner)) {
-      setShowInningsBreakBanner(true)
+    const deadlineStr = match?.innings_break_deadline || inningsBreak?.break_deadline
+    if (isInningsBreak || deadlineStr) {
       setPickSubmitted(false)
       setSelectedPick(null)
-      sound.playClick()
-      const timer = setTimeout(() => setShowInningsBreakBanner(false), 9000)
-      return () => clearTimeout(timer)
+      const updateRemaining = () => {
+        if (deadlineStr) {
+          const ms = new Date(deadlineStr).getTime() - Date.now()
+          const secs = Math.max(0, Math.ceil(ms / 1000))
+          setBreakCountdown(secs)
+        } else {
+          setBreakCountdown(prev => Math.max(0, prev - 1))
+        }
+      }
+      updateRemaining()
+      const timer = setInterval(updateRemaining, 1000)
+      return () => clearInterval(timer)
+    } else {
+      setBreakCountdown(10)
     }
-  }, [inningsBreak, match?.phase, match?.current_over, match?.current_ball, match?.winner])
+  }, [isInningsBreak, match?.innings_break_deadline, inningsBreak?.break_deadline])
 
   const dismissMicPrompt = () => {
     setShowMicPrompt(false)
@@ -366,7 +389,7 @@ export default function ArenaPage() {
 
   // Handle pick select
   function handlePickSelect(pick: number) {
-    if (pickSubmitted || !isActivePlayer) return
+    if (pickSubmitted || !isActivePlayer || isInningsBreak || match?.winner) return
     sound.playClick()
     vibration.tap()
     setSelectedPick(pick)
@@ -374,7 +397,7 @@ export default function ArenaPage() {
 
   // Handle pick submit
   function handlePickSubmit() {
-    if (selectedPick === null || pickSubmitted || !roomId) return
+    if (selectedPick === null || pickSubmitted || !roomId || isInningsBreak || match?.winner) return
     sound.playClick()
     vibration.tap()
     submitPick(roomId, selectedPick)
@@ -615,6 +638,20 @@ export default function ArenaPage() {
   const displayTeamAName = match.team_a_name && match.team_a_name !== 'Team A' ? match.team_a_name : (captainA ? `${captainA.player.display_name}'s Team` : 'Team A')
   const displayTeamBName = match.team_b_name && match.team_b_name !== 'Team B' ? match.team_b_name : (captainB ? `${captainB.player.display_name}'s Team` : 'Team B')
 
+  const firstBatTeam = match.first_batting_team || (match.batting_team === 'B' ? 'A' : 'B')
+  const firstBattingTeamName = firstBatTeam === 'A' ? displayTeamAName : displayTeamBName
+  const firstInningsTotal = firstBatTeam === 'A' ? match.team_a_runs ?? 0 : match.team_b_runs ?? 0
+  const firstInningsWkts = firstBatTeam === 'A' ? match.team_a_wickets ?? 0 : match.team_b_wickets ?? 0
+  const chasingTeam = firstBatTeam === 'A' ? 'B' : 'A'
+  const chasingTeamName = chasingTeam === 'A' ? displayTeamAName : displayTeamBName
+  const chaseTarget = match.target ?? (firstInningsTotal + 1)
+
+  const isChasing = match.phase === 'SECOND' || match.phase === 'SUPER_OVER_SECOND'
+  const chasingRuns = match.batting_team === 'A' ? match.team_a_runs ?? 0 : match.team_b_runs ?? 0
+  const runsRemainingToWin = chaseTarget > 0 ? Math.max(0, chaseTarget - chasingRuns) : 0
+  const totalChasingBallsBowled = ((match.current_over ?? 0) * 6) + (match.current_ball ?? 0)
+  const chaseBallsRemaining = Math.max(0, ((match.overs ?? 0) * 6) - totalChasingBallsBowled)
+
   // Live team overs calculation:
   // Whichever team is currently batting reflects the live over.ball;
   // If not currently batting: 0.0 before they bat, or their completed overs after batting in 1st innings.
@@ -801,24 +838,26 @@ export default function ArenaPage() {
           C. Main Responsive Broadcast Dashboard Grid
           ============================================================ */}
       <main className={styles.dashboardContainer}>
-        {/* Innings Break Notification Banner */}
-        {showInningsBreakBanner && (
-          <div className={styles.inningsBreakBanner} role="alert">
-            <span style={{ fontSize: '1.8rem' }}>🏏</span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
-              <strong style={{ fontSize: '1rem', color: 'var(--color-team-a)' }}>1st Innings Complete!</strong>
-              <span style={{ fontSize: '0.88rem', color: 'var(--color-text)' }}>
-                Target is <strong>{match.target} runs</strong> in {match.overs} overs ({match.overs * 6} balls). 2nd Innings has begun!
+        {/* Second Innings Authoritative Chase Status Banner */}
+        {isChasing && chaseTarget > 0 && !match.winner && (
+          <div className={styles.chaseStatusBanner} role="status">
+            <div className={styles.chaseTargetCol}>
+              <span className={styles.chaseTargetLabel}>TARGET</span>
+              <span className={styles.chaseTargetVal}>{chaseTarget}</span>
+            </div>
+            <div className={styles.chaseDivider} />
+            <div className={styles.chaseEquationCol}>
+              <span className={styles.chaseNeedText}>
+                <strong>{match.batting_team === 'A' ? displayTeamAName : displayTeamBName}</strong> needs{' '}
+                <span className={styles.chaseHighlight}>
+                  {runsRemainingToWin} run{runsRemainingToWin !== 1 ? 's' : ''}
+                </span>{' '}
+                to win
+              </span>
+              <span className={styles.chaseSubText}>
+                from {chaseBallsRemaining} ball{chaseBallsRemaining !== 1 ? 's' : ''} (RRR: {rrr})
               </span>
             </div>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ padding: '4px 10px', fontSize: '0.8rem' }}
-              onClick={() => setShowInningsBreakBanner(false)}
-            >
-              ✕
-            </button>
           </div>
         )}
 
@@ -861,6 +900,12 @@ export default function ArenaPage() {
                 <span className={styles.statLabel}>Target:</span>
                 <span>{match.batting_team === 'A' && match.target ? match.target : '-'}</span>
               </div>
+              {match.batting_team === 'A' && match.phase === 'SECOND' && match.target && (
+                <div className={styles.statItem}>
+                  <span className={styles.statLabel}>Need:</span>
+                  <span style={{ fontWeight: 800, color: 'var(--color-team-a)' }}>{runsRemainingToWin}</span>
+                </div>
+              )}
             </div>
 
             {/* Scorecard Table */}
@@ -964,8 +1009,14 @@ export default function ArenaPage() {
               </div>
               <div className={styles.statItem}>
                 <span className={styles.statLabel}>Target:</span>
-                <span>{match.target ? match.target : '-'}</span>
+                <span>{match.batting_team === 'B' && match.target ? match.target : '-'}</span>
               </div>
+              {match.batting_team === 'B' && match.phase === 'SECOND' && match.target && (
+                <div className={styles.statItem}>
+                  <span className={styles.statLabel}>Need:</span>
+                  <span style={{ fontWeight: 800, color: 'var(--color-team-b)' }}>{runsRemainingToWin}</span>
+                </div>
+              )}
             </div>
 
             {/* Bowling Scorecard Table */}
@@ -1140,9 +1191,9 @@ export default function ArenaPage() {
                       <button
                         key={n}
                         type="button"
-                        className={`${styles.deliveryCardBtn} ${selectedPick === n ? styles.deliveryCardSelected : ''} ${pickSubmitted ? styles.deliveryCardDisabled : ''}`}
+                        className={`${styles.deliveryCardBtn} ${selectedPick === n ? styles.deliveryCardSelected : ''} ${pickSubmitted || isInningsBreak || Boolean(match.winner) ? styles.deliveryCardDisabled : ''}`}
                         onClick={() => handlePickSelect(n)}
-                        disabled={pickSubmitted}
+                        disabled={pickSubmitted || isInningsBreak || Boolean(match.winner)}
                         aria-label={`Pick ${n}`}
                       >
                         <HandGesture number={n} size={36} />
@@ -1155,10 +1206,14 @@ export default function ArenaPage() {
                     type="button"
                     className={styles.lockInBtn}
                     onClick={handlePickSubmit}
-                    disabled={selectedPick === null || pickSubmitted}
+                    disabled={selectedPick === null || pickSubmitted || isInningsBreak || Boolean(match.winner)}
                   >
                     {pickSubmitted
                       ? '✅ Pick Locked & Sent'
+                      : isInningsBreak
+                      ? '⏳ Innings Break in Progress'
+                      : match.winner
+                      ? '🏆 Match Finished'
                       : selectedPick !== null
                       ? `🎯 Lock In ${selectedPick} Runs`
                       : '👉 Choose 1, 2, 3, 4, 5, or 6'}
@@ -1468,6 +1523,48 @@ export default function ArenaPage() {
           </button>
         )}
       </nav>
+
+      {/* ============================================================
+          G2. Authoritative Innings Break Full Screen Overlay
+          ============================================================ */}
+      {isInningsBreak && (
+        <div className={styles.inningsBreakOverlay} role="dialog" aria-modal="true" aria-label="First Innings Over">
+          <div className={styles.inningsBreakCard}>
+            <div className={styles.inningsBreakHeader}>
+              <span className={styles.inningsBreakIcon}>🏏</span>
+              <h2 className={styles.inningsBreakTitle}>FIRST INNINGS OVER!</h2>
+              <span className={styles.inningsBreakSub}>Innings Transition</span>
+            </div>
+
+            <div className={styles.inningsBreakBody}>
+              <div className={styles.inningsBreakStatRow}>
+                <span className={styles.inningsBreakStatLabel}>{firstBattingTeamName} scored:</span>
+                <span className={styles.statValueHighlight}>
+                  <strong>{firstInningsTotal} run{firstInningsTotal !== 1 ? 's' : ''}</strong> ({firstInningsWkts} wkts)
+                </span>
+              </div>
+
+              <div className={styles.inningsBreakStatRow}>
+                <span className={styles.inningsBreakStatLabel}>{chasingTeamName}'s target:</span>
+                <span className={styles.statTargetHighlight}>
+                  <strong>{chaseTarget} runs to win</strong>
+                </span>
+              </div>
+
+              <div className={styles.countdownBox}>
+                <span className={styles.countdownLabel}>Second innings starts in:</span>
+                <div className={styles.countdownNumber}>{breakCountdown}</div>
+                <span className={styles.countdownUnit}>seconds</span>
+              </div>
+
+              <div className={styles.startingSoonStatus}>
+                <span className={styles.pulseDot} />
+                <span>Second innings starting soon...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============================================================
           H. Match Finished Overlay (Scores first, then result)

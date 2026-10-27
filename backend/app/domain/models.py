@@ -184,6 +184,7 @@ class Match:
 
     # Delivery deadline (UTC timestamp)
     delivery_deadline: Optional[datetime] = None
+    innings_break_deadline: Optional[datetime] = None
 
     # Result
     winner: Optional[str] = None        # "A" | "B" | "TIE"

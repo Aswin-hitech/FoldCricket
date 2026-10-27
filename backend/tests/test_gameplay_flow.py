@@ -84,12 +84,17 @@ def test_solo_gameplay_progression_and_innings_transition():
     assert res2 is not None
     assert res2.result.value == "OUT"
 
-    # Innings transition: target is set (4 + 1 = 5), phase is SECOND, teams swapped
+    # Innings transition: target is set (4 + 1 = 5), phase is SECOND, status is INNINGS_BREAK
     assert match.phase == InningsPhase.SECOND
     assert match.target == 5
+    assert room.status == RoomStatus.INNINGS_BREAK
+    assert match.innings_break_deadline is not None
+
+    # Transition to 2nd innings after break
+    room, match = room_service.start_second_innings(room)
+    assert room.status == RoomStatus.INNINGS_ACTIVE
     assert match.active_batter_id == bowling_p.id
     assert match.active_bowler_id == batting_p.id
-    assert room.status == RoomStatus.INNINGS_ACTIVE
     assert match.delivery_deadline is not None
 
     # 7. Delivery in 2nd Innings: new batter picks 6, new bowler picks 2 -> 6 runs scored

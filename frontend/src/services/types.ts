@@ -73,6 +73,8 @@ export interface MatchInfo {
   active_batter_id: string | null
   active_bowler_id: string | null
   delivery_deadline: string | null
+  innings_break_deadline?: string | null
+  break_seconds?: number
   winner: string | null
   result_summary: string | null
   first_batting_team?: string
@@ -121,11 +123,16 @@ export interface DeliveryInfo {
 }
 
 export interface InningsBreakInfo {
-  innings: 'SECOND'
+  innings: 'SECOND' | 'SUPER_OVER_SECOND' | string
   target: number
-  first_batting_team: 'A' | 'B'
+  first_batting_team: 'A' | 'B' | string
+  first_batting_team_name?: string
   first_innings_runs: number
+  chasing_team?: 'A' | 'B' | string
+  chasing_team_name?: string
   overs: number
+  break_seconds?: number
+  break_deadline?: string | null
 }
 
 export interface ResolvedDelivery {

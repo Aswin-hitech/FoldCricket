@@ -6,11 +6,15 @@ All game logic is delegated to the service layer.
 from __future__ import annotations
 
 import html
+import logging
 import threading
+import uuid
 from datetime import datetime, timedelta
 
 from flask import request
 from flask_socketio import emit, join_room, leave_room
+
+logger = logging.getLogger(__name__)
 
 from ..domain.models import ConnectionState, RoomStatus
 from ..extensions import socketio
@@ -155,8 +159,9 @@ def on_disconnect():
             room.status = RoomStatus.PAUSED
             repo.save_room(room)
 
-            # Freeze delivery timer while paused
+            # Freeze delivery and innings break timers while paused
             _cancel_delivery_timer(mem.room_id)
+            _cancel_innings_break_timer(mem.room_id)
 
             socketio.emit(
                 "match:paused",
@@ -569,8 +574,8 @@ def on_delivery_submit(data):
         _broadcast_snapshot(room_id)
 
         # Check if ALL OUT occurred on this specific delivery
-        if getattr(outcome, "is_all_out", False):
-            all_out_team = outcome.all_out_team or getattr(match, "all_out_team", match.batting_team)
+        if getattr(match, "is_all_out", False):
+            all_out_team = getattr(match, "all_out_team", match.batting_team)
             already_announced = (
                 getattr(match, "all_out_announced_a", False) if all_out_team == "A"
                 else getattr(match, "all_out_announced_b", False)
@@ -586,8 +591,8 @@ def on_delivery_submit(data):
                     if all_out_team == "A"
                     else getattr(match, "team_b_name", "Team B")
                 )
-                all_out_runs = outcome.all_out_runs or (match.team_a_runs if all_out_team == "A" else match.team_b_runs)
-                all_out_wkts = outcome.all_out_wickets or (match.team_a_wickets if all_out_team == "A" else match.team_b_wickets)
+                all_out_runs = match.team_a_runs if all_out_team == "A" else match.team_b_runs
+                all_out_wkts = match.team_a_wickets if all_out_team == "A" else match.team_b_wickets
 
                 socketio.emit(
                     "match:all_out",
@@ -611,6 +616,8 @@ def on_delivery_submit(data):
                 socketio.emit("chat:message", sys_msg, room=room_id)
 
         if match.winner:
+            _cancel_delivery_timer(room_id)
+            _cancel_innings_break_timer(room_id)
             socketio.emit(
                 "match:finished",
                 {"winner": match.winner, "result_summary": match.result_summary},
@@ -636,32 +643,44 @@ def on_delivery_submit(data):
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 }
                 socketio.emit("chat:message", sys_msg, room=room_id)
-            elif match.phase.value == "SECOND" and match.current_over == 0 and match.current_ball == 0 and match.target is not None:
+
+            if room.status == RoomStatus.INNINGS_BREAK:
+                _cancel_delivery_timer(room_id)
+                first_runs = match.team_a_runs if match.batting_team == "B" else match.team_b_runs
+                first_name = getattr(match, "team_a_name", "Team A") if match.batting_team == "B" else getattr(match, "team_b_name", "Team B")
+                chasing_name = getattr(match, "team_b_name", "Team B") if match.batting_team == "B" else getattr(match, "team_a_name", "Team A")
+                break_delay = (
+                    (match.innings_break_deadline - datetime.utcnow()).total_seconds()
+                    if match.innings_break_deadline
+                    else 10.0
+                )
                 socketio.emit(
                     "innings:break",
                     {
-                        "innings": "SECOND",
+                        "innings": match.phase.value if hasattr(match.phase, "value") else str(match.phase),
                         "target": match.target,
                         "first_batting_team": getattr(match, "first_batting_team", "A"),
-                        "first_innings_runs": match.team_a_runs if match.batting_team == "B" else match.team_b_runs,
+                        "first_batting_team_name": first_name,
+                        "first_innings_runs": first_runs,
+                        "chasing_team": match.batting_team,
+                        "chasing_team_name": chasing_name,
                         "overs": match.overs,
+                        "break_seconds": max(1, int(round(break_delay))),
+                        "break_deadline": (match.innings_break_deadline.isoformat() + "Z") if match.innings_break_deadline else None,
                     },
                     room=room_id,
                 )
-            elif getattr(match, "is_super_over", False) and match.phase.value == "SUPER_OVER_SECOND" and match.current_over == 0 and match.current_ball == 0 and match.target is not None:
-                socketio.emit(
-                    "innings:break",
-                    {
-                        "innings": "SUPER_OVER_SECOND",
-                        "target": match.target,
-                        "first_batting_team": match.bowling_team,
-                        "first_innings_runs": match.target - 1,
-                        "overs": 1,
-                    },
-                    room=room_id,
-                )
+                sys_msg = {
+                    "id": str(uuid.uuid4()),
+                    "sender_id": "system",
+                    "sender_name": "FoldCricket Umpire",
+                    "text": f"⏳ FIRST INNINGS OVER! {first_name} scored {first_runs} runs. {chasing_name}'s target: {match.target} runs to win. 2nd innings starts in 10 seconds!",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                }
+                socketio.emit("chat:message", sys_msg, room=room_id)
+                _schedule_innings_break_timer(room_id, match.id, max(0.1, break_delay))
 
-            if room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
+            elif room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
                 # Reschedule delivery timer for next delivery!
                 _schedule_delivery_timer(room_id, match.id)
     else:
@@ -956,10 +975,53 @@ def on_ping_check(data):
 
 
 # ---------------------------------------------------------------------------
-# Delivery timer (server-side)
+# Server delivery & innings timers
 # ---------------------------------------------------------------------------
 
 _delivery_timers: dict[str, threading.Timer] = {}
+_innings_break_timers: dict[str, threading.Timer] = {}
+
+
+def _cancel_delivery_timer(room_id: str) -> None:
+    timer = _delivery_timers.pop(f"delivery:{room_id}", None)
+    if timer:
+        timer.cancel()
+
+
+def _cancel_innings_break_timer(room_id: str) -> None:
+    timer = _innings_break_timers.pop(f"innings_break:{room_id}", None)
+    if timer:
+        timer.cancel()
+
+
+def _schedule_innings_break_timer(room_id: str, match_id: str, delay_seconds: float = 10.0) -> None:
+    key = f"innings_break:{room_id}"
+    _cancel_innings_break_timer(room_id)
+
+    def break_timeout():
+        _innings_break_timers.pop(key, None)
+        try:
+            room, match = room_service.start_second_innings(room_id)
+            if room.status == RoomStatus.INNINGS_ACTIVE:
+                socketio.emit(
+                    "match:innings_started",
+                    {
+                        "phase": match.phase.value if hasattr(match.phase, "value") else str(match.phase),
+                        "batting_team": match.batting_team,
+                        "target": match.target,
+                    },
+                    room=room_id,
+                )
+                _broadcast_snapshot(room_id)
+                if match.active_bowler_id:
+                    _schedule_delivery_timer(room_id, match.id)
+        except Exception as e:
+            logger.exception("Error transitioning after innings break: %s", e)
+
+    timer = threading.Timer(max(0.1, delay_seconds), break_timeout)
+    timer.daemon = True
+    timer.start()
+    _innings_break_timers[key] = timer
 
 
 def _schedule_delivery_timer(room_id: str, match_id: str) -> None:
@@ -973,9 +1035,12 @@ def _schedule_delivery_timer(room_id: str, match_id: str) -> None:
         result = room_service.resolve_timeout(room_id)
         if result:
             match, delivery = result
+            room = repo.get_room(room_id)
             socketio.emit("delivery:reveal", delivery.to_reveal_dict(), room=room_id)
             _broadcast_snapshot(room_id)
             if match.winner:
+                _cancel_delivery_timer(room_id)
+                _cancel_innings_break_timer(room_id)
                 socketio.emit(
                     "match:finished",
                     {"winner": match.winner, "result_summary": match.result_summary},
@@ -993,8 +1058,34 @@ def _schedule_delivery_timer(room_id: str, match_id: str) -> None:
                         },
                         room=room_id,
                     )
-                room = repo.get_room(room_id)
-                if room and room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
+                if room and room.status == RoomStatus.INNINGS_BREAK:
+                    _cancel_delivery_timer(room_id)
+                    first_runs = match.team_a_runs if match.batting_team == "B" else match.team_b_runs
+                    first_name = getattr(match, "team_a_name", "Team A") if match.batting_team == "B" else getattr(match, "team_b_name", "Team B")
+                    chasing_name = getattr(match, "team_b_name", "Team B") if match.batting_team == "B" else getattr(match, "team_a_name", "Team A")
+                    break_delay = (
+                        (match.innings_break_deadline - datetime.utcnow()).total_seconds()
+                        if match.innings_break_deadline
+                        else 10.0
+                    )
+                    socketio.emit(
+                        "innings:break",
+                        {
+                            "innings": match.phase.value if hasattr(match.phase, "value") else str(match.phase),
+                            "target": match.target,
+                            "first_batting_team": getattr(match, "first_batting_team", "A"),
+                            "first_batting_team_name": first_name,
+                            "first_innings_runs": first_runs,
+                            "chasing_team": match.batting_team,
+                            "chasing_team_name": chasing_name,
+                            "overs": match.overs,
+                            "break_seconds": max(1, int(round(break_delay))),
+                            "break_deadline": (match.innings_break_deadline.isoformat() + "Z") if match.innings_break_deadline else None,
+                        },
+                        room=room_id,
+                    )
+                    _schedule_innings_break_timer(room_id, match.id, max(0.1, break_delay))
+                elif room and room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
                     _schedule_delivery_timer(room_id, match.id)
 
     from ..services.room_service import DELIVERY_TIMEOUT_SECONDS
@@ -1025,6 +1116,7 @@ def on_match_pause(data):
     room.status = RoomStatus.PAUSED
     repo.save_room(room)
     _cancel_delivery_timer(room_id)
+    _cancel_innings_break_timer(room_id)
 
     socketio.emit(
         "match:paused",

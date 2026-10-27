@@ -36,6 +36,7 @@ from ..security.utils import (
 )
 
 DELIVERY_TIMEOUT_SECONDS = Config.DELIVERY_TIMEOUT_SECONDS
+INNINGS_BREAK_SECONDS = getattr(Config, "INNINGS_BREAK_SECONDS", 10)
 RECONNECT_GRACE_SECONDS = Config.RECONNECT_GRACE_SECONDS
 
 _match_lock = threading.RLock()
@@ -482,31 +483,16 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
     team_b = [m for m in members if m.team == "B"]
 
     if outcome.innings_ended:
-        # First innings completed -> start 2nd innings immediately without locking
-        room.status = RoomStatus.INNINGS_ACTIVE
+        # First innings completed -> enter authoritative 10-second INNINGS_BREAK
+        if getattr(outcome, "is_all_out", False):
+            match.is_all_out = True
+            match.all_out_team = outcome.all_out_team
+        room.status = RoomStatus.INNINGS_BREAK
+        match.delivery_deadline = None
+        match.active_batter_id = None
+        match.active_bowler_id = None
+        match.innings_break_deadline = datetime.utcnow() + timedelta(seconds=INNINGS_BREAK_SECONDS)
         repo.save_room(room)
-
-        batting_mems = team_a if match.batting_team == "A" else team_b
-        bowling_mems = team_b if match.batting_team == "A" else team_a
-
-        match.active_batter_id = batting_mems[0].player_id if batting_mems else None
-
-        if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
-            match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
-            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
-        else:
-            match.active_bowler_id = None
-            match.delivery_deadline = None
-
-        for m in members:
-            if m.team == match.batting_team and m.player_id == match.active_batter_id:
-                m.role = PlayerRole.BATTER
-            elif m.team == match.bowling_team and m.player_id == match.active_bowler_id:
-                m.role = PlayerRole.BOWLER
-            else:
-                m.role = PlayerRole.SPECTATOR
-            repo.save_membership(m)
-
         repo.save_match(match)
         return match, outcome.delivery
 
@@ -552,6 +538,16 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
                     repo.save_room(room)
                     repo.save_match(match)
                     return match, outcome.delivery
+                else:
+                    # First innings completed via all out -> enter INNINGS_BREAK
+                    room.status = RoomStatus.INNINGS_BREAK
+                    match.delivery_deadline = None
+                    match.active_batter_id = None
+                    match.active_bowler_id = None
+                    match.innings_break_deadline = datetime.utcnow() + timedelta(seconds=INNINGS_BREAK_SECONDS)
+                    repo.save_room(room)
+                    repo.save_match(match)
+                    return match, outcome.delivery
         else:
             if len(batting_mems) > 1 and room.mode == GameMode.TEAM:
                 # In team matches, captain selects the next batter
@@ -589,6 +585,60 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
     return match, outcome.delivery
 
 
+def start_second_innings(room_id: str | Any) -> tuple[Room, Match]:
+    """
+    Authoritative server-side transition from INNINGS_BREAK to second innings INNINGS_ACTIVE.
+    Thread-safe and idempotent under _match_lock.
+    """
+    with _match_lock:
+        if hasattr(room_id, "id"):
+            room_id = room_id.id
+        room = repo.get_room(room_id)
+        if not room:
+            raise ValueError("room_not_found")
+        match = repo.get_match_by_room(room_id)
+        if not match:
+            raise ValueError("match_not_found")
+
+        # Idempotency: if already active or completed, return existing
+        if room.status != RoomStatus.INNINGS_BREAK:
+            return room, match
+
+        room.status = RoomStatus.INNINGS_ACTIVE
+        match.innings_break_deadline = None
+        match.is_all_out = False
+        match.all_out_team = None
+        match.version += 1
+
+        members = repo.get_room_members(room.id)
+        team_a = [m for m in members if m.team == "A"]
+        team_b = [m for m in members if m.team == "B"]
+        batting_mems = team_a if match.batting_team == "A" else team_b
+        bowling_mems = team_b if match.batting_team == "A" else team_a
+
+        match.active_batter_id = batting_mems[0].player_id if batting_mems else None
+
+        if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
+            match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
+            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+        else:
+            match.active_bowler_id = None
+            match.delivery_deadline = None
+
+        for m in members:
+            if m.team == match.batting_team and m.player_id == match.active_batter_id:
+                m.role = PlayerRole.BATTER
+            elif m.team == match.bowling_team and m.player_id == match.active_bowler_id:
+                m.role = PlayerRole.BOWLER
+            else:
+                m.role = PlayerRole.SPECTATOR
+            repo.save_membership(m)
+
+        repo.save_room(room)
+        repo.save_match(match)
+        return room, match
+
+
 def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[Delivery]]:
     """
     Submit a batter or bowler pick.
@@ -599,6 +649,15 @@ def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[
         match = repo.get_match_by_room(room.id)
         if not match:
             raise ValueError("no_active_match")
+
+        if match.winner is not None or room.status == RoomStatus.MATCH_COMPLETE:
+            raise ValueError("match_already_completed")
+
+        if room.status == RoomStatus.INNINGS_BREAK:
+            raise ValueError("cannot_submit_during_innings_break")
+
+        if room.status != RoomStatus.INNINGS_ACTIVE:
+            raise ValueError("match_not_active")
 
         mem = repo.get_membership(room.id, player.id)
         if not mem:
@@ -699,12 +758,17 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
     players_map = {m.player_id: repo.get_player(m.player_id) for m in members}
 
     match = repo.get_match_by_room(room_id)
+    if room.status == RoomStatus.INNINGS_BREAK and match and getattr(match, "innings_break_deadline", None):
+        if datetime.utcnow() >= match.innings_break_deadline:
+            room, match = start_second_innings(room.id)
+
     match_data = None
     current_delivery = None
 
     if match:
         match_data = {
             "id": match.id,
+            "version": getattr(match, "version", 0),
             "phase": match.phase.value,
             "overs": match.overs,
             "team_a_runs": match.team_a_runs,
@@ -720,6 +784,10 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
             "delivery_deadline": (
                 (match.delivery_deadline.isoformat() + "Z") if match.delivery_deadline else None
             ),
+            "innings_break_deadline": (
+                (match.innings_break_deadline.isoformat() + "Z") if getattr(match, "innings_break_deadline", None) else None
+            ),
+            "break_seconds": INNINGS_BREAK_SECONDS,
             "winner": match.winner,
             "result_summary": match.result_summary,
             "first_batting_team": getattr(match, "first_batting_team", "A"),

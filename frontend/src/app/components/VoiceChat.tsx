@@ -1,7 +1,13 @@
 /**
  * VoiceChat – Real-Time Bi-Directional WebRTC Voice Communication.
- * Provides peer-to-peer audio streaming, speech visualizer waves, speaking indicators,
- * and seamless audio playback across all participants in the room.
+ * Features:
+ * - Peer-to-peer audio streaming with Google STUN servers
+ * - Speech visualizer wave bars and active speaking indicator
+ * - Team Match Voice Control:
+ *     - Only active in team matches
+ *     - Player list displaying: player - talk / block your voice
+ *     - Real-time RTCRtpSender.replaceTrack(null / track) transport switching
+ *     - Opponent protection presets: Talk to Everyone / Team Only
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
@@ -21,6 +27,9 @@ interface VoiceChatProps {
   incomingVoiceSignal?: { from_player_id: string; signal: unknown; timestamp: number } | null
   onSendSignal?: (roomId: string, targetId: string, signal: unknown) => void
   onSetVoiceMode?: (roomId: string, mode: string, allowedRecipients: string[]) => void
+  isTeamMatch?: boolean
+  isOpenVoiceList?: boolean
+  onCloseVoiceList?: () => void
 }
 
 const RTC_CONFIG: RTCConfiguration = {
@@ -41,11 +50,19 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   members = [],
   incomingVoiceSignal,
   onSendSignal,
+  onSetVoiceMode,
+  isTeamMatch = false,
+  isOpenVoiceList,
+  onCloseVoiceList,
 }) => {
   const [micEnabled, setMicEnabled] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [isSpeakingLocal, setIsSpeakingLocal] = useState(false)
+
+  // Team Match Voice Control: tracks which players have outgoing voice blocked
+  const [showVoiceListModal, setShowVoiceListModal] = useState(false)
+  const [blockedRecipients, setBlockedRecipients] = useState<Record<string, boolean>>({})
 
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -59,74 +76,138 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const iceQueuesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
   const lastSignalTimeRef = useRef<number>(0)
 
-  // Helper to create or get an RTCPeerConnection for a given peer ID
-  const getOrCreatePeerConnection = useCallback((peerId: string): RTCPeerConnection => {
-    const existing = peerConnectionsRef.current.get(peerId)
-    if (existing && existing.connectionState !== 'closed') {
-      return existing
+  // Identify current player's team
+  const myMem = members.find((m) => m.player.id === myPlayerId)
+  const myTeam = myMem?.team
+
+  // Synchronize external modal trigger if provided
+  useEffect(() => {
+    if (isOpenVoiceList !== undefined) {
+      setShowVoiceListModal(isOpenVoiceList)
     }
+  }, [isOpenVoiceList])
 
-    const pc = new RTCPeerConnection(RTC_CONFIG)
-    peerConnectionsRef.current.set(peerId, pc)
-
-    // Send local ICE candidates to the remote peer
-    pc.onicecandidate = (event) => {
-      if (event.candidate && onSendSignal) {
-        onSendSignal(roomId, peerId, {
-          type: 'candidate',
-          candidate: event.candidate.toJSON(),
-        })
-      }
-    }
-
-    // Play incoming audio track through an HTMLAudioElement
-    pc.ontrack = (event) => {
-      let audio = audioElementsRef.current.get(peerId)
-      if (!audio) {
-        audio = new Audio()
-        audio.autoplay = true
-        audio.setAttribute('playsinline', 'true')
-        audioElementsRef.current.set(peerId, audio)
-      }
-      const stream = event.streams[0] || new MediaStream([event.track])
-      audio.srcObject = stream
-      audio.play().catch((err) => {
-        console.warn('Audio auto-play prevented (will resume on user interaction):', err)
-      })
-    }
-
-    // Attach local audio track if we already have mic stream
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getAudioTracks().forEach((track) => {
-        try {
-          pc.addTrack(track, mediaStreamRef.current!)
-        } catch {
-          // ignore duplicate track
-        }
-      })
-    }
-
-    return pc
-  }, [roomId, onSendSignal])
-
-  // Attach local tracks to all existing peer connections
-  const addLocalTracksToAllPeers = useCallback((stream: MediaStream) => {
-    peerConnectionsRef.current.forEach((pc) => {
-      const senders = pc.getSenders()
-      stream.getAudioTracks().forEach((track) => {
-        const existingSender = senders.find((s) => s.track?.kind === 'audio')
-        if (existingSender) {
-          existingSender.replaceTrack(track).catch(() => {})
-        } else {
-          try {
-            pc.addTrack(track, stream)
-          } catch {
-            // ignore
+  // In team matches: initialize default blocked state (opponents default to blocked, teammates default to talk)
+  useEffect(() => {
+    if (!isTeamMatch || !myTeam) return
+    setBlockedRecipients((prev) => {
+      const updated = { ...prev }
+      members.forEach((m) => {
+        if (m.player.id === myPlayerId) return
+        // Only set default if user has not yet customized this player
+        if (updated[m.player.id] === undefined) {
+          if (m.team && m.team !== myTeam) {
+            updated[m.player.id] = true // Block opponents by default in team matches
+          } else {
+            updated[m.player.id] = false // Teammates can talk by default
           }
         }
       })
+      return updated
     })
-  }, [])
+  }, [isTeamMatch, myTeam, members, myPlayerId])
+
+  // Apply real-time transport permissions to WebRTC senders
+  const applyVoicePermissions = useCallback(
+    (blockedMap: Record<string, boolean>) => {
+      const localTrack = mediaStreamRef.current?.getAudioTracks()[0]
+      peerConnectionsRef.current.forEach((pc, peerId) => {
+        const isBlocked = isTeamMatch && Boolean(blockedMap[peerId])
+        const senders = pc.getSenders().filter((s) => !s.track || s.track.kind === 'audio')
+        senders.forEach((s) => {
+          if (!isBlocked && localTrack && localTrack.enabled && !isMuted) {
+            s.replaceTrack(localTrack).catch(() => {})
+          } else {
+            s.replaceTrack(null).catch(() => {})
+          }
+        })
+      })
+    },
+    [isTeamMatch, isMuted]
+  )
+
+  // Helper to create or get an RTCPeerConnection for a given peer ID
+  const getOrCreatePeerConnection = useCallback(
+    (peerId: string): RTCPeerConnection => {
+      const existing = peerConnectionsRef.current.get(peerId)
+      if (existing && existing.connectionState !== 'closed') {
+        return existing
+      }
+
+      const pc = new RTCPeerConnection(RTC_CONFIG)
+      peerConnectionsRef.current.set(peerId, pc)
+
+      // Send local ICE candidates to the remote peer
+      pc.onicecandidate = (event) => {
+        if (event.candidate && onSendSignal) {
+          onSendSignal(roomId, peerId, {
+            type: 'candidate',
+            candidate: event.candidate.toJSON(),
+          })
+        }
+      }
+
+      // Play incoming audio track through an HTMLAudioElement
+      pc.ontrack = (event) => {
+        let audio = audioElementsRef.current.get(peerId)
+        if (!audio) {
+          audio = new Audio()
+          audio.autoplay = true
+          audio.setAttribute('playsinline', 'true')
+          audioElementsRef.current.set(peerId, audio)
+        }
+        const stream = event.streams[0] || new MediaStream([event.track])
+        audio.srcObject = stream
+        audio.play().catch((err) => {
+          console.warn('Audio auto-play prevented (will resume on user interaction):', err)
+        })
+      }
+
+      // Attach local audio track if we already have mic stream
+      if (mediaStreamRef.current) {
+        const isBlocked = isTeamMatch && Boolean(blockedRecipients[peerId])
+        mediaStreamRef.current.getAudioTracks().forEach((track) => {
+          try {
+            const sender = pc.addTrack(track, mediaStreamRef.current!)
+            if (isBlocked || isMuted) {
+              sender.replaceTrack(null).catch(() => {})
+            }
+          } catch {
+            // ignore duplicate track
+          }
+        })
+      }
+
+      return pc
+    },
+    [roomId, onSendSignal, isTeamMatch, blockedRecipients, isMuted]
+  )
+
+  // Attach local tracks to all existing peer connections respecting blocked state
+  const addLocalTracksToAllPeers = useCallback(
+    (stream: MediaStream) => {
+      peerConnectionsRef.current.forEach((pc, peerId) => {
+        const isBlocked = isTeamMatch && Boolean(blockedRecipients[peerId])
+        const senders = pc.getSenders()
+        stream.getAudioTracks().forEach((track) => {
+          const existingSender = senders.find((s) => !s.track || s.track.kind === 'audio')
+          if (existingSender) {
+            existingSender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
+          } else {
+            try {
+              const sender = pc.addTrack(track, stream)
+              if (isBlocked || isMuted) {
+                sender.replaceTrack(null).catch(() => {})
+              }
+            } catch {
+              // ignore
+            }
+          }
+        })
+      })
+    },
+    [isTeamMatch, blockedRecipients, isMuted]
+  )
 
   // Initialize Microphone Media Stream and start signaling
   const initMicrophone = useCallback(async () => {
@@ -142,7 +223,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       mediaStreamRef.current = stream
 
       // Set up Web Audio Analyser to detect speech volume
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const AudioCtx =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       const ctx = new AudioCtx()
       audioContextRef.current = ctx
 
@@ -241,7 +323,6 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       const pc = getOrCreatePeerConnection(from_player_id)
 
       if (data.type === 'ready') {
-        // Peer is ready. Offerer with higher ID creates offer
         if (myPlayerId > from_player_id) {
           try {
             const offer = await pc.createOffer()
@@ -252,10 +333,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           }
         }
       } else if (data.type === 'offer' && data.sdp) {
-        // Peer sent offer -> set remote description and send answer
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-          // Flush queued candidates
           const queue = iceQueuesRef.current.get(from_player_id) || []
           for (const cand of queue) {
             await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
@@ -269,11 +348,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           console.warn('Error handling offer:', err)
         }
       } else if (data.type === 'answer' && data.sdp) {
-        // Peer sent answer -> set remote description
         try {
           if (pc.signalingState === 'have-local-offer') {
             await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-            // Flush queued candidates
             const queue = iceQueuesRef.current.get(from_player_id) || []
             for (const cand of queue) {
               await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
@@ -284,7 +361,6 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           console.warn('Error handling answer:', err)
         }
       } else if (data.type === 'candidate' && data.candidate) {
-        // Peer sent ICE candidate
         try {
           if (pc.remoteDescription && pc.remoteDescription.type) {
             await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
@@ -343,6 +419,73 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       setIsSpeakingLocal(false)
     }
     onVoiceStateChange(roomId, false, nextMuted)
+
+    // Update WebRTC senders immediately
+    peerConnectionsRef.current.forEach((pc, peerId) => {
+      const isBlocked = isTeamMatch && Boolean(blockedRecipients[peerId])
+      const localTrack = mediaStreamRef.current?.getAudioTracks()[0]
+      const senders = pc.getSenders().filter((s) => !s.track || s.track.kind === 'audio')
+      senders.forEach((s) => {
+        if (!nextMuted && !isBlocked && localTrack) {
+          s.replaceTrack(localTrack).catch(() => {})
+        } else {
+          s.replaceTrack(null).catch(() => {})
+        }
+      })
+    })
+  }
+
+  // Set individual player voice action: talk (blocked=false) or block your voice (blocked=true)
+  const setPlayerVoice = (peerId: string, blocked: boolean) => {
+    setBlockedRecipients((prev) => {
+      const updated = { ...prev, [peerId]: blocked }
+      applyVoicePermissions(updated)
+      if (onSetVoiceMode && roomId) {
+        const allowed = members
+          .filter((m) => m.player.id !== myPlayerId && !updated[m.player.id])
+          .map((m) => m.player.id)
+        onSetVoiceMode(roomId, 'CUSTOM', allowed)
+      }
+      return updated
+    })
+  }
+
+  // Quick preset: Talk to Everyone
+  const setTalkToEveryone = () => {
+    setBlockedRecipients((prev) => {
+      const updated = { ...prev }
+      members.forEach((m) => {
+        if (m.player.id !== myPlayerId) {
+          updated[m.player.id] = false
+        }
+      })
+      applyVoicePermissions(updated)
+      if (onSetVoiceMode && roomId) {
+        const allowed = members.filter((m) => m.player.id !== myPlayerId).map((m) => m.player.id)
+        onSetVoiceMode(roomId, 'EVERYONE', allowed)
+      }
+      return updated
+    })
+  }
+
+  // Quick preset: Team Only (Block Opponents)
+  const setTeamOnly = () => {
+    setBlockedRecipients((prev) => {
+      const updated = { ...prev }
+      members.forEach((m) => {
+        if (m.player.id !== myPlayerId) {
+          updated[m.player.id] = Boolean(myTeam && m.team && m.team !== myTeam)
+        }
+      })
+      applyVoicePermissions(updated)
+      if (onSetVoiceMode && roomId) {
+        const allowed = members
+          .filter((m) => m.player.id !== myPlayerId && (!m.team || m.team === myTeam))
+          .map((m) => m.player.id)
+        onSetVoiceMode(roomId, 'TEAM_ONLY', allowed)
+      }
+      return updated
+    })
   }
 
   // Cleanup on unmount
@@ -371,8 +514,18 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     .filter(([id, state]) => state.is_speaking && id !== myPlayerId)
     .map(([, state]) => state.player_name)
 
+  const otherMembers = members.filter((m) => m.player.id !== myPlayerId)
+  const blockedCount = otherMembers.filter((m) => blockedRecipients[m.player.id]).length
+  const isTeamOnlyActive =
+    otherMembers.length > 0 &&
+    otherMembers.every((m) => {
+      const isOpponent = Boolean(myTeam && m.team && m.team !== myTeam)
+      return isOpponent ? blockedRecipients[m.player.id] : !blockedRecipients[m.player.id]
+    })
+
   return (
     <div className={styles.voiceContainer}>
+      {/* Microphone Main Toggle */}
       <button
         type="button"
         className={`${styles.micBtn} ${!isMuted && micEnabled ? styles.micActive : styles.micMuted} ${isSpeakingLocal ? styles.micSpeaking : ''}`}
@@ -397,6 +550,22 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         )}
       </button>
 
+      {/* Voice List Button (Shown only in team matches) */}
+      {isTeamMatch && (
+        <button
+          type="button"
+          className={`${styles.voiceListBtn} ${blockedCount > 0 ? styles.voiceListBtnBlocked : ''}`}
+          onClick={() => setShowVoiceListModal(true)}
+          title="Team Voice Control (Player List)"
+          aria-label="Open Team Voice Control"
+        >
+          <span className={styles.voiceListIcon}>👥</span>
+          <span className={styles.voiceListLabel}>
+            {blockedCount > 0 ? `Voice (${blockedCount} Blocked)` : 'Voice List'}
+          </span>
+        </button>
+      )}
+
       {/* Active speaker pill */}
       {activeSpeakers.length > 0 && (
         <div className={styles.speakerPill}>
@@ -408,6 +577,144 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       {permissionError && (
         <div className={styles.permError} onClick={() => setPermissionError(null)}>
           ⚠️ {permissionError}
+        </div>
+      )}
+
+      {/* Player List Voice Permissions Modal (Only in team matches) */}
+      {isTeamMatch && showVoiceListModal && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            setShowVoiceListModal(false)
+            onCloseVoiceList?.()
+          }}
+        >
+          <div className={styles.permissionsModal} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className={styles.modalHeader}>
+              <div className={styles.modalTitleGroup}>
+                <span style={{ fontSize: '1.4rem' }}>🎙️</span>
+                <div>
+                  <h3 className={styles.modalTitle}>Voice Control (Team Match)</h3>
+                  <span className={styles.modalSub}>Manage who can hear your voice in real time</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => {
+                  setShowVoiceListModal(false)
+                  onCloseVoiceList?.()
+                }}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Quick Presets */}
+            <div className={styles.presetSection}>
+              <span className={styles.sectionTitle}>Quick Presets</span>
+              <div className={styles.presetRow}>
+                <button
+                  type="button"
+                  className={`${styles.presetBtn} ${blockedCount === 0 ? styles.presetBtnActive : ''}`}
+                  onClick={setTalkToEveryone}
+                >
+                  🗣️ Talk to Everyone
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.presetBtn} ${isTeamOnlyActive ? styles.presetBtnActive : ''}`}
+                  onClick={setTeamOnly}
+                >
+                  🛡️ Team Only (Block Opponents)
+                </button>
+              </div>
+            </div>
+
+            {/* Player List */}
+            <div className={styles.playerListSection}>
+              <div className={styles.sectionTitleRow}>
+                <span className={styles.sectionTitle}>PLAYER LIST:</span>
+                <span className={styles.playerCountBadge}>
+                  {otherMembers.length} Player{otherMembers.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {otherMembers.length === 0 ? (
+                <div className={styles.emptyList}>
+                  Waiting for other players to join the match...
+                </div>
+              ) : (
+                <div className={styles.playerListContainer}>
+                  {otherMembers.map((m) => {
+                    const peerId = m.player.id
+                    const isBlocked = Boolean(blockedRecipients[peerId])
+                    const isTeammate = Boolean(myTeam && m.team === myTeam)
+                    const isSpeaking = voiceStates[peerId]?.is_speaking || false
+
+                    return (
+                      <div
+                        key={peerId}
+                        className={`${styles.playerVoiceRow} ${isBlocked ? styles.playerVoiceRowBlocked : ''}`}
+                      >
+                        <div className={styles.playerVoiceLeft}>
+                          <div className={styles.playerNameRow}>
+                            <span className={styles.playerVoiceName}>{m.player.display_name}</span>
+                            {isSpeaking && <span className={styles.speakingTag}>🟢 Speaking</span>}
+                          </div>
+                          <div className={styles.playerRoleRow}>
+                            <span className={isTeammate ? styles.teammateTag : styles.opponentTag}>
+                              {isTeammate ? '🛡️ My Team' : '⚔️ Opponent'}
+                              {m.team ? ` (Team ${m.team})` : ''}
+                            </span>
+                            {m.is_captain && <span className={styles.captainTag}>⭐ Captain</span>}
+                          </div>
+                        </div>
+
+                        {/* player - talk / block your voice */}
+                        <div className={styles.playerVoiceActions}>
+                          <button
+                            type="button"
+                            className={`${styles.voiceBtn} ${styles.voiceBtnTalk} ${!isBlocked ? styles.voiceBtnActive : ''}`}
+                            onClick={() => setPlayerVoice(peerId, false)}
+                            title={`Allow ${m.player.display_name} to hear you`}
+                          >
+                            🗣️ Talk
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.voiceBtn} ${styles.voiceBtnBlock} ${isBlocked ? styles.voiceBtnActiveBlock : ''}`}
+                            onClick={() => setPlayerVoice(peerId, true)}
+                            title={`Block your voice from ${m.player.display_name}`}
+                          >
+                            🚫 Block your voice
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className={styles.modalFooter}>
+              <div className={styles.modalFooterHint}>
+                💡 <strong>Tip:</strong> Switching between <em>Talk</em> and <em>Block your voice</em> applies instantly during the game without disconnecting audio.
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: '100%', padding: '10px' }}
+                onClick={() => {
+                  setShowVoiceListModal(false)
+                  onCloseVoiceList?.()
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

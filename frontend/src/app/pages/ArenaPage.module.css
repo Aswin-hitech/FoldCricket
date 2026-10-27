@@ -124,6 +124,11 @@
   gap: 8px;
 }
 
+.navVoiceWrapper {
+  display: flex;
+  align-items: center;
+}
+
 .navDesktopItems {
   display: flex;
   align-items: center;

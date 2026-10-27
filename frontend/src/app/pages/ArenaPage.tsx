@@ -85,6 +85,7 @@ export default function ArenaPage() {
   const shownAllOutRef = useRef<Set<string>>(new Set())
   const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
   const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams'>('game')
+  const [isVoiceListOpen, setIsVoiceListOpen] = useState(false)
 
   // Entry pop-up mic prompt
   const [showMicPrompt, setShowMicPrompt] = useState(() => {
@@ -108,6 +109,7 @@ export default function ArenaPage() {
   const isHost = myMembership?.is_host ?? false
   const isCaptain = myMembership?.is_captain ?? false
   const isPaused = snapshot?.room?.status === 'PAUSED' || snapshot?.room?.is_paused || (pausedInfo?.paused ?? false)
+  const isTeamMatch = snapshot?.room?.mode === 'TEAM'
 
   const bowlingTeam = match?.batting_team === 'A' ? 'B' : 'A'
   const bowlingMembers = members.filter(m => m.team === bowlingTeam)
@@ -658,6 +660,24 @@ export default function ArenaPage() {
 
         {/* Right Action Controls */}
         <div className={styles.navRight}>
+          {/* Voice Chat Microphone facility */}
+          <div className={styles.navVoiceWrapper}>
+            <VoiceChat
+              roomId={roomId || ''}
+              myPlayerId={myPlayerId}
+              myDisplayName={myMembership?.player.display_name || 'Player'}
+              voiceStates={voiceStates}
+              onVoiceStateChange={updateVoiceState}
+              members={members}
+              incomingVoiceSignal={incomingVoiceSignal}
+              onSendSignal={sendVoiceSignal}
+              onSetVoiceMode={setVoiceMode}
+              isTeamMatch={isTeamMatch}
+              isOpenVoiceList={isVoiceListOpen}
+              onCloseVoiceList={() => setIsVoiceListOpen(false)}
+            />
+          </div>
+
           {/* Desktop Nav Controls */}
           <div className={styles.navDesktopItems}>
             {/* Room Code with one-click copy */}
@@ -673,19 +693,6 @@ export default function ArenaPage() {
 
             {/* Network Latency Indicator */}
             <NetworkIndicator status={status} latency={pingLatency} />
-
-            {/* Voice Chat Microphone facility */}
-            <VoiceChat
-              roomId={roomId || ''}
-              myPlayerId={myPlayerId}
-              myDisplayName={myMembership?.player.display_name || 'Player'}
-              voiceStates={voiceStates}
-              onVoiceStateChange={updateVoiceState}
-              members={members}
-              incomingVoiceSignal={incomingVoiceSignal}
-              onSendSignal={sendVoiceSignal}
-              onSetVoiceMode={setVoiceMode}
-            />
 
             {/* Sound Toggle */}
             <button
@@ -1438,6 +1445,19 @@ export default function ArenaPage() {
           <span className={styles.mobileTabIcon}>💬</span>
           <span>Chat</span>
         </button>
+        {isTeamMatch && (
+          <button
+            type="button"
+            className={`${styles.mobileTabBtn} ${activeMobileTab === 'teams' ? styles.activeMobileTab : ''}`}
+            onClick={() => {
+              setActiveMobileTab('teams')
+              setIsVoiceListOpen(true)
+            }}
+          >
+            <span className={styles.mobileTabIcon}>👥</span>
+            <span>Voice</span>
+          </button>
+        )}
       </nav>
 
       {/* ============================================================
@@ -1586,20 +1606,20 @@ export default function ArenaPage() {
                 <span className={styles.mobileItemSub}>{copiedRoomId ? 'Copied!' : 'Tap to copy'}</span>
               </button>
 
-              {/* Voice Chat Component in Mobile Menu */}
-              <div className={styles.mobileMenuVoiceRow}>
-                <VoiceChat
-                  roomId={roomId || ''}
-                  myPlayerId={myPlayerId}
-                  myDisplayName={myMembership?.player.display_name || 'Player'}
-                  voiceStates={voiceStates}
-                  onVoiceStateChange={updateVoiceState}
-                  members={members}
-                  incomingVoiceSignal={incomingVoiceSignal}
-                  onSendSignal={sendVoiceSignal}
-                  onSetVoiceMode={setVoiceMode}
-                />
-              </div>
+              {/* Voice List Settings (Team Match) */}
+              {isTeamMatch && (
+                <button
+                  type="button"
+                  className={styles.mobileMenuItem}
+                  onClick={() => {
+                    setIsVoiceListOpen(true)
+                    setIsMobileMenuOpen(false)
+                  }}
+                >
+                  <span>👥 Voice List (Talk / Block)</span>
+                  <span className={styles.mobileItemSub}>Configure player voice permissions</span>
+                </button>
+              )}
 
               {/* Match Chat Button */}
               <button

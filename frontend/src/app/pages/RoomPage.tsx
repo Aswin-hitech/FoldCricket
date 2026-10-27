@@ -215,6 +215,7 @@ export default function RoomPage() {
             members={members}
             incomingVoiceSignal={incomingVoiceSignal}
             onSendSignal={sendVoiceSignal}
+            isTeamMatch={room?.mode === 'TEAM'}
           />
 
           {/* Real-time Internet Speed Indicator with signal bars */}

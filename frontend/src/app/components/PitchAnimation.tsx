@@ -161,8 +161,10 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
         overBalls.push({ label: '6', type: 'six' })
       } else if (outcome.runs === 4) {
         overBalls.push({ label: '4', type: 'four' })
-      } else {
+      } else if (outcome.runs > 0) {
         overBalls.push({ label: String(outcome.runs), type: 'neutral' })
+      } else {
+        overBalls.push({ label: '', type: 'empty' })
       }
     } else {
       overBalls.push({ label: '', type: 'empty' })

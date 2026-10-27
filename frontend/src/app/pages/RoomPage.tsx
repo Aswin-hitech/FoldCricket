@@ -68,24 +68,12 @@ export default function RoomPage() {
     if (room?.wickets) setWickets(room.wickets)
   }, [room?.overs, room?.wickets])
 
-  // Watch for toss decision completion: display announcement smoothly for 3.4s before moving to arena
+  // Once toss is decided or match has started, immediately navigate to arena (skip tossing again)
   useEffect(() => {
-    if (room?.toss?.elected_choice) {
-      setIsTossAnnouncing(true)
-      const timer = setTimeout(() => {
-        setIsTossAnnouncing(false)
-        navigate(`/room/${roomId}/arena`)
-      }, 3400)
-      return () => clearTimeout(timer)
+    if (room?.toss?.elected_choice || snapshot?.match || snapshot?.room?.status === 'INNINGS_ACTIVE') {
+      navigate(`/room/${roomId}/arena`, { replace: true })
     }
-  }, [room?.toss?.elected_choice, roomId, navigate])
-
-  // Navigate to arena when match starts if not in toss transition
-  useEffect(() => {
-    if (snapshot?.match && snapshot.room.status === 'INNINGS_ACTIVE' && !isTossAnnouncing && !room?.toss?.elected_choice) {
-      navigate(`/room/${roomId}/arena`)
-    }
-  }, [snapshot?.room?.status, snapshot?.match, navigate, roomId, isTossAnnouncing, room?.toss?.elected_choice])
+  }, [room?.toss?.elected_choice, snapshot?.match, snapshot?.room?.status, roomId, navigate])
 
   useEffect(() => {
     if (room?.overs) setOvers(room.overs)
@@ -113,7 +101,10 @@ export default function RoomPage() {
   }
 
   function handleDecideToss(decision: 'BAT' | 'BOWL') {
-    if (roomId) decideToss(roomId, decision)
+    if (roomId) {
+      decideToss(roomId, decision)
+      navigate(`/room/${roomId}/arena`, { replace: true })
+    }
   }
 
   function handleAssignTeam(playerId: string, team: 'A' | 'B') {
@@ -450,8 +441,8 @@ export default function RoomPage() {
         </div>
       )}
 
-      {/* 3D Animated Coin Toss Modal */}
-      {(room?.status === 'TOSS' || isTossAnnouncing) && (
+      {/* 3D Animated Coin Toss Modal - only while toss is active and not yet decided */}
+      {room?.status === 'TOSS' && !room?.toss?.elected_choice && (
         <CoinTossModal
           toss={room?.toss}
           myPlayerId={myPlayerId}

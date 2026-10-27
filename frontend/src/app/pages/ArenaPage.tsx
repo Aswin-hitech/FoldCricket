@@ -314,9 +314,9 @@ export default function ArenaPage() {
     const curOver = match.current_over
     const curInnings = match.phase
 
-    // Filter deliveries belonging to current innings
+    // Filter deliveries belonging to current innings (valid hand-cricket outcomes: OUT or 1, 2, 3, 4, 6)
     const inningsDelivs = recentDeliveries.filter(
-      d => (d.innings === curInnings || !d.innings)
+      d => (d.innings === curInnings || !d.innings) && (d.result === 'OUT' || d.runs_scored > 0)
     )
 
     // Current over deliveries
@@ -403,13 +403,7 @@ export default function ArenaPage() {
   }, [members, recentDeliveries, match])
 
   if (!match) {
-    if (
-      snapshot?.room &&
-      snapshot.room.status !== 'INNINGS_ACTIVE' &&
-      snapshot.room.status !== 'MATCH_COMPLETE' &&
-      snapshot.room.status !== 'PAUSED' &&
-      snapshot.room.status !== 'INNINGS_BREAK'
-    ) {
+    if (snapshot?.room && snapshot.room.status === 'LOBBY') {
       navigate(`/room/${roomId}`)
       return null
     }

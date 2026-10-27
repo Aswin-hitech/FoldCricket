@@ -67,7 +67,7 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
           <div className={styles.section}>
             {isCaller ? (
               <>
-                <p className={styles.prompt}>You are calling the toss. Choose Heads or Tails:</p>
+                <p className={styles.prompt}>🪙 As the opponent, you call the toss! Choose <strong>Heads</strong> or <strong>Tails</strong>:</p>
                 <div className={styles.btnRow}>
                   <button
                     type="button"
@@ -96,7 +96,7 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
             ) : (
               <div className={styles.waiting}>
                 <span className={styles.spinner} />
-                <p>Waiting for <strong>{toss.caller_name || 'Captain'}</strong> to call the toss…</p>
+                <p>Waiting for opponent <strong>{toss.caller_name || 'Captain'}</strong> to call the toss…</p>
               </div>
             )}
           </div>

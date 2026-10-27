@@ -7,6 +7,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { sound } from '../../services/sound'
+import { vibration } from '../../services/vibration'
 import { HandGesture } from '../components/HandGesture'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { VoiceChat } from '../components/VoiceChat'
@@ -68,17 +69,18 @@ export default function ArenaPage() {
     }
   }, [roomId, syncRoom, status])
 
-  // Handle match finished with celebration sound and confetti
+  // Handle match finished with celebration sound, vibration, and confetti
   useEffect(() => {
     if (matchFinished) {
       sound.playWin()
+      vibration.win()
       setCelebrationTrigger('WIN')
       const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 3500)
       return () => clearTimeout(timer)
     }
   }, [matchFinished, navigate, roomId])
 
-  // Handle reveal animation, celebration particle triggers, and sound effects
+  // Handle reveal animation, celebration particle triggers, vibration, and sound effects
   useEffect(() => {
     if (lastReveal) {
       setRevealAnimation(lastReveal)
@@ -87,12 +89,15 @@ export default function ArenaPage() {
 
       if (lastReveal.result === 'OUT') {
         sound.playOut()
+        vibration.wicket()
         setCelebrationTrigger('WICKET')
       } else if (lastReveal.runs_scored === 6) {
         sound.playSix()
+        vibration.six()
         setCelebrationTrigger('SIX')
       } else if (lastReveal.runs_scored === 4) {
         sound.playFour()
+        vibration.four()
         setCelebrationTrigger('FOUR')
       } else {
         sound.playRuns(lastReveal.runs_scored)
@@ -130,12 +135,14 @@ export default function ArenaPage() {
   function handlePickSelect(pick: number) {
     if (pickSubmitted || !isActivePlayer) return
     sound.playClick()
+    vibration.tap()
     setSelectedPick(pick)
   }
 
   function handlePickSubmit() {
     if (selectedPick === null || pickSubmitted || !roomId) return
     sound.playClick()
+    vibration.tap()
     submitPick(roomId, selectedPick)
     setPickSubmitted(true)
   }

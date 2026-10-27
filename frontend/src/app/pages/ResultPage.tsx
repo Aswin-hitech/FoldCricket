@@ -9,7 +9,9 @@ import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { Footer } from '../components/Footer'
 import { CelebrationEffects } from '../components/CelebrationEffects'
+import { FirstGameFeedbackModal } from '../components/FirstGameFeedbackModal'
 import { sound } from '../../services/sound'
+import { vibration } from '../../services/vibration'
 import styles from './ResultPage.module.css'
 
 export default function ResultPage() {
@@ -19,7 +21,19 @@ export default function ResultPage() {
   const myPlayerId = localStorage.getItem('hcl_player_id') || ''
   const { snapshot, syncRoom } = useSocket(sessionToken)
 
-  const [countdown, setCountdown] = useState(15)
+  const [countdown, setCountdown] = useState(25)
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+
+  // First game check: prompt feedback modal for new players
+  useEffect(() => {
+    const feedbackDone = localStorage.getItem('hcl_feedback_submitted') === 'true'
+    if (!feedbackDone) {
+      const timer = setTimeout(() => {
+        setShowFeedbackModal(true)
+      }, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [])
 
   useEffect(() => {
     if (roomId) {
@@ -46,15 +60,18 @@ export default function ResultPage() {
   const teamA = members.filter(m => m.team === 'A')
   const teamB = members.filter(m => m.team === 'B')
 
-  // Sound effect based on player outcome
+  // Sound and vibration effect based on player outcome
   useEffect(() => {
     if (isWin || isTie) {
       sound.playWin()
+      vibration.win()
     }
   }, [isWin, isTie])
 
-  // Automatic return countdown to landing page
+  // Automatic return countdown to landing page (paused while feedback modal is open)
   useEffect(() => {
+    if (showFeedbackModal) return
+
     const timer = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
@@ -67,7 +84,7 @@ export default function ResultPage() {
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [navigate])
+  }, [navigate, showFeedbackModal])
 
   const outcomeType = isWin ? 'WIN' : isLoss ? 'LOSS' : isTie ? 'TIE' : 'SPECTATOR'
 
@@ -175,8 +192,28 @@ export default function ResultPage() {
           >
             🔄 Rematch in Lobby
           </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              sound.playClick()
+              setShowFeedbackModal(true)
+            }}
+          >
+            📝 First Game Feedback Report
+          </button>
         </div>
       </div>
+
+      {/* First Game Feedback Report Modal for Supabase collection */}
+      <FirstGameFeedbackModal
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        myPlayerId={myPlayerId}
+        myDisplayName={myMembership?.player.display_name || 'Player'}
+        roomCode={snapshot?.room?.join_code}
+        matchSummary={match?.result_summary}
+      />
 
       <Footer />
 

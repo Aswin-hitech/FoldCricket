@@ -44,9 +44,12 @@ def test_solo_gameplay_progression_and_innings_transition():
     room_service.set_ready(room, p1, True)
     room_service.set_ready(room, p2, True)
 
-    # 4. Toss
+    # 4. Toss - Opponent p2 calls the toss
     room_service.start_toss(room, p1)
-    toss = room_service.call_toss(room, p1, "HEADS")
+    assert room.toss["caller_id"] == p2.id
+    with pytest.raises(PermissionError):
+        room_service.call_toss(room, p1, "HEADS")  # Host cannot call toss
+    toss = room_service.call_toss(room, p2, "HEADS")  # Opponent calls toss
     winner = p1 if toss["winner_id"] == p1.id else p2
     match = room_service.decide_toss(room, winner, "BAT")
 

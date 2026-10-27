@@ -35,10 +35,12 @@ def create_app(config: type = Config) -> Flask:
     from .api.health import bp as health_bp
     from .api.rooms import bp as rooms_bp
     from .api.telemetry import bp as telemetry_bp
+    from .api.feedback import bp as feedback_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(rooms_bp, url_prefix="/api")
     app.register_blueprint(telemetry_bp, url_prefix="/api")
+    app.register_blueprint(feedback_bp, url_prefix="/api")
 
     # Socket handlers
     from .sockets import events  # noqa: F401 – registers handlers as a side effect

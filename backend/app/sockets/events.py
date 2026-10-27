@@ -22,7 +22,7 @@ from ..security.utils import (
     validate_display_name,
 )
 from ..services import room_service
-from ..services.supabase_logger import get_client_ip, log_ip_event_async
+from ..services.supabase_logger import get_client_ip, log_ip_event_async, log_feedback_to_supabase_async
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -826,6 +826,29 @@ def on_match_resume(data):
     socketio.emit("match:resumed", {"paused": False}, room=room_id)
     _broadcast_snapshot(room_id)
     emit("match:resume_ack", _ok())
+
+
+@socketio.on("feedback:submit")
+def on_feedback_submit(data):
+    player = _require_player()
+    player_id = player.id if player else (data or {}).get("player_id", "unknown")
+    player_name = player.display_name if player else (data or {}).get("player_name", "Anonymous Player")
+
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    client_ip = get_client_ip(headers, request.remote_addr)
+
+    log_feedback_to_supabase_async(
+        player_id=player_id,
+        player_name=player_name,
+        rating=int((data or {}).get("rating", 5)),
+        feedback_text=(data or {}).get("feedback_text", "").strip(),
+        categories=(data or {}).get("categories", []),
+        room_code=(data or {}).get("room_code"),
+        client_ip=client_ip,
+        headers=headers,
+        metadata=(data or {}).get("metadata", {}),
+    )
+    emit("feedback:ack", _ok({"message": "feedback_saved"}))
 
 
 # ---------------------------------------------------------------------------

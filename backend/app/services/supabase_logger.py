@@ -166,3 +166,96 @@ def log_ip_event_async(
         daemon=True,
     )
     thread.start()
+
+
+def log_feedback_to_supabase_async(
+    player_id: str,
+    player_name: str,
+    rating: int,
+    feedback_text: str,
+    categories: Optional[list] = None,
+    room_code: Optional[str] = None,
+    client_ip: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """
+    Saves a player's first-game feedback report to Supabase Storage bucket and Database table.
+    """
+    supabase_url = os.getenv("SUPABASE_URL", "").strip()
+    supabase_key = (
+        os.getenv("SUPABASE_SECRET_KEY")
+        or os.getenv("SUPABASE_KEY")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_PUBLISHABLE_KEY")
+        or os.getenv("SUPABASE_ANON_KEY")
+        or ""
+    ).strip()
+    bucket_name = os.getenv("SUPABASE_BUCKET_NAME", "ip-logs").strip()
+
+    if not supabase_url or not supabase_key:
+        logger.info("Supabase not configured for feedback logging, skipping upload.")
+        return
+
+    safe_headers = dict(headers or {})
+    for sensitive in ["authorization", "cookie", "token", "x-auth-token"]:
+        safe_headers.pop(sensitive, None)
+        safe_headers.pop(sensitive.upper(), None)
+
+    now = datetime.utcnow()
+    date_str = now.strftime("%Y-%m-%d")
+    timestamp_ms = int(time.time() * 1000)
+    clean_id = (player_id or "anon").replace(":", "_").replace("-", "_")
+    file_path = f"feedback/{date_str}/{clean_id}_{timestamp_ms}.json"
+
+    feedback_payload = {
+        "player_id": player_id,
+        "player_name": player_name,
+        "rating": rating,
+        "feedback_text": feedback_text,
+        "categories": categories or [],
+        "room_code": room_code,
+        "ip": client_ip,
+        "timestamp_utc": now.isoformat() + "Z",
+        "date": date_str,
+        "headers": safe_headers,
+        "metadata": metadata or {},
+    }
+
+    def _worker():
+        # 1. Upload to Supabase Storage bucket
+        _upload_to_supabase_bucket(
+            supabase_url, supabase_key, bucket_name, file_path, feedback_payload
+        )
+        # 2. Attempt insert into Supabase database table 'feedback'
+        try:
+            db_endpoint = f"{supabase_url.rstrip('/')}/rest/v1/feedback"
+            db_data = json.dumps({
+                "player_id": player_id,
+                "player_name": player_name,
+                "rating": rating,
+                "feedback_text": feedback_text,
+                "categories": categories or [],
+                "room_code": room_code,
+                "ip": client_ip,
+                "metadata": metadata or {},
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                db_endpoint,
+                data=db_data,
+                headers={
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception:
+            # Table might not exist or requires custom policies; storage bucket already has the payload!
+            pass
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()

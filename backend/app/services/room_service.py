@@ -188,12 +188,25 @@ def start_toss(room: Room, host: Player) -> dict:
     if not team_a or not team_b:
         raise ValueError("teams_incomplete")
 
+    # Toss is called by the opponent (visiting team/player)
+    host_team = host_mem.team or "A"
+    opp_team = "B" if host_team == "A" else "A"
+    opp_mems = [m for m in members if m.team == opp_team]
+    if not opp_mems:
+        opp_mems = [m for m in members if m.player_id != host.id]
+
+    opp_captain_mem = next((m for m in opp_mems if m.is_captain), opp_mems[0])
+    opp_player = repo.get_player(opp_captain_mem.player_id)
+    if not opp_player:
+        opp_player = host
+        opp_captain_mem = host_mem
+
     room.status = RoomStatus.TOSS
     room.toss = {
         "state": "CALLING",
-        "caller_id": host.id,
-        "caller_name": host.display_name,
-        "caller_team": host_mem.team or "A",
+        "caller_id": opp_player.id,
+        "caller_name": opp_player.display_name,
+        "caller_team": opp_captain_mem.team or opp_team,
         "called_choice": None,
         "coin_result": None,
         "winner_id": None,

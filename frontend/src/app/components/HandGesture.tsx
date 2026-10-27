@@ -138,6 +138,30 @@ export const HandGesture: React.FC<HandGestureProps> = ({
             </g>
           )}
 
+          {number === 5 && (
+            // FIVE: All 5 fingers fully extended (Open Palm / High Five)
+            <g>
+              {/* Palm */}
+              <path d="M 28 50 C 28 38, 76 38, 76 50 L 72 86 C 72 90, 30 90, 30 86 Z" fill="url(#palmShadow)" />
+              {/* Extended Thumb pointing left */}
+              <path d="M 32 58 C 22 56, 12 46, 12 36 C 12 30, 20 28, 28 34 C 34 38, 38 48, 38 56 Z" fill="url(#fingerHighlight)" stroke="#dd6b20" strokeWidth="1" />
+              <ellipse cx="17" cy="34" rx="3.5" ry="2.2" fill="#fff5eb" opacity="0.8" transform="rotate(-20 17 34)" />
+              {/* Index */}
+              <rect x="32" y="16" width="9" height="38" rx="4.5" fill="url(#fingerHighlight)" stroke="#dd6b20" strokeWidth="1" transform="rotate(-8 36 48)" />
+              {/* Middle */}
+              <rect x="43" y="12" width="9.5" height="42" rx="4.7" fill="url(#fingerHighlight)" stroke="#dd6b20" strokeWidth="1" transform="rotate(-2 47 48)" />
+              {/* Ring */}
+              <rect x="54" y="15" width="9.5" height="40" rx="4.7" fill="url(#fingerHighlight)" stroke="#dd6b20" strokeWidth="1" transform="rotate(4 58 48)" />
+              {/* Pinky */}
+              <rect x="65" y="22" width="8.5" height="34" rx="4.2" fill="url(#fingerHighlight)" stroke="#dd6b20" strokeWidth="1" transform="rotate(10 69 48)" />
+              {/* Fingernails */}
+              <ellipse cx="32" cy="19" rx="2.8" ry="2" fill="#fff5eb" opacity="0.8" />
+              <ellipse cx="44" cy="15" rx="3" ry="2" fill="#fff5eb" opacity="0.8" />
+              <ellipse cx="57" cy="18" rx="2.8" ry="2" fill="#fff5eb" opacity="0.8" />
+              <ellipse cx="70" cy="25" rx="2.5" ry="1.8" fill="#fff5eb" opacity="0.8" />
+            </g>
+          )}
+
           {number === 6 && (
             // SIX: Iconic Indian Hand Cricket Six: Thumb extended outwards horizontally from fist!
             <g>

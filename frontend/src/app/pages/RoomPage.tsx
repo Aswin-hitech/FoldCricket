@@ -444,11 +444,10 @@ export default function RoomPage() {
             <div className={styles.readyControl}>
               <button
                 type="button"
-                className={`btn ${myMembership?.readiness === 'READY' ? 'btn-success' : 'btn-secondary'}`}
-                style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 700, minWidth: '160px' }}
+                className={`${styles.readyBtn} ${myMembership?.readiness === 'READY' ? styles.readyBtnActive : ''}`}
                 onClick={handleReadyToggle}
               >
-                {myMembership?.readiness === 'READY' ? '✅ You are Ready' : '⏳ Click to Ready Up'}
+                {myMembership?.readiness === 'READY' ? '✅ You are Ready' : '🟢 Click to Get Ready'}
               </button>
               <span className={styles.readyHint}>
                 {myMembership?.readiness === 'READY' ? 'Waiting for host to start the toss' : 'Mark yourself ready to begin'}
@@ -523,7 +522,7 @@ export default function RoomPage() {
           <div className={styles.modal}>
             <h2 className={styles.modalTitle}>📋 FoldCricket Match Rules</h2>
             <div className={styles.rulesContent}>
-              <p>1. Each player picks a number from <strong>1, 2, 3, 4, or 6</strong> per delivery.</p>
+              <p>1. Each player picks a number from <strong>1, 2, 3, 4, 5, or 6</strong> per delivery.</p>
               <p>2. If both picks match exactly → the batter is <strong>OUT</strong>.</p>
               <p>3. If picks differ → the batter scores <strong>their chosen number</strong>.</p>
               <p>4. Each delivery has a <strong>25-second</strong> server-enforced deadline.</p>

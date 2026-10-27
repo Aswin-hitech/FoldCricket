@@ -309,7 +309,7 @@ export default function LandingPage() {
         </div>
 
         <p className={styles.rules}>
-          <strong>Authentic Rules:</strong> Choose numbers <strong>1, 2, 3, 4, or 6</strong> each delivery. If batter and bowler pick the same number, it is a <strong>WICKET !!!</strong> Otherwise, the batter scores their chosen number.
+          <strong>Authentic Rules:</strong> Choose numbers <strong>1, 2, 3, 4, 5, or 6</strong> each delivery. If batter and bowler pick the same number, it is a <strong>WICKET !!!</strong> Otherwise, the batter scores their chosen number.
         </p>
       </main>
 

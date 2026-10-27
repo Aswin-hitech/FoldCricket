@@ -494,6 +494,57 @@
 /* ============================================================
    F. Lower Center: BOWLER & PICK YOUR DELIVERY
    ============================================================ */
+.roleStatusBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  transition: all var(--transition);
+}
+
+.roleBatting {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.18), rgba(37, 99, 235, 0.05));
+  border-left: 4px solid var(--color-team-a);
+}
+
+.roleBowling {
+  background: linear-gradient(90deg, rgba(234, 88, 12, 0.18), rgba(234, 88, 12, 0.05));
+  border-left: 4px solid var(--color-team-b);
+}
+
+.roleIcon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.roleTextGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roleMainText {
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.roleBatting .roleMainText {
+  color: #60a5fa;
+}
+
+.roleBowling .roleMainText {
+  color: #fb923c;
+}
+
+.roleSubText {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
 .bowlerInfoBar {
   display: flex;
   align-items: center;
@@ -577,10 +628,10 @@
 
 .deliveryCardsRow {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
   width: 100%;
-  max-width: 440px;
+  max-width: 520px;
 }
 
 .deliveryCardBtn {
@@ -1091,14 +1142,24 @@
   .dashboardContainer {
     padding: 10px 10px 75px;
     gap: 12px;
-  }
-
-  .topRowGrid {
     display: flex;
     flex-direction: column;
-    gap: 12px;
   }
 
+  /* Flatten grid rows on mobile so all cards become direct flex items */
+  .topRowGrid,
+  .bottomRowGrid {
+    display: contents !important;
+  }
+
+  /* Mobile Hierarchy:
+     1. Player's Team Scorecard at the top
+     2. 3D Stadium Pitch Graphics in the middle
+     3. Delivery Controls Pad moved to top below graphics & above scorecards
+     4. Opponent Team Scorecard
+     5. Batsmen scorecard details
+     6. Recent balls & match info
+  */
   .myTeamCard {
     order: 1 !important;
   }
@@ -1107,15 +1168,28 @@
     order: 2 !important;
   }
 
-  .opponentTeamCard {
+  .controlsCard {
     order: 3 !important;
   }
 
-  .bottomRowGrid {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  .opponentTeamCard {
     order: 4 !important;
+  }
+
+  .batsmenCard {
+    order: 5 !important;
+  }
+
+  .infoCard {
+    order: 6 !important;
+  }
+
+  .deliveryCardsRow {
+    gap: 6px;
+  }
+
+  .deliveryCardBtn {
+    padding: 8px 2px 6px;
   }
 
   .mobileBottomNav {

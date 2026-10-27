@@ -469,6 +469,21 @@ export default function ArenaPage() {
   const displayTeamAName = match.team_a_name && match.team_a_name !== 'Team A' ? match.team_a_name : (captainA ? `${captainA.player.display_name}'s Team` : 'Team A')
   const displayTeamBName = match.team_b_name && match.team_b_name !== 'Team B' ? match.team_b_name : (captainB ? `${captainB.player.display_name}'s Team` : 'Team B')
 
+  // Live team overs calculation:
+  // Whichever team is currently batting reflects the live over.ball;
+  // If not currently batting: 0.0 before they bat, or their completed overs after batting in 1st innings.
+  const teamAOvers = match.batting_team === 'A'
+    ? `${match.current_over}.${match.current_ball}`
+    : match.phase === 'SECOND'
+    ? `${match.overs}.0`
+    : '0.0'
+
+  const teamBOvers = match.batting_team === 'B'
+    ? `${match.current_over}.${match.current_ball}`
+    : match.phase === 'SECOND'
+    ? `${match.overs}.0`
+    : '0.0'
+
   return (
     <div className={styles.arena}>
       {/* ============================================================
@@ -489,7 +504,13 @@ export default function ArenaPage() {
             <span className={styles.liveBadge}>LIVE</span>
           </div>
           <span className={styles.matchSubtitle}>
-            {match.batting_team === 'A' ? (match.team_a_name || 'Team A') : (match.team_b_name || 'Team B')} batting
+            {isActiveBatter
+              ? '🏏 You are Batting'
+              : isActiveBowler
+              ? '🎯 You are Bowling'
+              : myMembership?.team === match.batting_team
+              ? `🏏 Your Team is Batting (${match.batting_team === 'A' ? displayTeamAName : displayTeamBName})`
+              : `🎯 Your Team is Bowling (${bowlingTeam === 'A' ? displayTeamAName : displayTeamBName})`}
           </span>
         </div>
 
@@ -641,7 +662,7 @@ export default function ArenaPage() {
                     {match.team_a_runs}/{match.team_a_wickets}
                   </span>
                   <span className={styles.headerOvers}>
-                    ({match.phase === 'FIRST' && match.batting_team === 'A' ? `${match.current_over}.${match.current_ball}` : `${match.overs}.0`} overs)
+                    ({teamAOvers} / {match.overs} ov)
                   </span>
                 </div>
               </div>
@@ -743,7 +764,7 @@ export default function ArenaPage() {
                     {match.team_b_runs}/{match.team_b_wickets}
                   </span>
                   <span className={styles.headerOvers}>
-                    ({match.phase === 'SECOND' && match.batting_team === 'B' ? `${match.current_over}.${match.current_ball}` : '0.0'} overs)
+                    ({teamBOvers} / {match.overs} ov)
                   </span>
                 </div>
               </div>
@@ -813,7 +834,7 @@ export default function ArenaPage() {
         {/* Lower Row: Current Batsmen | Delivery Controls Pad | Recent Balls & Info */}
         <div className={styles.bottomRowGrid}>
           {/* LOWER LEFT: CURRENT BATSMEN - TEAM A/B */}
-          <div className={styles.card}>
+          <div className={`${styles.card} ${styles.batsmenCard}`}>
             <div className={styles.cardTitleBar}>
               <span>CURRENT BATSMEN — {match.batting_team === 'A' ? (match.team_a_name || 'TEAM A') : (match.team_b_name || 'TEAM B')}</span>
             </div>
@@ -876,7 +897,34 @@ export default function ArenaPage() {
           </div>
 
           {/* LOWER CENTER: BOWLER & LARGE DELIVERY CONTROLS */}
-          <div className={styles.card}>
+          <div className={`${styles.card} ${styles.controlsCard}`}>
+            {/* Dynamic Real-time Gameplay Role Banner */}
+            <div className={`${styles.roleStatusBanner} ${isActiveBatter || myMembership?.team === match.batting_team ? styles.roleBatting : styles.roleBowling}`}>
+              <span className={styles.roleIcon}>
+                {isActiveBatter || myMembership?.team === match.batting_team ? '🏏' : '🎯'}
+              </span>
+              <div className={styles.roleTextGroup}>
+                <span className={styles.roleMainText}>
+                  {isActiveBatter
+                    ? 'YOU ARE BATTING'
+                    : isActiveBowler
+                    ? 'YOU ARE BOWLING'
+                    : myMembership?.team === match.batting_team
+                    ? 'YOUR TEAM IS BATTING'
+                    : 'YOUR TEAM IS BOWLING'}
+                </span>
+                <span className={styles.roleSubText}>
+                  {isActiveBatter
+                    ? 'Choose your shot (1 to 6) to score runs. If bowler matches your pick, you are OUT!'
+                    : isActiveBowler
+                    ? 'Choose your delivery (1 to 6). Match the batter’s pick to take a WICKET!'
+                    : myMembership?.team === match.batting_team
+                    ? `${activeBatter?.player.display_name || 'Striker'} is currently at the crease.`
+                    : `${activeBowler?.player.display_name || 'Bowler'} is bowling this over.`}
+                </span>
+              </div>
+            </div>
+
             {/* Active Bowler Card Header */}
             <div className={styles.bowlerInfoBar}>
               <div className={styles.bowlerInfoLeft}>
@@ -894,7 +942,7 @@ export default function ArenaPage() {
               </div>
             </div>
 
-            {/* Delivery Keypad: 1, 2, 3, 4, 6 */}
+            {/* Delivery Keypad: 1, 2, 3, 4, 5, 6 */}
             <div className={styles.deliveryPadArea}>
               <div className={styles.pickDeliveryHeading}>
                 {isActiveBatter
@@ -907,7 +955,7 @@ export default function ArenaPage() {
               {isActivePlayer && match.active_bowler_id ? (
                 <>
                   <div className={styles.deliveryCardsRow}>
-                    {[1, 2, 3, 4, 6].map(n => (
+                    {[1, 2, 3, 4, 5, 6].map(n => (
                       <button
                         key={n}
                         type="button"
@@ -932,7 +980,7 @@ export default function ArenaPage() {
                       ? '✅ Pick Locked & Sent'
                       : selectedPick !== null
                       ? `🎯 Lock In ${selectedPick} Runs`
-                      : '👉 Choose 1, 2, 3, 4, or 6'}
+                      : '👉 Choose 1, 2, 3, 4, 5, or 6'}
                   </button>
                 </>
               ) : (
@@ -948,7 +996,7 @@ export default function ArenaPage() {
           </div>
 
           {/* LOWER RIGHT: RECENT BALLS & MATCH INFO */}
-          <div className={styles.card}>
+          <div className={`${styles.card} ${styles.infoCard}`}>
             {/* Recent Balls */}
             <div className={styles.recentBallsContainer}>
               <div className={styles.recentBallsTitle}>RECENT BALLS</div>
@@ -983,7 +1031,7 @@ export default function ArenaPage() {
               <div className={styles.matchInfoTitle}>MATCH INFO</div>
               <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Format</span>
-                <span className={styles.infoVal}>Traditional Hand Cricket (1, 2, 3, 4, 6)</span>
+                <span className={styles.infoVal}>Traditional Hand Cricket (1, 2, 3, 4, 5, 6)</span>
               </div>
               <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Innings</span>

@@ -20,7 +20,7 @@ import { HandGesture } from '../components/HandGesture'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { VoiceChat } from '../components/VoiceChat'
 import { PitchAnimation } from '../components/PitchAnimation'
-import { VideoCallPanel } from '../components/VideoCallPanel'
+// Video module abstracted (unlock when requested): import { VideoCallPanel } from '../components/VideoCallPanel'
 import { CelebrationEffects } from '../components/CelebrationEffects'
 import { formatPlayerWithTeam, getTeamRoleLabel } from '../../utils/teamLabels'
 import type { DeliveryReveal, MatchInfo, MemberInfo, ResolvedDelivery } from '../../services/types'
@@ -68,10 +68,8 @@ export default function ArenaPage() {
 
   // Drawer / modal states
   const [isChatOpen, setIsChatOpen] = useState(false)
-  const [isVideoCallOpen, setIsVideoCallOpen] = useState(false)
   const [showBowlerModal, setShowBowlerModal] = useState(false)
   const [showBatterModal, setShowBatterModal] = useState(false)
-  const [showVideoBetaModal, setShowVideoBetaModal] = useState(false)
   const [allOutAnnouncement, setAllOutAnnouncement] = useState<{
     teamName: string
     runs: number
@@ -86,7 +84,7 @@ export default function ArenaPage() {
   const hasShownSuperOverRef = useRef(false)
   const shownAllOutRef = useRef<Set<string>>(new Set())
   const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
-  const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams' | 'call'>('game')
+  const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams'>('game')
 
   // Entry pop-up mic prompt
   const [showMicPrompt, setShowMicPrompt] = useState(() => {
@@ -689,17 +687,6 @@ export default function ArenaPage() {
               onSetVoiceMode={setVoiceMode}
             />
 
-            {/* Video Call (Beta Feature Notice) */}
-            <button
-              type="button"
-              className={styles.videoBetaBtn}
-              onClick={() => setShowVideoBetaModal(true)}
-              title="Video Calling (Beta Feature)"
-            >
-              <span>📹 Video Call</span>
-              <span className={styles.videoBetaBadge}>BETA</span>
-            </button>
-
             {/* Sound Toggle */}
             <button
               type="button"
@@ -718,16 +705,6 @@ export default function ArenaPage() {
               title={isPaused ? 'Resume Match' : 'Pause Match'}
             >
               {isPaused ? '▶️ Resume' : '⏸️ Pause'}
-            </button>
-
-            {/* Video Call Modal Toggle */}
-            <button
-              type="button"
-              className={`${styles.navBtn} ${isVideoCallOpen ? styles.activeNavBtn : ''}`}
-              onClick={() => setIsVideoCallOpen(prev => !prev)}
-              title="Toggle Team Video Call"
-            >
-              📹 Video
             </button>
 
             {/* Chat Drawer Toggle with unread counter */}
@@ -788,7 +765,6 @@ export default function ArenaPage() {
               type="button"
               className={styles.micEnableBtn}
               onClick={() => {
-                setIsVideoCallOpen(true)
                 dismissMicPrompt()
               }}
             >
@@ -1351,33 +1327,6 @@ export default function ArenaPage() {
         </div>
       )}
 
-      {/* ============================================================
-          Video Call (Beta Feature Notice) Modal
-          ============================================================ */}
-      {showVideoBetaModal && (
-        <div className={styles.betaModalOverlay} onClick={() => setShowVideoBetaModal(false)}>
-          <div className={styles.betaModal} onClick={e => e.stopPropagation()}>
-            <div className={styles.betaModalIcon}>📹</div>
-            <h3 className={styles.betaModalTitle}>Video Call (Beta Preview)</h3>
-            <div className={styles.betaBadgeLarge}>UNDER CONSTRUCTION</div>
-            <p className={styles.betaModalDesc}>
-              Video calling is currently being built and optimized for smooth multiplayer gaming.
-              It will be enabled in an upcoming release of FoldCricket!
-            </p>
-            <div className={styles.betaModalTip}>
-              💡 <strong>Tip:</strong> High-definition <strong>Voice Chat</strong> with private team audio channels is fully live! Click the <strong>🎙️ Mic</strong> button in the top bar to talk with your team.
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ width: '100%', marginTop: '8px', padding: '10px' }}
-              onClick={() => setShowVideoBetaModal(false)}
-            >
-              Got It & Return to Game
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ============================================================
           ALL OUT 5-Second Declaration Overlay
@@ -1467,19 +1416,6 @@ export default function ArenaPage() {
       )}
 
       {/* ============================================================
-          F. Team Video Call Panel (Docked / Floating)
-          ============================================================ */}
-      <VideoCallPanel
-        isOpen={isVideoCallOpen}
-        onClose={() => setIsVideoCallOpen(false)}
-        members={members}
-        myPlayerId={myPlayerId}
-        myDisplayName={myMembership?.player.display_name || 'Player'}
-        isMuted={isMuted}
-        onToggleMute={() => setIsMuted(sound.toggleMute())}
-      />
-
-      {/* ============================================================
           G. Mobile Bottom Navigation Bar (< 768px)
           ============================================================ */}
       <nav className={styles.mobileBottomNav} aria-label="Mobile Navigation">
@@ -1501,17 +1437,6 @@ export default function ArenaPage() {
         >
           <span className={styles.mobileTabIcon}>💬</span>
           <span>Chat</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.mobileTabBtn} ${activeMobileTab === 'call' ? styles.activeMobileTab : ''}`}
-          onClick={() => {
-            setActiveMobileTab('call')
-            setIsVideoCallOpen(true)
-          }}
-        >
-          <span className={styles.mobileTabIcon}>📹</span>
-          <span>Call</span>
         </button>
       </nav>
 
@@ -1689,19 +1614,6 @@ export default function ArenaPage() {
                 {chatMessages.length > 0 && (
                   <span className={styles.badgePill}>{chatMessages.length}</span>
                 )}
-              </button>
-
-              {/* Video Call (Beta Feature) */}
-              <button
-                type="button"
-                className={styles.mobileMenuItem}
-                onClick={() => {
-                  setShowVideoBetaModal(true)
-                  setIsMobileMenuOpen(false)
-                }}
-              >
-                <span>📹 Video Call</span>
-                <span className={styles.videoBetaBadge}>BETA</span>
               </button>
 
               {/* Sound Toggle */}

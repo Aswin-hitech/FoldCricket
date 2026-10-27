@@ -751,19 +751,6 @@ def on_voice_signal(data):
     if not target_mem:
         return
 
-    # Voice Permission Enforcement: verify sender's selective voice restrictions
-    sender_mode = getattr(mem, "voice_mode", "EVERYONE")
-    if sender_mode == "TEAM_ONLY":
-        # Opponents strictly blocked from receiving sender's WebRTC signaling!
-        if mem.team and target_mem.team != mem.team:
-            return
-    elif sender_mode == "SELECTED_PLAYERS":
-        allowed = getattr(mem, "allowed_recipients", [])
-        if target_id not in allowed:
-            return
-    elif sender_mode == "MUTED":
-        return
-
     target_player = repo.get_player(target_id)
     if target_player and target_player.socket_id:
         socketio.emit(

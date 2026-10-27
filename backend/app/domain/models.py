@@ -194,6 +194,10 @@ class Match:
     dismissed_batters_b: list[str] = field(default_factory=list)
     is_all_out: bool = False
     all_out_team: Optional[str] = None
+    is_all_out_a: bool = False
+    is_all_out_b: bool = False
+    all_out_announced_a: bool = False
+    all_out_announced_b: bool = False
 
     # Super Over Tracking
     is_super_over: bool = False

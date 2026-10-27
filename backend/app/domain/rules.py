@@ -30,6 +30,10 @@ class DeliveryOutcome:
     match: Match
     innings_ended: bool = False
     match_ended: bool = False
+    is_all_out: bool = False
+    all_out_team: Optional[str] = None
+    all_out_runs: int = 0
+    all_out_wickets: int = 0
     error: Optional[str] = None
 
 
@@ -87,7 +91,26 @@ class GameRules:
         delivery.committed = True
 
         # --- Apply to match state ---
+        current_batting_team = match.batting_team
         GameRules._apply_delivery_to_match(match, delivery)
+
+        # Check if ALL OUT occurred on this specific delivery
+        wlimit = match.wicket_limit(current_batting_team)
+        wickets = match.team_a_wickets if current_batting_team == "A" else match.team_b_wickets
+        is_delivery_all_out = False
+        all_out_runs = 0
+        all_out_wkts = 0
+
+        if delivery.result == DeliveryResult.OUT and wickets >= wlimit:
+            is_delivery_all_out = True
+            all_out_runs = match.team_a_runs if current_batting_team == "A" else match.team_b_runs
+            all_out_wkts = wickets
+            match.is_all_out = True
+            match.all_out_team = current_batting_team
+            if current_batting_team == "A":
+                match.is_all_out_a = True
+            else:
+                match.is_all_out_b = True
 
         innings_ended = GameRules._check_innings_end(match)
         match_ended = False
@@ -101,6 +124,10 @@ class GameRules:
             match=match,
             innings_ended=innings_ended,
             match_ended=match_ended,
+            is_all_out=is_delivery_all_out,
+            all_out_team=current_batting_team if is_delivery_all_out else None,
+            all_out_runs=all_out_runs,
+            all_out_wickets=all_out_wkts,
         )
 
     @staticmethod
@@ -163,6 +190,8 @@ class GameRules:
             match.current_ball = 0
             match.active_batter_id = None
             match.active_bowler_id = None
+            match.is_all_out = False
+            match.all_out_team = None
             return False
         elif match.phase == InningsPhase.SECOND:
             # Check if tied -> Enter Super Over

@@ -84,6 +84,7 @@ export default function ArenaPage() {
   const [showQuitModal, setShowQuitModal] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const hasShownSuperOverRef = useRef(false)
+  const shownAllOutRef = useRef<Set<string>>(new Set())
   const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
   const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams' | 'call'>('game')
 
@@ -122,7 +123,10 @@ export default function ArenaPage() {
   const dismissedBatters = battingTeam === 'A' ? (match?.dismissed_batters_a || []) : (match?.dismissed_batters_b || [])
   const eligibleBatters = battingMembers.filter(m => !dismissedBatters.includes(m.player.id))
 
-  const isAllOut = Boolean(match?.is_all_out)
+  const isCurrentInningsAllOut = Boolean(
+    match?.is_all_out && (match?.all_out_team === match?.batting_team || !match?.all_out_team)
+  )
+  const isAllOut = isCurrentInningsAllOut
 
   const needsBatterSelect = Boolean(
     match &&
@@ -152,34 +156,50 @@ export default function ArenaPage() {
     myMembership?.team === bowlingTeam
   )
 
-  // Handle ALL OUT declaration - 5 second transition
+  // Handle ALL OUT declaration - 5 second transition, STRICTLY ONCE per all-out event
   useEffect(() => {
-    if (allOutInfo || (match?.is_all_out && !allOutAnnouncement)) {
-      const info = allOutInfo
-        ? {
-            teamName: allOutInfo.team_name,
-            runs: allOutInfo.runs,
-            wickets: allOutInfo.wickets,
-            phase: allOutInfo.phase,
-          }
-        : {
-            teamName: (match?.all_out_team || match?.batting_team) === 'A' ? (match?.team_a_name || 'Team A') : (match?.team_b_name || 'Team B'),
-            runs: (match?.all_out_team || match?.batting_team) === 'A' ? (match?.team_a_runs ?? 0) : (match?.team_b_runs ?? 0),
-            wickets: (match?.all_out_team || match?.batting_team) === 'A' ? (match?.team_a_wickets ?? 0) : (match?.team_b_wickets ?? 0),
-            phase: match?.phase || 'FIRST',
-          }
-      setAllOutAnnouncement(info)
-      sound.playOut()
-      vibration.wicket()
-      setCelebrationTrigger('WICKET')
+    if (allOutInfo) {
+      const key = `${allOutInfo.team}_${allOutInfo.phase}`
+      if (!shownAllOutRef.current.has(key)) {
+        shownAllOutRef.current.add(key)
+        setAllOutAnnouncement({
+          teamName: allOutInfo.team_name,
+          runs: allOutInfo.runs,
+          wickets: allOutInfo.wickets,
+          phase: allOutInfo.phase,
+        })
+        sound.playOut()
+        vibration.wicket()
+        setCelebrationTrigger('WICKET')
 
-      const timer = setTimeout(() => {
-        setAllOutAnnouncement(null)
-      }, 5000)
+        const timer = setTimeout(() => {
+          setAllOutAnnouncement(null)
+        }, 5000)
 
-      return () => clearTimeout(timer)
+        return () => clearTimeout(timer)
+      }
+    } else if (match?.is_all_out && match?.all_out_team) {
+      const key = `${match.all_out_team}_${match.phase}`
+      if (!shownAllOutRef.current.has(key)) {
+        shownAllOutRef.current.add(key)
+        setAllOutAnnouncement({
+          teamName: match.all_out_team === 'A' ? (match.team_a_name || 'Team A') : (match.team_b_name || 'Team B'),
+          runs: match.all_out_team === 'A' ? match.team_a_runs : match.team_b_runs,
+          wickets: match.all_out_team === 'A' ? match.team_a_wickets : match.team_b_wickets,
+          phase: match.phase || 'FIRST',
+        })
+        sound.playOut()
+        vibration.wicket()
+        setCelebrationTrigger('WICKET')
+
+        const timer = setTimeout(() => {
+          setAllOutAnnouncement(null)
+        }, 5000)
+
+        return () => clearTimeout(timer)
+      }
     }
-  }, [allOutInfo, match?.is_all_out])
+  }, [allOutInfo, match?.is_all_out, match?.all_out_team, match?.phase])
 
   // Handle MATCH TIED: ENTERING SUPER OVER - exact 5 second payload display
   useEffect(() => {
@@ -823,7 +843,7 @@ export default function ArenaPage() {
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>
                     {match.team_a_runs}/{match.team_a_wickets}
-                    {((match.is_all_out && match.all_out_team === 'A') || (match.phase === 'SECOND' && match.first_batting_team === 'A' && match.team_a_wickets >= (match.wickets || 10))) && (
+                    {(Boolean(match.is_all_out_a) || (match.is_all_out && match.all_out_team === 'A') || (match.team_a_wickets >= (match.wickets || 10))) && (
                       <span className={styles.allOutBadgeHeader}>ALL OUT</span>
                     )}
                   </span>
@@ -928,7 +948,7 @@ export default function ArenaPage() {
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>
                     {match.team_b_runs}/{match.team_b_wickets}
-                    {((match.is_all_out && match.all_out_team === 'B') || (match.phase === 'SECOND' && match.first_batting_team === 'B' && match.team_b_wickets >= (match.wickets || 10))) && (
+                    {(Boolean(match.is_all_out_b) || (match.is_all_out && match.all_out_team === 'B') || (match.team_b_wickets >= (match.wickets || 10))) && (
                       <span className={styles.allOutBadgeHeader}>ALL OUT</span>
                     )}
                   </span>

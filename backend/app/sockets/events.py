@@ -569,37 +569,47 @@ def on_delivery_submit(data):
         )
         _broadcast_snapshot(room_id)
 
-        # Check if ALL OUT occurred
-        if getattr(match, "is_all_out", False):
-            all_out_team = getattr(match, "all_out_team", match.batting_team) or match.batting_team
-            team_name = (
-                getattr(match, "team_a_name", "Team A")
-                if all_out_team == "A"
-                else getattr(match, "team_b_name", "Team B")
+        # Check if ALL OUT occurred on this specific delivery
+        if getattr(outcome, "is_all_out", False):
+            all_out_team = outcome.all_out_team or getattr(match, "all_out_team", match.batting_team)
+            already_announced = (
+                getattr(match, "all_out_announced_a", False) if all_out_team == "A"
+                else getattr(match, "all_out_announced_b", False)
             )
-            all_out_runs = match.team_a_runs if all_out_team == "A" else match.team_b_runs
-            all_out_wkts = match.team_a_wickets if all_out_team == "A" else match.team_b_wickets
+            if not already_announced:
+                if all_out_team == "A":
+                    match.all_out_announced_a = True
+                else:
+                    match.all_out_announced_b = True
 
-            socketio.emit(
-                "match:all_out",
-                {
-                    "team": all_out_team,
-                    "team_name": team_name,
-                    "runs": all_out_runs,
-                    "wickets": all_out_wkts,
-                    "phase": match.phase.value if hasattr(match.phase, "value") else str(match.phase),
-                },
-                room=room_id,
-            )
-            # Announce ALL OUT in system chat
-            sys_msg = {
-                "id": str(uuid.uuid4()),
-                "sender_id": "system",
-                "sender_name": "FoldCricket Umpire",
-                "text": f"💥 ALL OUT! {team_name} is all out for {all_out_runs} runs ({all_out_wkts} wkts)!",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-            }
-            socketio.emit("chat:message", sys_msg, room=room_id)
+                team_name = (
+                    getattr(match, "team_a_name", "Team A")
+                    if all_out_team == "A"
+                    else getattr(match, "team_b_name", "Team B")
+                )
+                all_out_runs = outcome.all_out_runs or (match.team_a_runs if all_out_team == "A" else match.team_b_runs)
+                all_out_wkts = outcome.all_out_wickets or (match.team_a_wickets if all_out_team == "A" else match.team_b_wickets)
+
+                socketio.emit(
+                    "match:all_out",
+                    {
+                        "team": all_out_team,
+                        "team_name": team_name,
+                        "runs": all_out_runs,
+                        "wickets": all_out_wkts,
+                        "phase": match.phase.value if hasattr(match.phase, "value") else str(match.phase),
+                    },
+                    room=room_id,
+                )
+                # Announce ALL OUT in system chat once
+                sys_msg = {
+                    "id": str(uuid.uuid4()),
+                    "sender_id": "system",
+                    "sender_name": "FoldCricket Umpire",
+                    "text": f"💥 ALL OUT! {team_name} is all out for {all_out_runs} runs ({all_out_wkts} wkts)!",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                }
+                socketio.emit("chat:message", sys_msg, room=room_id)
 
         if match.winner:
             socketio.emit(

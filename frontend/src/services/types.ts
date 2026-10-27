@@ -81,6 +81,8 @@ export interface MatchInfo {
   dismissed_batters_b?: string[]
   is_all_out?: boolean
   all_out_team?: 'A' | 'B' | string | null
+  is_all_out_a?: boolean
+  is_all_out_b?: boolean
   is_super_over?: boolean
   main_match_team_a_runs?: number | null
   main_match_team_b_runs?: number | null

@@ -528,6 +528,14 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
         wickets = match.batting_wickets
 
         if wickets >= wlimit or len(eligible) == 0:
+            outcome.is_all_out = True
+            outcome.all_out_team = match.batting_team
+            outcome.all_out_runs = match.team_a_runs if match.batting_team == "A" else match.team_b_runs
+            outcome.all_out_wickets = wickets
+            if match.batting_team == "A":
+                match.is_all_out_a = True
+            else:
+                match.is_all_out_b = True
             match.is_all_out = True
             match.all_out_team = match.batting_team
             match.active_batter_id = None
@@ -715,6 +723,8 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
             "dismissed_batters_b": getattr(match, "dismissed_batters_b", []),
             "is_all_out": getattr(match, "is_all_out", False),
             "all_out_team": getattr(match, "all_out_team", None),
+            "is_all_out_a": getattr(match, "is_all_out_a", False),
+            "is_all_out_b": getattr(match, "is_all_out_b", False),
             "is_super_over": getattr(match, "is_super_over", False),
             "main_match_team_a_runs": getattr(match, "main_match_team_a_runs", None),
             "main_match_team_b_runs": getattr(match, "main_match_team_b_runs", None),

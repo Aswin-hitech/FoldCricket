@@ -111,7 +111,6 @@ def test_team_batting_order_captain_selection_and_all_out():
     match, res2 = room_service.submit_pick(room, captain_bowl, 2)
 
     assert res2.result.value == "OUT"
-    assert match.is_all_out is True
-    assert match.all_out_team == batting_team
+    assert (match.is_all_out_a if batting_team == "A" else match.is_all_out_b) is True
     # All out declared and 1st innings ended
     assert match.phase == InningsPhase.SECOND

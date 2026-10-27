@@ -2,22 +2,38 @@ import React, { useEffect, useRef } from 'react'
 import type { DeliveryReveal } from '../../services/types'
 import styles from './PitchAnimation.module.css'
 
+interface BallOutcome {
+  ball: number
+  runs: number
+  isOut: boolean
+}
+
 interface PitchAnimationProps {
   reveal: DeliveryReveal | null
   countdown: number | null
   hasBowler: boolean
   isBatterSubmitted: boolean
   isBowlerSubmitted: boolean
+  currentOver: number
+  currentBall: number
+  totalOvers: number
+  recentBalls?: BallOutcome[]
+  activeBatterName?: string
+  activeBowlerName?: string
+  isOverComplete?: boolean
+  bowlingCaptainName?: string
+  isCaptainOrHost?: boolean
+  onSelectBowlerClick?: () => void
 }
 
 /**
- * High-energy 3D interactive Pitch Animation:
- * - Dynamic 22-yard turf with authentic crease lines & wooden stumps.
- * - Live animated leather cricket ball with spinning seam.
- * - Wicket collision: stumps shatter and bails fly into the air with spark particles!
- * - Sixer: towering golden parabolic ball flight with trailing stardust!
- * - Four: high-speed supersonic boundary tracer across turf!
- * - Runs: quick gap shot roll with sprint pulses!
+ * TV Broadcast-style 3D Perspective Cricket Pitch & Stadium:
+ * - Floodlights & night stadium atmosphere
+ * - 3D perspective pitch strip with crease markings and wooden stumps
+ * - Overhead over navigator & ball outcome circular chips
+ * - Player cards for bowler (top) and batter (bottom)
+ * - Live delivery countdown timer
+ * - Dynamic animated ball trajectories & celebrations (WICKET, SIX, FOUR)
  */
 export const PitchAnimation: React.FC<PitchAnimationProps> = ({
   reveal,
@@ -25,11 +41,21 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
   hasBowler,
   isBatterSubmitted,
   isBowlerSubmitted,
+  currentOver,
+  currentBall,
+  totalOvers,
+  recentBalls = [],
+  activeBatterName = 'Batter',
+  activeBowlerName = 'Bowler',
+  isOverComplete = false,
+  bowlingCaptainName,
+  isCaptainOrHost = false,
+  onSelectBowlerClick,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const animIdRef = useRef<number | null>(null)
 
-  // Particle bursts on boundary or wicket
+  // 60fps Particle celebration effects on canvas
   useEffect(() => {
     if (!reveal) return
 
@@ -38,8 +64,8 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    canvas.width = canvas.parentElement?.clientWidth || 360
-    canvas.height = canvas.parentElement?.clientHeight || 120
+    canvas.width = canvas.parentElement?.clientWidth || 400
+    canvas.height = canvas.parentElement?.clientHeight || 320
 
     const particles: Array<{
       x: number
@@ -58,8 +84,8 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
     const isFour = reveal.runs_scored === 4
 
     const particleCount = isWicket ? 45 : isSix ? 50 : isFour ? 35 : 15
-    const originX = isWicket ? canvas.width * 0.25 : canvas.width * 0.5
-    const originY = canvas.height * 0.6
+    const originX = canvas.width * 0.5
+    const originY = canvas.height * 0.55
 
     const colors = isWicket
       ? ['#ef4444', '#dc2626', '#fbbf24', '#f59e0b', '#ffffff']
@@ -122,83 +148,171 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
   const isWicket = reveal?.result === 'OUT'
   const isSix = reveal?.runs_scored === 6
   const isFour = reveal?.runs_scored === 4
-  const isRegularRuns = reveal && !isWicket && !isSix && !isFour && (reveal.runs_scored ?? 0) > 0
+
+  // Construct current over ball slots (6 balls)
+  const currentOverDisplay = `${currentOver}.${currentBall}`
+  const overBalls: Array<{ label: string; type: 'neutral' | 'four' | 'six' | 'out' | 'empty' }> = []
+  for (let i = 0; i < 6; i++) {
+    const outcome = recentBalls[i]
+    if (outcome) {
+      if (outcome.isOut) {
+        overBalls.push({ label: 'W', type: 'out' })
+      } else if (outcome.runs === 6) {
+        overBalls.push({ label: '6', type: 'six' })
+      } else if (outcome.runs === 4) {
+        overBalls.push({ label: '4', type: 'four' })
+      } else {
+        overBalls.push({ label: String(outcome.runs), type: 'neutral' })
+      }
+    } else {
+      overBalls.push({ label: '', type: 'empty' })
+    }
+  }
 
   return (
-    <div className={styles.pitchContainer}>
-      {/* 22-Yard Pitch Strip */}
-      <div className={styles.pitchStrip}>
-        {/* Crease lines */}
-        <div className={`${styles.creaseLine} ${styles.battingCrease}`} />
-        <div className={`${styles.creaseLine} ${styles.bowlingCrease}`} />
+    <div className={styles.stadiumContainer}>
+      {/* Stadium Overhead Lights */}
+      <div className={styles.floodlightLeft} />
+      <div className={styles.floodlightRight} />
 
-        {/* Batsman Stumps (Left) */}
-        <div className={`${styles.stumpsGroup} ${styles.batterStumps} ${isWicket ? styles.stumpsShattered : ''}`}>
-          <div className={`${styles.bail} ${styles.bailLeft}`} />
-          <div className={`${styles.bail} ${styles.bailRight}`} />
-          <div className={`${styles.stump} ${styles.stump1}`} />
-          <div className={`${styles.stump} ${styles.stump2}`} />
-          <div className={`${styles.stump} ${styles.stump3}`} />
+      {/* Overhead Over Tracker & Ball Outcome Chips */}
+      <div className={styles.overheadTracker}>
+        <div className={styles.overPill}>
+          <span className={styles.arrowIcon}>‹</span>
+          <span className={styles.overLabel}>Over {currentOverDisplay}</span>
+          <span className={styles.arrowIcon}>›</span>
+        </div>
+        <div className={styles.ballChipsRow}>
+          {overBalls.map((b, idx) => (
+            <div
+              key={idx}
+              className={`${styles.ballChip} ${
+                b.type === 'four'
+                  ? styles.chipFour
+                  : b.type === 'six'
+                  ? styles.chipSix
+                  : b.type === 'out'
+                  ? styles.chipOut
+                  : b.type === 'neutral'
+                  ? styles.chipNeutral
+                  : styles.chipEmpty
+              }`}
+            >
+              {b.label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Top Bowler Card at the Bowling Crease */}
+      <div className={styles.bowlerPitchCard}>
+        <div className={styles.playerAvatarSmall}>👤</div>
+        <div className={styles.playerMetaCol}>
+          <span className={styles.playerName}>{activeBowlerName || 'Bowler'}</span>
+          <span className={styles.playerSub}>Right Arm</span>
+        </div>
+      </div>
+
+      {/* 3D Perspective Cricket Pitch */}
+      <div className={styles.pitchScene}>
+        {/* Far Stumps (Bowler End) */}
+        <div className={styles.farStumps}>
+          <div className={styles.bailFar} />
+          <div className={styles.stumpFar} />
+          <div className={styles.stumpFar} />
+          <div className={styles.stumpFar} />
         </div>
 
-        {/* Bowler Stumps (Right) */}
-        <div className={`${styles.stumpsGroup} ${styles.bowlerStumps}`}>
-          <div className={styles.bail} />
-          <div className={`${styles.stump} ${styles.stump1}`} />
-          <div className={`${styles.stump} ${styles.stump2}`} />
-          <div className={`${styles.stump} ${styles.stump3}`} />
+        {/* 22-Yard Turf in Perspective */}
+        <div className={styles.perspectivePitch}>
+          <div className={styles.creaseLineFar} />
+          <div className={styles.creaseLineNear} />
+          <div className={styles.pitchTexture} />
         </div>
 
-        {/* Dynamic Cricket Ball Animations */}
+        {/* Near Stumps (Striker End) */}
+        <div className={`${styles.nearStumps} ${isWicket ? styles.stumpsShattered : ''}`}>
+          <div className={styles.bailNear} />
+          <div className={`${styles.stumpNear} ${styles.stump1}`} />
+          <div className={`${styles.stumpNear} ${styles.stump2}`} />
+          <div className={`${styles.stumpNear} ${styles.stump3}`} />
+        </div>
+
+        {/* Animated Cricket Ball */}
         {reveal && (
           <div
-            className={`${styles.ball} ${
+            className={`${styles.cricketBall} ${
               isWicket
-                ? styles.ballWicketHit
+                ? styles.ballWicket
                 : isSix
-                ? styles.ballSixArc
+                ? styles.ballSix
                 : isFour
-                ? styles.ballFourDrive
-                : styles.ballRunRoll
+                ? styles.ballFour
+                : styles.ballRun
             }`}
           >
             <div className={styles.ballSeam} />
-            <div className={styles.ballShine} />
           </div>
         )}
 
-        {/* Particle Canvas overlay */}
+        {/* Particle Canvas */}
         <canvas ref={canvasRef} className={styles.particleCanvas} />
+
+        {/* Center Countdown Timer */}
+        {countdown !== null && countdown !== undefined && (
+          <div className={styles.centerTimerBadge} data-urgent={countdown <= 5}>
+            <span className={styles.timerIcon}>⏱️</span>
+            <span className={styles.timerNum}>{countdown}s</span>
+          </div>
+        )}
+
+        {/* Over Complete Message */}
+        {isOverComplete && (
+          <div className={styles.overCompleteBanner}>
+            <span className={styles.overCompleteEmoji}>🔔</span>
+            <div className={styles.overCompleteText}>
+              <strong>OVER COMPLETED!</strong>
+              <span>
+                {isCaptainOrHost
+                  ? 'Select the bowler for the next over below'
+                  : `Waiting for Captain (${bowlingCaptainName || 'Bowling Captain'}) to choose bowler`}
+              </span>
+            </div>
+            {isCaptainOrHost && onSelectBowlerClick && (
+              <button
+                type="button"
+                className={styles.chooseBowlerBtn}
+                onClick={onSelectBowlerClick}
+              >
+                🎯 Choose Bowler
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Readiness pulse indicators */}
+        <div className={styles.readinessBar}>
+          <div
+            className={`${styles.readyChip} ${isBatterSubmitted ? styles.readyDone : ''}`}
+            title={isBatterSubmitted ? 'Batter ready' : 'Batter choosing'}
+          >
+            🏏 {isBatterSubmitted ? 'Ready' : 'Thinking'}
+          </div>
+          <div
+            className={`${styles.readyChip} ${isBowlerSubmitted ? styles.readyDone : ''}`}
+            title={isBowlerSubmitted ? 'Bowler ready' : 'Bowler choosing'}
+          >
+            🎯 {isBowlerSubmitted ? 'Ready' : 'Thinking'}
+          </div>
+        </div>
       </div>
 
-      {/* Countdown and Delivery State Center */}
-      <div className={styles.centerMeta}>
-        {countdown !== null && (
-          <div className={styles.countdownBadge} data-urgent={countdown <= 5}>
-            <span className={styles.countdownNumber}>{countdown}</span>
-            <span className={styles.countdownSec}>SEC</span>
-          </div>
-        )}
-
-        {countdown === null && !hasBowler && (
-          <div className={styles.statusPill}>Select Bowler</div>
-        )}
-
-        {/* Readiness pulse lights */}
-        <div className={styles.readyTrack}>
-          <div
-            className={`${styles.readyDot} ${isBatterSubmitted ? styles.dotReady : ''}`}
-            title={isBatterSubmitted ? 'Batter pick locked' : 'Waiting for batter'}
-          >
-            <span>🏏</span>
-          </div>
-          <span className={styles.readyDivider}>⚡</span>
-          <div
-            className={`${styles.readyDot} ${isBowlerSubmitted ? styles.dotReady : ''}`}
-            title={isBowlerSubmitted ? 'Bowler pick locked' : 'Waiting for bowler'}
-          >
-            <span>🎯</span>
-          </div>
+      {/* Bottom Batter Card at the Batting Crease */}
+      <div className={styles.batterPitchCard}>
+        <div className={styles.playerAvatarSmall}>🏏</div>
+        <div className={styles.playerMetaCol}>
+          <span className={styles.playerName}>{activeBatterName || 'Batter'}</span>
+          <span className={styles.playerSub}>Right Hand Bat</span>
         </div>
       </div>
     </div>

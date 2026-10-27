@@ -226,6 +226,8 @@ class Delivery:
 
     batter_pick: Optional[int] = None
     bowler_pick: Optional[int] = None
+    batter_id: Optional[str] = None
+    bowler_id: Optional[str] = None
     result: Optional[DeliveryResult] = None
     runs_scored: int = 0
     timeout_reason: Optional[str] = None
@@ -242,6 +244,8 @@ class Delivery:
             "ball": self.ball_index,
             "batter_pick": self.batter_pick,
             "bowler_pick": self.bowler_pick,
+            "batter_id": getattr(self, "batter_id", None),
+            "bowler_id": getattr(self, "bowler_id", None),
             "result": self.result.value if self.result else None,
             "runs_scored": self.runs_scored,
         }

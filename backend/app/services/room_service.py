@@ -345,12 +345,17 @@ def select_bowler(room: Room, captain: Player, bowler_player_id: str) -> Match:
         raise ValueError("not_in_active_innings")
 
     captain_mem = repo.get_membership(room.id, captain.id)
-    if not captain_mem or not captain_mem.is_captain:
-        raise PermissionError("not_captain")
+    if not captain_mem:
+        raise PermissionError("not_in_room")
 
     # Captain must be on the bowling team
     if captain_mem.team != match.bowling_team:
         raise PermissionError("wrong_team")
+
+    bowling_mems = [m for m in repo.get_room_members(room.id) if m.team == match.bowling_team]
+    has_explicit_captain = any(m.is_captain for m in bowling_mems)
+    if has_explicit_captain and not (captain_mem.is_captain or captain_mem.is_host):
+        raise PermissionError("not_captain")
 
     bowler_mem = repo.get_membership(room.id, bowler_player_id)
     if not bowler_mem or bowler_mem.team != match.bowling_team:
@@ -484,6 +489,8 @@ def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[
             innings=match.phase,
             over_index=match.current_over,
             ball_index=match.current_ball,
+            batter_id=match.active_batter_id,
+            bowler_id=match.active_bowler_id,
         )
         repo.save_delivery(delivery)
 
@@ -535,6 +542,8 @@ def resolve_timeout(room_id: str) -> Optional[tuple[Match, Delivery]]:
             innings=match.phase,
             over_index=match.current_over,
             ball_index=match.current_ball,
+            batter_id=match.active_batter_id,
+            bowler_id=match.active_bowler_id,
         )
 
     if delivery.committed:
@@ -576,7 +585,7 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
             "active_batter_id": match.active_batter_id,
             "active_bowler_id": match.active_bowler_id,
             "delivery_deadline": (
-                match.delivery_deadline.isoformat() if match.delivery_deadline else None
+                (match.delivery_deadline.isoformat() + "Z") if match.delivery_deadline else None
             ),
             "winner": match.winner,
             "result_summary": match.result_summary,
@@ -602,6 +611,26 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
                 ),
             }
 
+        all_delivs = repo.get_deliveries(match.id)
+        recent_deliveries = [
+            {
+                "id": d.id,
+                "over": d.over_index,
+                "ball": d.ball_index,
+                "result": d.result.value if d.result else "DOT",
+                "runs_scored": d.runs_scored,
+                "batter_pick": d.batter_pick,
+                "bowler_pick": d.bowler_pick,
+                "batter_id": getattr(d, "batter_id", None),
+                "bowler_id": getattr(d, "bowler_id", None),
+                "innings": d.innings.value if hasattr(d.innings, "value") else str(d.innings),
+            }
+            for d in all_delivs
+            if d.committed
+        ]
+    else:
+        recent_deliveries = []
+
     return {
         "room": room.to_public_dict(),
         "members": [
@@ -617,4 +646,5 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
         ],
         "match": match_data,
         "current_delivery": current_delivery,
+        "recent_deliveries": recent_deliveries,
     }

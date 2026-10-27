@@ -90,11 +90,25 @@ export interface DeliveryInfo {
   my_pick: number | null
 }
 
+export interface ResolvedDelivery {
+  id?: string
+  over: number
+  ball: number
+  result: 'RUNS' | 'OUT' | 'TIMEOUT' | 'DOT' | string
+  runs_scored: number
+  batter_pick?: number | null
+  bowler_pick?: number | null
+  batter_id?: string | null
+  bowler_id?: string | null
+  innings?: string
+}
+
 export interface RoomSnapshot {
   room: RoomInfo
   members: MemberInfo[]
   match: MatchInfo | null
   current_delivery: DeliveryInfo | null
+  recent_deliveries?: ResolvedDelivery[]
 }
 
 export interface ChatMessage {
@@ -110,6 +124,8 @@ export interface DeliveryReveal {
   ball: number
   batter_pick: number
   bowler_pick: number
+  batter_id?: string
+  bowler_id?: string
   result: 'RUNS' | 'OUT' | 'TIMEOUT'
   runs_scored: number
 }

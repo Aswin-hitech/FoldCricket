@@ -1,8 +1,16 @@
+/* ============================================================
+   FoldCricket — Broadcast-Style Arena Dashboard Styles
+   Matches reference design media_1793104248256_7d0916e9.png
+   ============================================================ */
+
 .arena {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-gradient-arena);
+  background: var(--color-bg);
+  color: var(--color-text);
+  overflow-x: hidden;
+  position: relative;
 }
 
 .centered {
@@ -16,1144 +24,1085 @@
 }
 
 .loader {
-  width: 36px; height: 36px;
-  border: 3px solid var(--color-border);
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--color-border);
   border-top-color: var(--color-team-a);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
-/* Header */
-.header {
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   A. Top Navigation Bar
+   ============================================================ */
+.topNav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
-  background: var(--color-header-bg);
+  padding: 8px 20px;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
-  z-index: 10;
-  flex-wrap: wrap;
+  z-index: 50;
   gap: 12px;
 }
 
-.headerBrand {
+.brandGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 800;
   color: var(--color-team-a);
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  text-decoration: none;
 }
 
-.headerBrandLogo {
+.brandLogo {
   width: 32px;
   height: 32px;
   border-radius: 8px;
   object-fit: cover;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
-.headerMeta {
-  display: flex;
-  gap: 18px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.metaItem {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--color-text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.connBadge {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: var(--color-warning);
-  animation: pulse 1s infinite;
-}
-
-/* Layout */
-.layout {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  flex: 1;
-  min-height: 0;
-}
-
-/* Main panel */
-.mainPanel {
-  padding: 24px;
+.navCenter {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  overflow-y: auto;
-}
-
-/* Scoreboard */
-.scoreboard {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 12px;
   align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
-.scoreCard {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 18px 22px;
-  text-align: center;
-  transition: all var(--transition);
-  position: relative;
+.matchStatusRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.scoreCard[data-team="A"] { border-top: 3px solid var(--color-team-a); }
-.scoreCard[data-team="B"] { border-top: 3px solid var(--color-team-b); }
-
-.scoreCardBatting {
-  background: var(--color-surface-2);
-}
-.scoreCardBatting[data-team="A"] { box-shadow: var(--glow-team-a); }
-.scoreCardBatting[data-team="B"] { box-shadow: var(--glow-team-b); }
-
-.scoreLabel {
+.matchStatusText {
   font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  margin-bottom: 4px;
-}
-
-.scoreRuns {
-  font-family: var(--font-display);
-  font-size: 3.8rem;
-  font-weight: 800;
-  line-height: 1;
-  color: var(--color-text);
-}
-
-.scoreWickets {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: var(--color-text-muted);
-  margin-top: 4px;
-}
-
-.battingIndicator {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  color: var(--color-success);
-  animation: pulse 2s infinite;
-}
-
-.targetLabel {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--color-warning);
-  margin-top: 6px;
-}
-
-.vsSection {
-  text-align: center;
-}
-
-.vs {
-  font-family: var(--font-display);
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: var(--color-text-muted);
-}
-
-.target {
-  font-size: 0.98rem;
-  font-weight: 700;
-  color: var(--color-warning);
-  text-align: center;
-  line-height: 1.4;
-}
-
-/* Stage */
-.stage {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 12px;
-  align-items: center;
-  background: radial-gradient(ellipse at 50% 50%, rgba(34, 197, 94, 0.09) 0%, var(--color-surface) 100%);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 24px 20px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-.stageWicketShake {
-  animation: shakeDramatic 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-  border-color: #ef4444 !important;
-  box-shadow: 0 0 35px rgba(239, 68, 68, 0.5) !important;
-}
-
-.activePlayer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 14px;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  text-align: center;
-  transition: all 0.25s ease;
-}
-
-.activePlayerMe {
-  border-color: var(--color-team-a);
-  background: rgba(59,130,246,0.08);
-  animation: neonPulse 2s infinite ease-in-out;
-}
-
-.activePlayerLabel {
-  font-size: 0.92rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-}
-
-.activePlayerName {
-  font-family: var(--font-display);
-  font-size: 1.4rem;
-  font-weight: 800;
-  color: var(--color-text);
-}
-
-.activePlayerYou {
-  font-size: 0.85rem;
-  font-weight: 800;
-  color: var(--color-team-a);
-  letter-spacing: 0.1em;
-}
-
-.activePlayerSubmitted {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--color-success);
-}
-
-.activePlayerWaiting {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--color-warning);
-  animation: pulse 1.5s infinite;
-}
-
-.stageCenter {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.countdown {
-  font-family: var(--font-display);
-  font-size: 3rem;
-  font-weight: 900;
-  color: var(--color-success);
-  min-width: 60px;
-  text-align: center;
-  transition: color 0.3s;
-}
-
-.countdown[data-urgent="true"] {
-  color: var(--color-danger);
-  animation: pulse 0.5s infinite;
-}
-
-.waitingBowler {
-  font-size: 0.75rem;
-  color: var(--color-warning);
-  text-align: center;
-  animation: pulse 1.5s infinite;
-  max-width: 80px;
-}
-
-/* Stage Popup Animation: WICKET !!! and Smooth Runs */
-.stagePopupWrapper {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 50;
-  pointer-events: none;
-  width: 90%;
-  max-width: 440px;
-}
-
-.wicketPopup {
-  background: radial-gradient(circle at center, rgba(220, 38, 38, 0.96) 0%, rgba(153, 27, 27, 0.98) 100%);
-  border: 3px solid #fbbf24;
-  border-radius: var(--radius-lg);
-  padding: 24px 32px;
-  text-align: center;
-  box-shadow: 0 0 50px rgba(220, 38, 38, 0.85), 0 0 20px rgba(251, 191, 36, 0.6);
-  animation: wicketPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  position: relative;
-  overflow: hidden;
-}
-
-@keyframes wicketPop {
-  0% { transform: scale(0.3) rotate(-8deg); opacity: 0; }
-  50% { transform: scale(1.15) rotate(3deg); }
-  75% { transform: scale(0.96) rotate(-1deg); }
-  100% { transform: scale(1) rotate(0deg); opacity: 1; }
-}
-
-.wicketEmoji {
-  font-size: 3rem;
-  animation: pulse 0.8s infinite;
-}
-
-.wicketTitle {
-  font-family: var(--font-display);
-  font-size: 3.2rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  color: #ffffff;
-  text-shadow: 0 0 24px #fbbf24, 0 4px 12px rgba(0, 0, 0, 0.7);
-  line-height: 1;
-}
-
-.wicketSub {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #fef3c7;
   letter-spacing: 0.04em;
-}
-
-/* Runs Popup with smooth pop in and fadeout transition */
-.runsPopup {
-  border-radius: var(--radius-lg);
-  padding: 18px 36px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  animation: runsPopFade 2.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  backdrop-filter: blur(8px);
-}
-
-@keyframes runsPopFade {
-  0% {
-    opacity: 0;
-    transform: scale(0.4) translateY(24px);
-  }
-  15% {
-    opacity: 1;
-    transform: scale(1.12) translateY(-6px);
-  }
-  25% {
-    transform: scale(1) translateY(0);
-  }
-  75% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.85) translateY(-20px);
-  }
-}
-
-.runsSix {
-  background: radial-gradient(circle at center, rgba(234, 179, 8, 0.35) 0%, rgba(30, 58, 138, 0.45) 100%);
-  border: 3px solid #eab308;
-  box-shadow: 0 0 40px rgba(234, 179, 8, 0.75);
-}
-.runsSix .runsScoreText { color: #facc15; text-shadow: 0 0 28px rgba(250, 204, 21, 0.9); }
-
-.runsFour {
-  background: radial-gradient(circle at center, rgba(37, 99, 235, 0.35) 0%, rgba(30, 27, 75, 0.45) 100%);
-  border: 3px solid #3b82f6;
-  box-shadow: 0 0 35px rgba(59, 130, 246, 0.7);
-}
-.runsFour .runsScoreText { color: #60a5fa; text-shadow: 0 0 22px rgba(96, 165, 250, 0.85); }
-
-.runsNormal {
-  background: rgba(34, 197, 94, 0.25);
-  border: 2px solid #22c55e;
-  box-shadow: 0 0 30px rgba(34, 197, 94, 0.5);
-}
-.runsNormal .runsScoreText { color: #4ade80; text-shadow: 0 0 18px rgba(74, 222, 128, 0.75); }
-
-.runsScoreText {
-  font-family: var(--font-display);
-  font-size: 3.4rem;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.runsScoreLabel {
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: #ffffff;
-}
-
-/* Pick Reveal Badge directly underneath batsman & bowler */
-.pickRevealContainer {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  animation: bounceIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-}
-
-.pickLabelTag {
-  font-size: 0.82rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--color-team-a);
-}
-
-.pickBadge {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--color-surface-2);
-  border: 2px solid var(--color-team-a);
-  border-radius: 999px;
-  padding: 6px 16px 6px 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), var(--glow-team-a);
-}
-
-.pickBadgeNum {
-  font-family: var(--font-display);
-  font-size: 1.75rem;
-  font-weight: 900;
   color: var(--color-text);
+  text-transform: uppercase;
 }
 
-.audioToggleBtn {
+.liveBadge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
+  gap: 4px;
+  background: #ef4444;
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  color: var(--color-text);
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 700;
-  transition: all var(--transition);
-}
-.audioToggleBtn:hover {
-  background: var(--color-border);
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+  animation: pulse 1.5s infinite;
 }
 
-/* Bowler select */
-.bowlerSelect {
-  background: var(--color-surface);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.bowlerSelect h3 {
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--color-warning);
-}
-
-.bowlerList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.bowlerBtn {
-  font-size: 1rem !important;
-  font-weight: 700 !important;
-  padding: 10px 18px !important;
-  border-radius: var(--radius-md) !important;
-}
-
-/* Number pad */
-.numberPad {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 24px 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-}
-
-.padHeader {
-  text-align: center;
-  margin-bottom: 4px;
-}
-
-.padLabel {
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: var(--color-team-a);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
-}
-
-.padSubLabel {
-  font-size: 0.95rem;
-  color: var(--color-text-dim);
+.matchSubtitle {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
   font-weight: 600;
 }
 
-.pad {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 14px;
-  width: 100%;
-  max-width: 480px;
+.navRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.padBtn {
-  aspect-ratio: 0.88;
-  max-width: 88px;
-  min-height: 88px;
-  justify-self: center;
-  width: 100%;
-  border: 2px solid var(--color-border);
-  border-radius: 16px;
-  background: linear-gradient(180deg, var(--color-surface-2) 0%, var(--color-surface) 100%);
+.roomPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  font-size: 0.8rem;
+  font-weight: 700;
   color: var(--color-text);
-  font-family: var(--font-display);
   cursor: pointer;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.15s ease;
+}
+
+.roomPill:hover {
+  background: var(--color-border);
+}
+
+.copyIcon {
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+.navBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.navBtn:hover {
+  background: var(--color-border);
+}
+
+.activeNavBtn {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: var(--color-team-a);
+  color: var(--color-team-a);
+}
+
+.badgePill {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 999px;
+  line-height: 1;
+}
+
+/* ============================================================
+   B. Entry Mic Pop-Up Prompt
+   ============================================================ */
+.micPromptBanner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  border: 2px solid #3b82f6;
+  border-radius: var(--radius-lg);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(59, 130, 246, 0.4);
+  z-index: 200;
+  color: #ffffff;
+  backdrop-filter: blur(10px);
+  animation: bounceIn 0.35s ease;
+}
+
+.micPromptIcon {
+  font-size: 1.6rem;
+  animation: pulse 1s infinite;
+}
+
+.micPromptText {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 4px 8px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 4px 0 var(--color-border), 0 6px 14px rgba(0, 0, 0, 0.15);
 }
 
-.padBtn:hover:not(:disabled) {
-  border-color: var(--color-team-a);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 0 var(--color-team-a), 0 10px 18px rgba(37, 99, 235, 0.25);
+.micPromptText strong {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: #60a5fa;
 }
 
-.padBtn:active:not(:disabled) {
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 var(--color-team-a), 0 2px 4px rgba(0, 0, 0, 0.2);
+.micPromptText span {
+  font-size: 0.82rem;
+  color: #e2e8f0;
 }
 
-.padBtnSelected {
-  border-color: var(--color-team-a) !important;
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.25) 0%, rgba(37, 99, 235, 0.35) 100%) !important;
-  color: var(--color-team-a) !important;
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.6), inset 0 0 12px rgba(59, 130, 246, 0.3) !important;
-  transform: translateY(-2px) scale(1.05);
-}
-
-.gestureSlot {
-  width: 100%;
-  height: 44px;
+.micPromptActions {
   display: flex;
   align-items: center;
-  justify-content: center;
-  pointer-events: none;
+  gap: 8px;
 }
 
-.padBtnNumber {
-  font-size: 1.85rem;
+.micEnableBtn {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.micEnableBtn:hover {
+  background: #1d4ed8;
+}
+
+.micDismissBtn {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #475569;
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.micDismissBtn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+/* ============================================================
+   C. Main Dashboard Grid (3-column layout)
+   ============================================================ */
+.dashboardContainer {
+  flex: 1;
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1540px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.topRowGrid {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.bottomRowGrid {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* Base Card Style */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ============================================================
+   D. Team A (Blue) & Team B (Orange) Scorecard Cards
+   ============================================================ */
+.cardHeaderBlue {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+  color: #ffffff;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cardHeaderOrange {
+  background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+  color: #ffffff;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.headerTeamCol {
+  display: flex;
+  flex-direction: column;
+}
+
+.headerTeamName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.headerScoreRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.headerRunsWkts {
+  font-family: var(--font-display);
+  font-size: 2.4rem;
   font-weight: 900;
   line-height: 1;
 }
 
-.padBtnDisabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.headerOvers {
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0.9;
 }
 
-.submitBtn {
-  width: 100%;
-  max-width: 440px;
-  padding: 16px 24px;
-  font-size: 1.2rem;
-  font-weight: 800;
-  border-radius: 14px;
-  min-height: 56px;
-  letter-spacing: 0.02em;
+.headerRightIcon {
+  font-size: 1.8rem;
+  opacity: 0.9;
 }
 
-.spectatorMsg {
-  text-align: center;
-  padding: 24px;
-  color: var(--color-text-muted);
-  font-size: 1.15rem;
-  font-weight: 700;
-  background: var(--color-surface);
-  border-radius: var(--radius-md);
-  border: 1px dashed var(--color-border);
-}
-
-/* Side panel */
-.sidePanel {
-  border-left: 1px solid var(--color-border);
+/* Stats Row: CRR, RRR, Target */
+.statsBar {
   display: flex;
-  flex-direction: column;
-  height: calc(100vh - 58px);
-  overflow: hidden;
-}
-
-.rosterSection {
-  padding: 18px 16px;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px 12px;
+  background: var(--color-surface-2);
   border-bottom: 1px solid var(--color-border);
-  overflow-y: auto;
-  max-height: 48%;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text-dim);
 }
 
-.chatSection {
-  padding: 14px 16px;
+.statItem {
+  display: flex;
+  gap: 4px;
+}
+
+.statLabel {
+  color: var(--color-text-muted);
+}
+
+/* Table Format */
+.tableContainer {
+  padding: 10px 14px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.cricTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.cricTable th {
+  padding: 6px 4px;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cricTable td {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text);
+}
+
+.cricTable tr:last-child td {
+  border-bottom: none;
+}
+
+.playerCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playerIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+}
+
+.playerNameCol {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  flex: 1;
-  overflow: hidden;
 }
 
-.sidePanelTitle {
+.tableName {
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.tableSub {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+}
+
+.activeDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+}
+
+.tableSectionDivider {
+  padding: 6px 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+}
+
+/* ============================================================
+   E. Lower Left: CURRENT BATSMEN - TEAM A
+   ============================================================ */
+.cardTitleBar {
+  padding: 10px 16px;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ============================================================
+   F. Lower Center: BOWLER & PICK YOUR DELIVERY
+   ============================================================ */
+.bowlerInfoBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bowlerInfoLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bowlerBadgeIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ef4444, #f97316);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.bowlerTextCol {
+  display: flex;
+  flex-direction: column;
+}
+
+.bowlerTitle {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.bowlerTitle span {
+  color: var(--color-team-a);
+}
+
+.bowlerSubtext {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.bowlerFiguresRight {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text-dim);
+}
+
+.bowlerEcon {
+  font-size: 0.75rem;
+  color: var(--color-team-a);
+}
+
+.deliveryPadArea {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  justify-content: center;
+}
+
+.pickDeliveryHeading {
   font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 800;
   letter-spacing: 0.08em;
+  color: var(--color-team-a);
   text-transform: uppercase;
-  color: var(--color-text-muted);
-  margin-bottom: 10px;
 }
 
-/* Roster */
-.roster {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.deliveryCardsRow {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 440px;
 }
 
-.rosterTeam {
+.deliveryCardBtn {
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: 10px 4px 8px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.06);
+  user-select: none;
 }
 
-.rosterTeamLabel {
-  font-size: 0.88rem;
+.deliveryCardBtn:hover:not(:disabled) {
+  border-color: var(--color-team-a);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.2);
+}
+
+.deliveryCardBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.deliveryCardSelected {
+  border-color: var(--color-team-a) !important;
+  background: rgba(37, 99, 235, 0.12) !important;
+  color: var(--color-team-a) !important;
+  box-shadow: 0 0 16px rgba(37, 99, 235, 0.5) !important;
+  transform: translateY(-2px) scale(1.05);
+}
+
+.deliveryCardDisabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.deliveryNum {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.lockInBtn {
+  width: 100%;
+  max-width: 440px;
+  padding: 14px 20px;
+  border-radius: var(--radius-md);
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+}
+
+.lockInBtn:hover:not(:disabled) {
+  background: #1d4ed8;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+  transform: translateY(-1px);
+}
+
+.lockInBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.spectatorDeliveryBanner {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+/* ============================================================
+   G. Lower Right: RECENT BALLS & MATCH INFO
+   ============================================================ */
+.recentBallsContainer {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.recentBallsTitle {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  margin-bottom: 6px;
+  color: var(--color-text);
+  margin-bottom: 8px;
 }
 
-.rosterTeamLabel[data-team="A"] { color: var(--color-team-a); }
-.rosterTeamLabel[data-team="B"] { color: var(--color-team-b); }
+.recentChipsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-.rosterPlayer {
+.matchInfoContainer {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.matchInfoTitle {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text);
+}
+
+.infoRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 0.92rem;
+  font-size: 0.78rem;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
-.rosterPlayerMe { background: rgba(59,130,246,0.08); }
-
-.rosterName { flex: 1; font-weight: 600; }
-
-.rosterMeta {
-  display: flex;
-  gap: 4px;
-  align-items: center;
+.infoRow:last-child {
+  border-bottom: none;
 }
 
-.connDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-text-muted);
-}
-.connDot[data-state="CONNECTED"] { background: var(--color-success); }
-.connDot[data-state="DISCONNECTED"] { background: var(--color-danger); animation: pulse 1s infinite; }
-
-/* Chat */
-.chatMessages {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 0.95rem;
+.infoLabel {
+  color: var(--color-text-muted);
+  font-weight: 600;
 }
 
-.chatMsg {
-  display: flex;
-  gap: 6px;
-  line-height: 1.45;
-  animation: slideIn 0.15s ease;
-}
-
-.chatName {
-  font-weight: 700;
-  color: var(--color-team-a);
-  white-space: nowrap;
-}
-
-.chatForm {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-}
-
-.chatInput {
-  flex: 1;
-  font-size: 1.05rem !important;
-  padding: 12px 14px !important;
-  min-height: 48px;
-  border-radius: var(--radius-md) !important;
-  font-weight: 500;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+.infoVal {
   color: var(--color-text);
-  box-sizing: border-box;
+  font-weight: 700;
 }
 
-.chatInput:focus {
-  border-color: var(--color-team-a);
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
-}
-
-.chatSubmitBtn {
-  min-height: 48px;
-  padding: 10px 18px !important;
-  font-size: 1rem !important;
-  font-weight: 800 !important;
-  border-radius: var(--radius-md) !important;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-/* Match finished overlay */
-.finishedOverlay {
+/* ============================================================
+   H. Captain Bowler Selection Dialog
+   ============================================================ */
+.bowlerModalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.85);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  animation: fadeIn 0.3s ease;
-}
-
-.finishedCard {
-  background: var(--color-surface);
-  border: 2px solid var(--color-success);
-  border-radius: var(--radius-lg);
-  padding: 48px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  animation: bounceIn 0.5s ease;
-  box-shadow: var(--glow-success);
-}
-
-.finishedEmoji { font-size: 4rem; }
-
-.finishedScores {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  padding: 8px 16px;
-  border-radius: var(--radius-md);
-  font-family: var(--font-display);
-  font-size: 1.1rem;
-  color: var(--color-text);
-  flex-wrap: wrap;
-}
-
-.finishedScoresVs {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.finishedTitle {
-  font-family: var(--font-display);
-  font-size: 2rem;
-  font-weight: 700;
-  color: var(--color-success);
-}
-
-.finishedSub {
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-  animation: pulse 1.5s infinite;
-}
-
-/* Responsive Tablet & Mobile */
-@media (max-width: 1024px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-
-  .sidePanel {
-    height: auto;
-    border-left: none;
-    border-top: 1px solid var(--color-border);
-  }
-
-  .rosterSection {
-    max-height: 200px;
-  }
-
-  .chatSection {
-    height: 260px;
-  }
-}
-
-@media (max-width: 600px) {
-  .header {
-    padding: 10px 12px;
-    gap: 10px;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .headerBrand {
-    justify-content: space-between;
-    width: 100%;
-    font-size: 1.2rem;
-  }
-
-  .headerBrandLogo {
-    width: 28px;
-    height: 28px;
-  }
-
-  .headerMeta {
-    justify-content: space-between;
-    width: 100%;
-    gap: 8px;
-    font-size: 0.88rem;
-  }
-
-  .metaItem {
-    font-size: 0.85rem;
-    letter-spacing: 0.03em;
-  }
-
-  .mainPanel {
-    padding: 14px 10px;
-    gap: 14px;
-  }
-
-  .scoreboard {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto;
-    padding: 14px 12px;
-    gap: 10px;
-  }
-
-  .scoreRuns {
-    font-size: clamp(2.4rem, 7.5vw, 3rem);
-  }
-
-  .scoreLabel {
-    font-size: 0.95rem;
-    font-weight: 800;
-  }
-
-  .scoreWickets {
-    font-size: 1.05rem;
-    font-weight: 700;
-  }
-
-  .vsSection {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    margin-top: 4px;
-  }
-
-  .stage {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto;
-    gap: 8px;
-  }
-
-  .stageCenter {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  .activePlayer {
-    padding: 14px 10px;
-    gap: 6px;
-  }
-
-  .activePlayerLabel {
-    font-size: 0.85rem;
-    font-weight: 800;
-  }
-
-  .activePlayerName {
-    font-size: 1.25rem;
-    font-weight: 800;
-  }
-
-  .activePlayerYou {
-    font-size: 0.8rem;
-    font-weight: 800;
-  }
-
-  .pickLabelTag {
-    font-size: 0.75rem;
-  }
-
-  .pickBadge {
-    padding: 4px 12px;
-    gap: 8px;
-  }
-
-  .pickBadgeNum {
-    font-size: 1.45rem;
-  }
-
-  .pitchContainer {
-    width: 100%;
-    max-width: 100%;
-    padding: 10px 4px;
-    overflow: hidden;
-  }
-
-  .numberPad {
-    padding: 18px 12px;
-    gap: 14px;
-    width: 100%;
-  }
-
-  .padLabel {
-    font-size: 1.15rem;
-    font-weight: 800;
-  }
-
-  .padSubLabel {
-    font-size: 0.88rem;
-  }
-
-  .pad {
-    grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
-    width: 100%;
-  }
-
-  .padBtn {
-    padding: 8px 2px 6px;
-    border-radius: 12px;
-    min-height: 74px;
-  }
-
-  .gestureSlot {
-    height: 32px;
-  }
-
-  .padBtnNumber {
-    font-size: 1.45rem;
-  }
-
-  .submitBtn {
-    width: 100%;
-    max-width: 100%;
-    padding: 14px 16px;
-    font-size: 1.12rem;
-    font-weight: 800;
-    min-height: 52px;
-  }
-
-  .chatSection {
-    height: 250px;
-    padding: 12px;
-    gap: 8px;
-  }
-
-  .chatMessages {
-    font-size: 0.92rem;
-  }
-
-  .chatInput {
-    font-size: 1.05rem !important;
-    padding: 10px 12px !important;
-    min-height: 46px;
-  }
-
-  .chatSubmitBtn {
-    min-height: 46px;
-    padding: 8px 14px !important;
-    font-size: 1rem !important;
-  }
-
-  .pausedCard {
-    padding: 24px 16px;
-    margin: 10px;
-    max-width: 100%;
-  }
-
-  .pausedTitle {
-    font-size: 1.3rem;
-  }
-}
-
-/* Match Paused / Reconnecting Overlay */
-.pausedOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   padding: 20px;
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn 0.25s ease;
 }
 
+.bowlerModalCard {
+  background: var(--color-surface);
+  border: 2px solid var(--color-warning);
+  border-radius: var(--radius-lg);
+  padding: 28px 24px;
+  max-width: 440px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 25px rgba(234, 179, 8, 0.3);
+  text-align: center;
+}
+
+.bowlerModalTitle {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--color-warning);
+}
+
+.bowlerModalDesc {
+  font-size: 0.9rem;
+  color: var(--color-text-dim);
+}
+
+.bowlerModalList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.bowlerPickBtn {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: var(--font-display);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bowlerPickBtn:hover {
+  background: var(--color-team-a);
+  color: #ffffff;
+  border-color: var(--color-team-a);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+/* ============================================================
+   I. Slide-Out Chat Drawer
+   ============================================================ */
+.chatDrawerOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  z-index: 150;
+  animation: fadeIn 0.2s ease;
+}
+
+.chatDrawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  max-width: 90vw;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  z-index: 160;
+  animation: slideInRight 0.25s ease;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.chatDrawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chatDrawerTitle {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.chatCloseBtn {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.chatMessagesList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chatItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.88rem;
+}
+
+.chatMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.chatAuthor {
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: var(--color-team-a);
+}
+
+.chatTime {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.chatText {
+  color: var(--color-text);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chatInputForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-surface-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.chatInput {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 500;
+  outline: none;
+}
+
+.chatInput:focus {
+  border-color: var(--color-team-a);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.chatSendBtn {
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-team-a);
+  color: #ffffff;
+  border: none;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* ============================================================
+   J. Mobile Bottom Navigation Bar (< 768px)
+   ============================================================ */
+.mobileBottomNav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  z-index: 90;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 8px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.mobileTabBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex: 1;
+  height: 100%;
+  position: relative;
+}
+
+.mobileTabIcon {
+  font-size: 1.25rem;
+}
+
+.activeMobileTab {
+  color: var(--color-team-a);
+}
+
+/* ============================================================
+   K. Match Finished & Paused Overlays
+   ============================================================ */
+.finishedOverlay,
+.pausedOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.3s ease;
+  padding: 20px;
+}
+
+.finishedCard,
 .pausedCard {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-success);
   border-radius: var(--radius-lg);
-  padding: 36px 28px;
+  padding: 36px 32px;
   max-width: 480px;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
   gap: 16px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 30px rgba(234, 179, 8, 0.15);
-  animation: bounceIn 0.35s ease-out;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  animation: bounceIn 0.4s ease;
 }
 
-.pausedPulseRing {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: rgba(234, 179, 8, 0.15);
+.pausedCard {
+  border-color: var(--color-warning);
+}
+
+.finishedScores {
   display: flex;
   align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.pausedPulseRing::after {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  border: 2px solid rgba(234, 179, 8, 0.4);
-  animation: pulse 1.8s infinite;
-}
-
-.pausedSpinner {
-  width: 36px;
-  height: 36px;
-  border: 4px solid rgba(234, 179, 8, 0.25);
-  border-top-color: #facc15;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.pausedBadge {
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  font-weight: 800;
-  color: #facc15;
-  background: rgba(234, 179, 8, 0.15);
-  border: 1px solid rgba(234, 179, 8, 0.3);
-  padding: 4px 12px;
-  border-radius: 999px;
-  text-transform: uppercase;
-}
-
-.pausedTitle {
-  font-family: var(--font-display);
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: var(--color-text);
-  margin: 0;
-}
-
-.pausedDesc {
-  color: var(--color-text-dim);
-  font-size: 0.95rem;
-  line-height: 1.5;
-  margin: 0;
-}
-
-.graceTimerBox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 12px;
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
-  padding: 8px 16px;
+  padding: 10px 18px;
   border-radius: var(--radius-md);
-  color: var(--color-warning);
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
 }
 
-.pausedBtnRow {
-  display: flex;
-  gap: 12px;
-  width: 100%;
-  margin-top: 8px;
+.finishedScoresVs {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
 }
 
-.pausedBtnRow button {
-  flex: 1;
+.finishedTitle {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: var(--color-success);
+}
+
+/* ============================================================
+   L. Responsive Layout Rules
+   ============================================================ */
+@media (max-width: 1100px) {
+  .topRowGrid,
+  .bottomRowGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .topRowGrid > *:nth-child(2) {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+
+  .bottomRowGrid > *:nth-child(2) {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .topNav {
+    padding: 8px 12px;
+  }
+
+  .brandGroup span {
+    display: none;
+  }
+
+  .dashboardContainer {
+    padding: 10px 10px 75px;
+    gap: 12px;
+  }
+
+  .topRowGrid,
+  .bottomRowGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .mobileBottomNav {
+    display: flex;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes bounceIn {
+  0% { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }

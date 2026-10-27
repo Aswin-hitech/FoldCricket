@@ -1,14 +1,22 @@
+/* ============================================================
+   FoldCricket Landing Page – Create & Join Room
+   Theme Support: Light Mode & Dark Mode using project variables
+   ============================================================ */
+
 .page {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-gradient-page);
   position: relative;
+  color: var(--color-text);
 }
 
 .topBar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
   padding: 16px 24px 0;
   max-width: 1200px;
   width: 100%;
@@ -19,21 +27,21 @@
 .hero {
   position: relative;
   text-align: center;
-  padding: 40px 24px 44px;
+  padding: 36px 20px 32px;
   overflow: hidden;
 }
 
 .heroGlow {
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at 50% 0%, rgba(59,130,246,0.15) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(37, 99, 235, 0.12) 0%, transparent 70%);
   pointer-events: none;
 }
 
 .heroContent {
   position: relative;
   z-index: 1;
-  max-width: 640px;
+  max-width: 600px;
   margin: 0 auto;
 }
 
@@ -41,44 +49,39 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: 14px;
+  margin-bottom: 12px;
 }
 
 .logoImg {
-  width: 60px;
-  height: 60px;
-  border-radius: 14px;
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
   object-fit: cover;
   box-shadow: 0 8px 24px rgba(37, 99, 235, 0.25);
-  border: 2px solid var(--border-color);
+  border: 2px solid var(--color-border);
   animation: floatGently 4s ease-in-out infinite;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.3s ease;
 }
 
 .logoImg:hover {
-  transform: scale(1.08) rotate(3deg);
-  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.45);
+  transform: scale(1.06);
 }
 
 .logoText {
   font-family: var(--font-display);
-  font-size: 2.8rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-size: 2.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   color: var(--color-text);
-}
-
-.live {
-  color: var(--color-team-a);
-  text-shadow: var(--glow-team-a);
 }
 
 .tagline {
   color: var(--color-text-dim);
   font-size: 1.05rem;
-  margin-bottom: 24px;
-  line-height: 1.6;
+  margin-bottom: 20px;
+  line-height: 1.5;
+  font-weight: 500;
 }
 
 .features {
@@ -89,22 +92,14 @@
 }
 
 .featurePill {
-  background: rgba(59,130,246,0.1);
-  border: 1px solid rgba(59,130,246,0.2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   color: var(--color-team-a);
   padding: 4px 12px;
   border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  transition: all 0.25s ease;
-  cursor: default;
-}
-
-.featurePill:hover {
-  background: rgba(59,130,246,0.22);
-  transform: translateY(-2px);
-  border-color: rgba(59,130,246,0.4);
-  box-shadow: 0 4px 12px rgba(59,130,246,0.25);
+  font-size: 0.78rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .main {
@@ -112,7 +107,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0 16px 48px;
+  padding: 0 16px 40px;
   gap: 20px;
 }
 
@@ -124,6 +119,8 @@
   width: 100%;
   max-width: 460px;
   overflow: hidden;
+  box-shadow: var(--card-shadow);
+  transition: border-color var(--transition);
 }
 
 .invitedBanner {
@@ -137,12 +134,13 @@
   color: var(--color-team-a);
   font-size: 0.88rem;
   margin: 14px 16px 0;
-  animation: fadeIn 4s ease;
+  animation: fadeIn 0.3s ease;
 }
 
 .tabs {
   display: flex;
   border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
 }
 
 .tab {
@@ -152,26 +150,28 @@
   border: none;
   color: var(--color-text-muted);
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: all var(--transition);
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
 }
 
 .tab:hover {
   color: var(--color-text);
-  background: rgba(255,255,255,0.03);
 }
 
 .tabActive {
   color: var(--color-team-a);
-  border-bottom: 2px solid var(--color-team-a);
+  background: var(--color-surface);
+  border-bottom: 3px solid var(--color-team-a);
 }
 
 .form {
-  padding: 24px;
+  padding: 22px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
 .field {
@@ -181,8 +181,8 @@
 }
 
 .label {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.82rem;
+  font-weight: 700;
   color: var(--color-text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -200,22 +200,27 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text-dim);
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 0.88rem;
+  font-weight: 700;
   cursor: pointer;
   transition: all var(--transition);
 }
-.modeBtn:hover { border-color: var(--color-team-a); color: var(--color-text); }
+
+.modeBtn:hover {
+  border-color: var(--color-team-a);
+  color: var(--color-text);
+}
+
 .modeBtnActive {
-  background: rgba(59,130,246,0.15);
+  background: rgba(37, 99, 235, 0.12);
   border-color: var(--color-team-a);
   color: var(--color-team-a);
 }
 
 .rangeSlider {
   width: 100%;
-  height: 8px;
-  border-radius: 4px;
+  height: 6px;
+  border-radius: 3px;
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   outline: none;
@@ -225,29 +230,31 @@
 
 .quickChips {
   display: flex;
-  gap: 5px;
-  margin-top: 6px;
+  gap: 4px;
+  margin-top: 4px;
   flex-wrap: wrap;
 }
 
 .chipBtn {
-  flex: 1 1 calc(10% - 5px);
-  min-width: 28px;
-  padding: 6px 2px;
+  flex: 1 1 calc(10% - 4px);
+  min-width: 26px;
+  padding: 5px 2px;
   text-align: center;
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   color: var(--color-text-dim);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
   transition: all var(--transition);
 }
+
 .chipBtn:hover {
   border-color: var(--color-team-a);
   color: var(--color-text);
 }
+
 .chipBtnActive {
   background: rgba(37, 99, 235, 0.15);
   border-color: var(--color-team-a);
@@ -266,7 +273,7 @@
   color: var(--color-danger);
   font-size: 0.88rem;
   padding: 8px 12px;
-  background: rgba(239,68,68,0.1);
+  background: rgba(239, 68, 68, 0.1);
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--color-danger);
 }
@@ -275,7 +282,7 @@
   display: inline-block;
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255,255,255,0.3);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   border-top-color: white;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -284,37 +291,38 @@
 .rules {
   max-width: 460px;
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--color-text-muted);
+  line-height: 1.5;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
 }
 
-.footer {
-  text-align: center;
-  padding: 16px;
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  border-top: 1px solid var(--color-border);
+/* Animations */
+@keyframes floatGently {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }
 
-/* Responsive Mobile & Tablet */
-@media (max-width: 768px) {
-  .hero {
-    padding: 30px 18px 24px;
-  }
-
-  .formCard {
-    max-width: 460px;
-    width: 100%;
-  }
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Responsive */
 @media (max-width: 480px) {
   .hero {
-    padding: 20px 14px 16px;
+    padding: 24px 14px 20px;
   }
 
-  .logo {
-    gap: 12px;
+  .logoText {
+    font-size: 2.1rem;
   }
 
   .logoImg {
@@ -322,33 +330,13 @@
     height: 44px;
   }
 
-  .logoText {
-    font-size: 2rem;
-  }
-
-  .tagline {
-    font-size: 0.9rem;
-    margin-bottom: 16px;
-  }
-
-  .formCard {
-    border-radius: var(--radius-md);
-  }
-
   .form {
-    padding: 16px 12px;
+    padding: 16px 14px;
     gap: 16px;
   }
 
   .chipBtn {
     flex: 1 1 calc(20% - 4px);
-    min-width: 24px;
-    padding: 6px 2px;
     font-size: 0.8rem;
-  }
-
-  .footer {
-    padding: 14px 8px;
-    font-size: 0.72rem;
   }
 }

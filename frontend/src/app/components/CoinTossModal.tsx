@@ -6,6 +6,7 @@ import styles from './CoinTossModal.module.css'
 interface CoinTossModalProps {
   toss: TossInfo | null | undefined
   myPlayerId: string
+  countdownSeconds?: number | null
   onCall: (choice: 'HEADS' | 'TAILS') => void
   onDecide: (decision: 'BAT' | 'BOWL') => void
 }
@@ -13,6 +14,7 @@ interface CoinTossModalProps {
 export const CoinTossModal: React.FC<CoinTossModalProps> = ({
   toss,
   myPlayerId,
+  countdownSeconds,
   onCall,
   onDecide,
 }) => {
@@ -23,12 +25,7 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
   const isWinner = toss?.winner_id === myPlayerId
 
   useEffect(() => {
-    if (toss?.elected_choice || toss?.state === 'COMPLETED') {
-      setIsFlipping(false)
-      return
-    }
-
-    if (toss?.coin_result && !displayResult) {
+    if (toss?.coin_result && !displayResult && !toss.elected_choice) {
       setIsFlipping(true)
       sound.playCoinToss()
 
@@ -40,11 +37,22 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
       }, 2200)
 
       return () => clearTimeout(timer)
+    } else if (toss?.coin_result && !displayResult && toss.elected_choice) {
+      // Direct result if already decided
+      setDisplayResult(toss.coin_result)
     }
-  }, [toss?.coin_result, toss?.elected_choice, toss?.state, displayResult])
+  }, [toss?.coin_result, toss?.elected_choice, displayResult])
 
-  // Skip rendering if toss is already concluded
-  if (!toss || toss.elected_choice || toss.state === 'COMPLETED') return null
+  // Don't render if no toss data
+  if (!toss) return null
+
+  // If 10s countdown reached 0, unmount
+  if (countdownSeconds !== null && countdownSeconds !== undefined && countdownSeconds <= 0) {
+    return null
+  }
+
+  const secondsRemaining = countdownSeconds ?? 10
+  const progressPercent = Math.max(0, Math.min(100, ((10 - secondsRemaining) / 10) * 100))
 
   return (
     <div className={styles.overlay} role="dialog" aria-modal aria-label="Coin Toss">
@@ -55,7 +63,7 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
         <div className={styles.coinStage}>
           <div
             className={`${styles.coin} ${isFlipping ? styles.flipping : ''} ${
-              displayResult === 'TAILS' ? styles.showTails : ''
+              (displayResult || toss.coin_result) === 'TAILS' ? styles.showTails : ''
             }`}
           >
             <div className={`${styles.coinFace} ${styles.coinHeads}`}>
@@ -70,11 +78,13 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
         </div>
 
         {/* Toss Phase 1: Calling Heads or Tails */}
-        {!toss.coin_result && (
+        {!toss.coin_result && !toss.elected_choice && (
           <div className={styles.section}>
             {isCaller ? (
               <>
-                <p className={styles.prompt}>🪙 As the opponent, you call the toss! Choose <strong>Heads</strong> or <strong>Tails</strong>:</p>
+                <p className={styles.prompt}>
+                  🪙 As the opponent, you call the toss! Choose <strong>Heads</strong> or <strong>Tails</strong>:
+                </p>
                 <div className={styles.btnRow}>
                   <button
                     type="button"
@@ -116,11 +126,11 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
           </div>
         )}
 
-        {/* Toss Phase 2: Choosing Bat/Bowl */}
-        {!isFlipping && displayResult && (
+        {/* Toss Phase 2: Choosing Bat/Bowl (before election) */}
+        {!isFlipping && !toss.elected_choice && (displayResult || toss.coin_result) && (
           <div className={styles.resultSection}>
             <div className={styles.resultBanner}>
-              It's <strong>{displayResult}</strong>!
+              It's <strong>{displayResult || toss.coin_result}</strong>!
             </div>
             <p className={styles.winnerText}>
               🎉 <strong>{toss.winner_name || `Team ${toss.winner_team}`}</strong> won the toss!
@@ -160,6 +170,34 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
                 <p>Waiting for {toss.winner_name || 'opponent'} to choose Bat or Bowl…</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Toss Phase 3: Post-Decision 10-Second Display Screen */}
+        {toss.elected_choice && (
+          <div className={styles.announcementSection}>
+            <span className={styles.announcementBadge}>Toss Concluded</span>
+            <h3 className={styles.announcementTitle}>
+              🎉 {toss.winner_name || `Team ${toss.winner_team}`} won the toss and chose to{' '}
+              <span style={{ color: toss.elected_choice === 'BAT' ? 'var(--color-success)' : 'var(--color-team-a)', textDecoration: 'underline' }}>
+                {toss.elected_choice === 'BAT' ? 'BAT FIRST' : 'BOWL FIRST'}
+              </span>
+            </h3>
+            <p className={styles.announcementSub}>
+              {toss.winner_name || `Team ${toss.winner_team}`} will {toss.elected_choice === 'BAT' ? 'set the target' : 'bowl first'}. Prepare your opening strategy!
+            </p>
+
+            <div className={styles.transitionCountdown}>
+              <span className={styles.pulseDot} />
+              <span>Moving to match arena in <strong>{secondsRemaining}s</strong></span>
+            </div>
+
+            <div className={styles.tossProgressBar}>
+              <div
+                className={styles.tossProgressFill}
+                style={{ width: `${progressPercent}%`, animation: 'none', transition: 'width 0.9s linear' }}
+              />
+            </div>
           </div>
         )}
       </div>

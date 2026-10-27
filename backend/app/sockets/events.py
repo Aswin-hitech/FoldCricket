@@ -552,9 +552,23 @@ def on_delivery_submit(data):
                 {"winner": match.winner, "result_summary": match.result_summary},
                 room=room_id,
             )
-        elif room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
-            # Reschedule delivery timer for next delivery!
-            _schedule_delivery_timer(room_id, match.id)
+        else:
+            if match.phase.value == "SECOND" and match.current_over == 0 and match.current_ball == 0 and match.target is not None:
+                socketio.emit(
+                    "innings:break",
+                    {
+                        "innings": "SECOND",
+                        "target": match.target,
+                        "first_batting_team": getattr(match, "first_batting_team", "A"),
+                        "first_innings_runs": match.team_a_runs if match.batting_team == "B" else match.team_b_runs,
+                        "overs": match.overs,
+                    },
+                    room=room_id,
+                )
+
+            if room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
+                # Reschedule delivery timer for next delivery!
+                _schedule_delivery_timer(room_id, match.id)
     else:
         # Waiting for other player's pick
         _broadcast_snapshot(room_id)

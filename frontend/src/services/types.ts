@@ -90,6 +90,14 @@ export interface DeliveryInfo {
   my_pick: number | null
 }
 
+export interface InningsBreakInfo {
+  innings: 'SECOND'
+  target: number
+  first_batting_team: 'A' | 'B'
+  first_innings_runs: number
+  overs: number
+}
+
 export interface ResolvedDelivery {
   id?: string
   over: number

@@ -69,6 +69,7 @@ export default function LandingPage() {
         return
       }
       localStorage.setItem('hcl_session', data.session_token)
+      sessionStorage.setItem('hcl_session_token', data.session_token)
       localStorage.setItem('hcl_player_id', data.player_id)
       localStorage.setItem('hcl_display_name', name)
 

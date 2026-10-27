@@ -85,6 +85,9 @@ def create_room(host: Player, mode: str, overs: int, wickets: Optional[int] = No
     else:
         wickets_val = 1 if game_mode == GameMode.SOLO else 5
 
+    host_name = (host.display_name or "").strip() or "Host"
+    team_a_default = f"{host_name}'s Team"
+
     room = Room(
         join_code=generate_join_code(),
         host_id=host.id,
@@ -92,6 +95,8 @@ def create_room(host: Player, mode: str, overs: int, wickets: Optional[int] = No
         overs=overs,
         wickets=wickets_val,
         status=RoomStatus.WAITING_FOR_PLAYERS,
+        team_a_name=team_a_default,
+        team_b_name="Opponent's Team",
     )
     repo.save_room(room)
 
@@ -129,6 +134,12 @@ def join_room(player: Player, join_code: str) -> tuple[Room, Membership]:
         team=team,
     )
     repo.save_membership(membership)
+
+    # Dynamic default team B name based on player name
+    if team == "B" and getattr(room, "team_b_name", "") in ("", "Team B", "Opponent's Team", "Challenger's Team"):
+        guest_name = (player.display_name or "").strip() or "Opponent"
+        room.team_b_name = f"{guest_name}'s Team"
+        repo.save_room(room)
 
     # If we now have 2+ players, move to LOBBY_READY
     all_members = repo.get_room_members(room.id)
@@ -292,6 +303,22 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
     team_b = [m for m in members if m.team == "B"]
     extra_a, extra_b = GameRules.compute_extra_wickets(len(team_a), len(team_b))
 
+    p_a = repo.get_player(team_a[0].player_id) if team_a else None
+    p_b = repo.get_player(team_b[0].player_id) if team_b else None
+
+    default_a = f"{(p_a.display_name or '').strip() or 'Host'}'s Team" if p_a else "Team A"
+    default_b = f"{(p_b.display_name or '').strip() or 'Guest'}'s Team" if p_b else "Team B"
+
+    cur_a = getattr(room, "team_a_name", "")
+    cur_b = getattr(room, "team_b_name", "")
+
+    final_team_a = cur_a if cur_a and cur_a != "Team A" else default_a
+    final_team_b = cur_b if cur_b and cur_b not in ("Team B", "Opponent's Team", "Challenger's Team") else default_b
+
+    room.team_a_name = final_team_a
+    room.team_b_name = final_team_b
+    repo.save_room(room)
+
     match = Match(
         room_id=room.id,
         overs=room.overs,
@@ -301,8 +328,8 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
         batting_team=batting_team,
         first_batting_team=batting_team,
         phase=InningsPhase.FIRST,
-        team_a_name=getattr(room, "team_a_name", "Team A"),
-        team_b_name=getattr(room, "team_b_name", "Team B"),
+        team_a_name=final_team_a,
+        team_b_name=final_team_b,
     )
     match._team_a_size = len(team_a)
     match._team_b_size = len(team_b)

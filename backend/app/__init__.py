@@ -27,6 +27,8 @@ def create_app(config: type = Config) -> Flask:
         app,
         cors_allowed_origins=config.SOCKETIO_CORS_ALLOWED_ORIGINS,
         async_mode=config.SOCKETIO_ASYNC_MODE,
+        ping_timeout=45,
+        ping_interval=15,
         logger=False,
         engineio_logger=False,
     )

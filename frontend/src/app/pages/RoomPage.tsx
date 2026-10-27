@@ -1,8 +1,9 @@
 /**
- * Room/Lobby Page – waiting room, team assignment, rules, toss, start match.
+ * Room/Lobby Page – waiting room, team assignment, match settings, toss, and start match.
+ * Features 10-second post-toss decision announcement, dynamic team naming, and broadcast gaming UI.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { ThemeToggle } from '../../context/ThemeContext'
@@ -43,12 +44,12 @@ export default function RoomPage() {
 
   const [chatInput, setChatInput] = useState('')
   const [rulesAcked, setRulesAcked] = useState(false)
-  const [showRules, setShowRules] = useState(true)
+  const [showRules, setShowRules] = useState(false)
   const [overs, setOvers] = useState(2)
   const [wickets, setWickets] = useState(1)
-  const [isTossAnnouncing, setIsTossAnnouncing] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
+  const [tossCountdown, setTossCountdown] = useState<number | null>(null)
 
   const room: RoomInfo | null = snapshot?.room ?? null
   const members: MemberInfo[] = snapshot?.members ?? []
@@ -68,16 +69,25 @@ export default function RoomPage() {
     if (room?.wickets) setWickets(room.wickets)
   }, [room?.overs, room?.wickets])
 
-  // Once toss is decided or match has started, immediately navigate to arena (skip tossing again)
+  // 10-Second Toss Conclusion Display:
+  // When toss winner makes choice, hold for exactly 10s showing the decision before moving to Arena
   useEffect(() => {
-    if (room?.toss?.elected_choice || snapshot?.match || snapshot?.room?.status === 'INNINGS_ACTIVE') {
+    if (room?.toss?.elected_choice) {
+      if (tossCountdown === null) {
+        setTossCountdown(10)
+      } else if (tossCountdown > 0) {
+        const timer = setTimeout(() => {
+          setTossCountdown(prev => (prev !== null && prev > 0 ? prev - 1 : 0))
+        }, 1000)
+        return () => clearTimeout(timer)
+      } else if (tossCountdown === 0) {
+        navigate(`/room/${roomId}/arena`, { replace: true })
+      }
+    } else if (snapshot?.room?.status === 'INNINGS_ACTIVE' && !room?.toss) {
+      // Direct navigate if rejoining an active game
       navigate(`/room/${roomId}/arena`, { replace: true })
     }
-  }, [room?.toss?.elected_choice, snapshot?.match, snapshot?.room?.status, roomId, navigate])
-
-  useEffect(() => {
-    if (room?.overs) setOvers(room.overs)
-  }, [room?.overs])
+  }, [room?.toss?.elected_choice, tossCountdown, snapshot?.room?.status, roomId, navigate])
 
   function handleAckRules() {
     sound.playClick()
@@ -86,9 +96,12 @@ export default function RoomPage() {
     setShowRules(false)
   }
 
-  function handleReady() {
+  function handleReadyToggle() {
     sound.playClick()
-    if (roomId) setReady(roomId, true)
+    if (roomId && myMembership) {
+      const nextState = myMembership.readiness !== 'READY'
+      setReady(roomId, nextState)
+    }
   }
 
   function handleStartMatch() {
@@ -102,8 +115,9 @@ export default function RoomPage() {
 
   function handleDecideToss(decision: 'BAT' | 'BOWL') {
     if (roomId) {
+      sound.playClick()
       decideToss(roomId, decision)
-      navigate(`/room/${roomId}/arena`, { replace: true })
+      setTossCountdown(10)
     }
   }
 
@@ -136,7 +150,7 @@ export default function RoomPage() {
     return (
       <div className={styles.centered}>
         <div className={styles.loader} />
-        <p>Connecting to room…</p>
+        <p>Connecting to game room…</p>
         <button
           type="button"
           className="btn btn-secondary"
@@ -151,23 +165,31 @@ export default function RoomPage() {
 
   const teamA = members.filter(m => m.team === 'A')
   const teamB = members.filter(m => m.team === 'B')
+  const unassigned = members.filter(m => !m.team)
   const allReady = members.length >= 2 && members.every(m => m.readiness === 'READY')
+
+  // Dynamic default team naming: <Player Name>'s Team
+  const defaultTeamAName = teamA[0]?.player.display_name ? `${teamA[0].player.display_name}'s Team` : 'Team A'
+  const defaultTeamBName = teamB[0]?.player.display_name ? `${teamB[0].player.display_name}'s Team` : 'Team B'
+
+  const displayTeamAName = room?.team_a_name && room.team_a_name !== 'Team A' ? room.team_a_name : defaultTeamAName
+  const displayTeamBName = room?.team_b_name && room.team_b_name !== 'Team B' ? room.team_b_name : defaultTeamBName
 
   function handleUpdateTeamAName(newName: string) {
     if (!roomId) return
     sound.playClick()
-    updateTeams(roomId, newName, room?.team_b_name || 'Team B')
+    updateTeams(roomId, newName, displayTeamBName)
   }
 
   function handleUpdateTeamBName(newName: string) {
     if (!roomId) return
     sound.playClick()
-    updateTeams(roomId, room?.team_a_name || 'Team A', newName)
+    updateTeams(roomId, displayTeamAName, newName)
   }
 
   return (
     <div className={styles.page}>
-      {/* Header */}
+      {/* Top Navigation Bar */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.logo}>
@@ -176,10 +198,11 @@ export default function RoomPage() {
           </div>
           {room && (
             <span className={styles.statusBadge} data-status={room.status}>
-              {room.status.replace(/_/g, ' ')}
+              {room.status === 'LOBBY_READY' ? 'Lobby Ready' : room.status.replace(/_/g, ' ')}
             </span>
           )}
         </div>
+
         <div className={styles.headerRight}>
           {/* Voice Chat Microphone facility */}
           <VoiceChat
@@ -193,10 +216,13 @@ export default function RoomPage() {
             onSendSignal={sendVoiceSignal}
           />
 
-          {/* Real-time Internet Speed Indicator with signal bars & reconnecting banner */}
+          {/* Real-time Internet Speed Indicator with signal bars */}
           <NetworkIndicator status={status} latency={pingLatency} />
 
+          {/* Theme Toggle */}
           <ThemeToggle />
+
+          {/* Room Code & Share Link */}
           {room && (
             <div className={styles.joinInfo}>
               <span className={styles.joinLabel}>Room</span>
@@ -204,14 +230,13 @@ export default function RoomPage() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+                style={{ padding: '6px 10px', fontSize: '0.8rem' }}
                 onClick={() => {
                   sound.playClick()
                   navigator.clipboard.writeText(room.join_code)
                   setCopiedCode(true)
                   setTimeout(() => setCopiedCode(false), 2000)
                 }}
-                aria-label="Copy room code"
                 title="Copy room code"
               >
                 {copiedCode ? 'Copied! ✅' : 'Code'}
@@ -219,7 +244,7 @@ export default function RoomPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={() => {
                   sound.playClick()
                   const link = `${window.location.origin}/join/${room.join_code}`
@@ -227,7 +252,6 @@ export default function RoomPage() {
                   setCopiedLink(true)
                   setTimeout(() => setCopiedLink(false), 2000)
                 }}
-                aria-label="Copy shareable room link"
                 title="Copy direct invite link for friends"
               >
                 {copiedLink ? 'Link Copied! 📋' : '🔗 Copy Link'}
@@ -237,145 +261,208 @@ export default function RoomPage() {
         </div>
       </header>
 
+      {/* Main Broadcast Lobby Grid */}
       <div className={styles.layout}>
-        {/* Left – teams */}
+        {/* Left / Center – Match Settings & Teams Showcase */}
         <section className={styles.teamsPanel}>
-          <h2 className={styles.sectionTitle}>Teams</h2>
-
-          {isHost ? (
-            <div className={styles.settingsRow}>
-              {/* Overs */}
-              <div className={styles.settingsHeader}>
-                <span className={styles.settingsLabel}>Match Overs:</span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.05rem' }}>
-                  {overs} {overs === 1 ? 'Over' : 'Overs'} ({overs * 6} Balls)
+          {/* Match Configuration Card */}
+          <div className={styles.configCard}>
+            <div className={styles.configHeader}>
+              <div className={styles.configTitleRow}>
+                <span className={styles.sectionTitle}>⚙️ Match Configuration</span>
+                <span className={styles.modeBadge}>
+                  {room?.mode === 'SOLO' ? '👤 1v1 Solo' : '👥 Team Match'}
                 </span>
               </div>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                step="1"
-                value={overs}
-                onChange={e => handleOversChange(Number(e.target.value))}
-                className={styles.rangeSlider}
-                aria-label="Room Overs Range Slider"
-              />
-              <div className={styles.quickChips}>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(o => (
-                  <button
-                    key={o}
-                    type="button"
-                    className={`${styles.chipBtn} ${overs === o ? styles.chipBtnActive : ''}`}
-                    onClick={() => handleOversChange(o)}
-                  >
-                    {o}
-                  </button>
-                ))}
-              </div>
-
-              {/* Wickets Per Team */}
-              <div className={styles.settingsHeader} style={{ marginTop: '12px' }}>
-                <span className={styles.settingsLabel}>
-                  Wickets Per Team:
-                  <small style={{ marginLeft: '6px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
-                    ({room?.mode === 'SOLO' ? 'Max 5 for Solo' : 'Max 10 for Group'})
-                  </small>
-                </span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.05rem' }}>
-                  {wickets} {wickets === 1 ? 'Wicket' : 'Wickets'}
-                </span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max={room?.mode === 'SOLO' ? 5 : 10}
-                step="1"
-                value={wickets}
-                onChange={e => handleWicketsChange(Number(e.target.value))}
-                className={styles.rangeSlider}
-                aria-label="Wickets Per Team Range Slider"
-              />
-              <div className={styles.quickChips}>
-                {(room?.mode === 'SOLO' ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map(w => (
-                  <button
-                    key={w}
-                    type="button"
-                    className={`${styles.chipBtn} ${wickets === w ? styles.chipBtnActive : ''}`}
-                    onClick={() => handleWicketsChange(w)}
-                  >
-                    {w}
-                  </button>
-                ))}
-              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                onClick={() => setShowRules(true)}
+              >
+                📋 View Rules
+              </button>
             </div>
-          ) : (
-            <div className={styles.settingsRow}>
-              <div className={styles.settingsHeader}>
-                <span className={styles.settingsLabel}>Match Configuration:</span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '0.95rem' }}>
-                  {overs} Overs • {wickets} Wicket{wickets !== 1 ? 's' : ''} per team
-                </span>
-              </div>
-            </div>
-          )}
 
-          <div className={styles.teamsGrid}>
-            <TeamColumn
-              label={room?.team_a_name || 'Team A'}
-              members={teamA}
-              myPlayerId={myPlayerId}
-              isHost={isHost}
-              team="A"
-              onAssign={handleAssignTeam}
-              onUpdateTeamName={handleUpdateTeamAName}
-            />
-            <TeamColumn
-              label={room?.team_b_name || 'Team B'}
-              members={teamB}
-              myPlayerId={myPlayerId}
-              isHost={isHost}
-              team="B"
-              onAssign={handleAssignTeam}
-              onUpdateTeamName={handleUpdateTeamBName}
-            />
+            {isHost ? (
+              <div className={styles.settingsGrid}>
+                {/* Overs Selection */}
+                <div className={styles.settingBlock}>
+                  <div className={styles.settingLabelRow}>
+                    <span className={styles.settingLabel}>Match Overs:</span>
+                    <span className={styles.settingValue}>
+                      {overs} {overs === 1 ? 'Over' : 'Overs'} ({overs * 6} Balls)
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    step="1"
+                    value={overs}
+                    onChange={e => handleOversChange(Number(e.target.value))}
+                    className={styles.rangeSlider}
+                    aria-label="Match Overs Slider"
+                  />
+                  <div className={styles.quickChips}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(o => (
+                      <button
+                        key={o}
+                        type="button"
+                        className={`${styles.chipBtn} ${overs === o ? styles.chipBtnActive : ''}`}
+                        onClick={() => handleOversChange(o)}
+                      >
+                        {o}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Wickets Selection */}
+                <div className={styles.settingBlock}>
+                  <div className={styles.settingLabelRow}>
+                    <span className={styles.settingLabel}>
+                      Wickets Per Team:
+                      <small style={{ marginLeft: '6px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
+                        ({room?.mode === 'SOLO' ? 'Max 5 for Solo' : 'Max 10 for Group'})
+                      </small>
+                    </span>
+                    <span className={styles.settingValue}>
+                      {wickets} {wickets === 1 ? 'Wicket' : 'Wickets'}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max={room?.mode === 'SOLO' ? 5 : 10}
+                    step="1"
+                    value={wickets}
+                    onChange={e => handleWicketsChange(Number(e.target.value))}
+                    className={styles.rangeSlider}
+                    aria-label="Wickets Per Team Slider"
+                  />
+                  <div className={styles.quickChips}>
+                    {(room?.mode === 'SOLO' ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map(w => (
+                      <button
+                        key={w}
+                        type="button"
+                        className={`${styles.chipBtn} ${wickets === w ? styles.chipBtnActive : ''}`}
+                        onClick={() => handleWicketsChange(w)}
+                      >
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={styles.guestSummaryRow}>
+                <div className={styles.guestSummaryItem}>
+                  <span className={styles.summaryLabel}>Overs</span>
+                  <span className={styles.summaryValue}>{overs} ({overs * 6} Balls)</span>
+                </div>
+                <div className={styles.guestSummaryItem}>
+                  <span className={styles.summaryLabel}>Wickets Limit</span>
+                  <span className={styles.summaryValue}>{wickets} per team</span>
+                </div>
+                <div className={styles.guestSummaryItem}>
+                  <span className={styles.summaryLabel}>Delivery Timeout</span>
+                  <span className={styles.summaryValue}>25 Seconds</span>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Unassigned */}
-          {members.some(m => !m.team) && (
-            <div className={styles.unassigned}>
-              <p className={styles.unassignedLabel}>Waiting for assignment</p>
-              {members.filter(m => !m.team).map(m => (
-                <div key={m.player.id} className={styles.unassignedPlayer}>
-                  <span>{m.player.display_name}</span>
-                  {isHost && (
-                    <div className={styles.assignBtns}>
-                      <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.78rem' }} onClick={() => handleAssignTeam(m.player.id, 'A')}>→ A</button>
-                      <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.78rem' }} onClick={() => handleAssignTeam(m.player.id, 'B')}>→ B</button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Teams Showdown Card with Center VS Badge */}
+          <div className={styles.teamsShowcaseCard}>
+            <div className={styles.teamsGrid}>
+              {/* Team A Card (Blue Accent) */}
+              <TeamColumn
+                label={displayTeamAName}
+                members={teamA}
+                myPlayerId={myPlayerId}
+                isHost={isHost}
+                team="A"
+                onAssign={handleAssignTeam}
+                onUpdateTeamName={handleUpdateTeamAName}
+              />
 
-          <div className={styles.actions}>
-            {!rulesAcked && (
-              <button className="btn btn-primary" onClick={() => setShowRules(true)}>
-                📋 View & Acknowledge Rules
-              </button>
+              {/* Central VS Badge */}
+              <div className={styles.vsBadgeContainer}>
+                <div className={styles.vsBadge}>VS</div>
+              </div>
+
+              {/* Team B Card (Orange Accent) */}
+              <TeamColumn
+                label={displayTeamBName}
+                members={teamB}
+                myPlayerId={myPlayerId}
+                isHost={isHost}
+                team="B"
+                onAssign={handleAssignTeam}
+                onUpdateTeamName={handleUpdateTeamBName}
+              />
+            </div>
+
+            {/* Unassigned Players Pool (if any) */}
+            {unassigned.length > 0 && (
+              <div className={styles.unassigned}>
+                <p className={styles.unassignedLabel}>⏳ Waiting for Team Assignment</p>
+                <div className={styles.unassignedList}>
+                  {unassigned.map(m => (
+                    <div key={m.player.id} className={styles.unassignedPlayer}>
+                      <span className={styles.playerName}>{m.player.display_name}</span>
+                      {isHost && (
+                        <div className={styles.assignBtns}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                            onClick={() => handleAssignTeam(m.player.id, 'A')}
+                          >
+                            → {displayTeamAName}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                            onClick={() => handleAssignTeam(m.player.id, 'B')}
+                          >
+                            → {displayTeamBName}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-            {rulesAcked && (
-              <button className="btn btn-success" onClick={handleReady}>
-                ✅ Ready
+          </div>
+
+          {/* Lower Action Row: Ready Toggle and Start Match Button */}
+          <div className={styles.actionsBar}>
+            <div className={styles.readyControl}>
+              <button
+                type="button"
+                className={`btn ${myMembership?.readiness === 'READY' ? 'btn-success' : 'btn-secondary'}`}
+                style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 700, minWidth: '160px' }}
+                onClick={handleReadyToggle}
+              >
+                {myMembership?.readiness === 'READY' ? '✅ You are Ready' : '⏳ Click to Ready Up'}
               </button>
-            )}
+              <span className={styles.readyHint}>
+                {myMembership?.readiness === 'READY' ? 'Waiting for host to start the toss' : 'Mark yourself ready to begin'}
+              </span>
+            </div>
+
             {isHost && (
               <button
+                type="button"
                 className="btn btn-primary"
+                style={{ padding: '12px 28px', fontSize: '1.05rem', fontWeight: 700 }}
                 onClick={handleStartMatch}
                 disabled={!allReady}
-                title={!allReady ? 'Wait for all players to be ready' : ''}
+                title={!allReady ? 'Wait for all players to click Ready' : 'Start the match toss'}
               >
                 🪙 Start Toss & Match
               </button>
@@ -383,69 +470,85 @@ export default function RoomPage() {
           </div>
 
           {members.length < 2 && (
-            <p className={styles.waitingMsg}>⏳ Waiting for opponent to join…</p>
+            <div className={styles.waitingBanner}>
+              <span className={styles.pulseDot} />
+              <span>Invite an opponent or share the room link above to start playing!</span>
+            </div>
           )}
         </section>
 
-        {/* Right – chat */}
+        {/* Right – Integrated Match Lobby Chat */}
         <section className={styles.chatPanel}>
-          <h2 className={styles.sectionTitle}>Chat</h2>
-          <div className={styles.chatMessages}>
-            {chatMessages.length === 0 && (
-              <p className={styles.chatEmpty}>No messages yet. Say hi! 👋</p>
-            )}
-            {chatMessages.map((msg, i) => (
-              <div key={i} className={styles.chatMsg}>
-                <span className={styles.chatName}>{msg.display_name}</span>
-                <span className={styles.chatText}>{msg.text}</span>
-                <span className={styles.chatTime}>
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-            ))}
+          <div className={styles.chatHeader}>
+            <span className={styles.sectionTitle}>💬 Lobby Chat</span>
+            <span className={styles.chatCounter}>{chatMessages.length} msgs</span>
           </div>
+
+          <div className={styles.chatMessages}>
+            {chatMessages.length === 0 ? (
+              <p className={styles.chatEmpty}>No messages yet. Send a message to say hello! 👋</p>
+            ) : (
+              chatMessages.map((msg, i) => (
+                <div key={i} className={styles.chatMsg}>
+                  <div className={styles.chatMsgTop}>
+                    <span className={styles.chatName}>{msg.display_name}</span>
+                    <span className={styles.chatTime}>
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <span className={styles.chatText}>{msg.text}</span>
+                </div>
+              ))
+            )}
+          </div>
+
           <form onSubmit={handleSendChat} className={styles.chatForm}>
             <input
               className="input"
-              placeholder="Type a message…"
+              placeholder="Type in lobby chat…"
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
               maxLength={200}
             />
-            <button type="submit" className="btn btn-primary" style={{ padding: '10px 16px' }}>
+            <button type="submit" className="btn btn-primary" style={{ padding: '10px 18px', fontWeight: 700 }}>
               Send
             </button>
           </form>
         </section>
       </div>
 
-      {/* Rules modal */}
+      {/* Rules Modal */}
       {showRules && (
         <div className={styles.modalOverlay} role="dialog" aria-modal aria-label="Rules">
           <div className={styles.modal}>
             <h2 className={styles.modalTitle}>📋 FoldCricket Match Rules</h2>
             <div className={styles.rulesContent}>
-              <p>1. Each player picks a number from <strong>1 to 10</strong> per delivery.</p>
-              <p>2. If both picks are <strong>equal → the batter is OUT</strong>.</p>
+              <p>1. Each player picks a number from <strong>1, 2, 3, 4, or 6</strong> per delivery.</p>
+              <p>2. If both picks match exactly → the batter is <strong>OUT</strong>.</p>
               <p>3. If picks differ → the batter scores <strong>their chosen number</strong>.</p>
               <p>4. Each delivery has a <strong>25-second</strong> server-enforced deadline.</p>
-              <p>5. An innings ends when the <strong>over limit or wicket limit</strong> is reached.</p>
+              <p>5. An innings ends when the <strong>overs limit or wickets limit</strong> is reached.</p>
               <p>6. Second innings target = first innings runs + 1.</p>
-              <p>7. A disconnect starts a <strong>120-second</strong> grace period; then forfeit applies.</p>
-              <p>8. The smaller team receives <strong>one extra wicket</strong> allowance.</p>
+              <p>7. Toss is called by the visiting opponent; winner elects Bat or Bowl.</p>
             </div>
-            <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleAckRules}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px', fontWeight: 700 }}
+              onClick={handleAckRules}
+            >
               ✅ I Understand – Continue
             </button>
           </div>
         </div>
       )}
 
-      {/* 3D Animated Coin Toss Modal - only while toss is active and not yet decided */}
-      {room?.status === 'TOSS' && !room?.toss?.elected_choice && (
+      {/* 3D Animated Coin Toss Modal - runs during toss and displays for 10 seconds post-election */}
+      {(room?.status === 'TOSS' || Boolean(room?.toss?.elected_choice && tossCountdown !== null && tossCountdown > 0)) && (
         <CoinTossModal
           toss={room?.toss}
           myPlayerId={myPlayerId}
+          countdownSeconds={tossCountdown}
           onCall={handleCallToss}
           onDecide={handleDecideToss}
         />
@@ -506,46 +609,68 @@ function TeamColumn({
           </div>
         ) : (
           <div className={styles.teamTitleWrap}>
+            <span className={styles.teamIcon}>{team === 'A' ? '🏏' : '⚾'}</span>
             <h3 className={styles.teamLabel}>{label}</h3>
-            <button
-              type="button"
-              className={styles.editTeamBtn}
-              onClick={() => setIsEditing(true)}
-              title="Edit Team Name"
-              aria-label="Edit Team Name"
-            >
-              ✏️
-            </button>
+            {isHost && (
+              <button
+                type="button"
+                className={styles.editTeamBtn}
+                onClick={() => setIsEditing(true)}
+                title="Edit Team Name"
+                aria-label="Edit Team Name"
+              >
+                ✏️
+              </button>
+            )}
           </div>
         )}
-        <span className={styles.memberCountBadge}>{members.length} Players</span>
+        <span className={styles.memberCountBadge}>{members.length} Player{members.length !== 1 ? 's' : ''}</span>
       </div>
 
-      {members.length === 0 && <p className={styles.emptyTeam}>No players yet</p>}
-      {members.map(m => (
-        <div
-          key={m.player.id}
-          className={`${styles.playerRow} ${m.player.id === myPlayerId ? styles.myRow : ''}`}
-        >
-          <span className={styles.playerName}>{m.player.display_name}</span>
-          <div className={styles.playerBadges}>
-            {m.is_host && <span className="badge badge-warning">Host</span>}
-            {m.is_captain && <span className="badge badge-a">Captain</span>}
-            <span className={`badge ${m.readiness === 'READY' ? 'badge-success' : 'badge-warning'}`}>
-              {m.readiness}
-            </span>
+      <div className={styles.playerList}>
+        {members.length === 0 ? (
+          <div className={styles.emptySlotPlaceholder}>
+            <span>Waiting for player to join…</span>
           </div>
-          {isHost && m.player.id !== myPlayerId && (
-            <button
-              className="btn btn-secondary"
-              style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-              onClick={() => onAssign(m.player.id, team === 'A' ? 'B' : 'A')}
+        ) : (
+          members.map(m => (
+            <div
+              key={m.player.id}
+              className={`${styles.playerRow} ${m.player.id === myPlayerId ? styles.myRow : ''}`}
             >
-              Move to {team === 'A' ? 'B' : 'A'}
-            </button>
-          )}
-        </div>
-      ))}
+              <div className={styles.playerInfoCol}>
+                <div className={styles.playerAvatar}>👤</div>
+                <div className={styles.playerNameCol}>
+                  <span className={styles.playerName}>
+                    {m.player.display_name} {m.player.id === myPlayerId ? '(You)' : ''}
+                  </span>
+                  <div className={styles.playerBadges}>
+                    {m.is_host && <span className="badge badge-warning">Host</span>}
+                    {m.is_captain && <span className={`badge ${team === 'A' ? 'badge-a' : 'badge-b'}`}>Captain</span>}
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.playerStatusCol}>
+                <span className={`badge ${m.readiness === 'READY' ? 'badge-success' : 'badge-warning'}`}>
+                  {m.readiness === 'READY' ? 'Ready' : 'Not Ready'}
+                </span>
+                {isHost && m.player.id !== myPlayerId && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                    onClick={() => onAssign(m.player.id, team === 'A' ? 'B' : 'A')}
+                    title={`Move to ${team === 'A' ? 'Team B' : 'Team A'}`}
+                  >
+                    Move
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   )
 }

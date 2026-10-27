@@ -8,6 +8,7 @@ import { connectSocket, disconnectSocket } from '../services/socket'
 import type {
   ChatMessage,
   DeliveryReveal,
+  InningsBreakInfo,
   PausedInfo,
   RoomSnapshot,
 } from '../services/types'
@@ -19,6 +20,7 @@ interface UseSocketReturn {
   snapshot: RoomSnapshot | null
   chatMessages: ChatMessage[]
   lastReveal: DeliveryReveal | null
+  inningsBreak: InningsBreakInfo | null
   matchFinished: { winner: string; result_summary: string } | null
   lastError: string | null
   pingLatency: number | null
@@ -55,6 +57,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [lastReveal, setLastReveal] = useState<DeliveryReveal | null>(null)
+  const [inningsBreak, setInningsBreak] = useState<InningsBreakInfo | null>(null)
   const [matchFinished, setMatchFinished] = useState<{ winner: string; result_summary: string } | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
   const [pingLatency, setPingLatency] = useState<number | null>(null)
@@ -76,6 +79,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
 
     const onConnect = () => {
       setStatus('connected')
+      const token = sessionToken || (typeof window !== 'undefined' ? localStorage.getItem('hcl_session') || '' : '')
+      if (token) {
+        s.emit('player:restore', { session_token: token })
+      }
       s.emit('ping_check', Date.now())
     }
     const onDisconnect = () => {
@@ -97,6 +104,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     const onChatMessage = (msg: ChatMessage) =>
       setChatMessages((prev) => [...prev.slice(-199), msg])
     const onDeliveryReveal = (reveal: DeliveryReveal) => setLastReveal(reveal)
+    const onInningsBreak = (info: InningsBreakInfo) => setInningsBreak(info)
     const onMatchFinished = (data: { winner: string; result_summary: string }) =>
       setMatchFinished(data)
     const onRoomCreated = (data: { success: boolean; error?: string }) => {
@@ -138,6 +146,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('room:snapshot', onSnapshot)
     s.on('chat:message', onChatMessage)
     s.on('delivery:reveal', onDeliveryReveal)
+    s.on('innings:break', onInningsBreak)
     s.on('match:finished', onMatchFinished)
     s.on('room:created', onRoomCreated)
     s.on('room:joined', onRoomJoined)
@@ -258,6 +267,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     snapshot,
     chatMessages,
     lastReveal,
+    inningsBreak,
     matchFinished,
     lastError,
     pingLatency,

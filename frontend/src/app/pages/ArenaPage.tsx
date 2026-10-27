@@ -36,6 +36,7 @@ export default function ArenaPage() {
     snapshot,
     chatMessages,
     lastReveal,
+    inningsBreak,
     matchFinished,
     pingLatency,
     voiceStates,
@@ -64,6 +65,7 @@ export default function ArenaPage() {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isVideoCallOpen, setIsVideoCallOpen] = useState(false)
   const [showBowlerModal, setShowBowlerModal] = useState(false)
+  const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
   const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams' | 'call'>('game')
 
   // Entry pop-up mic prompt
@@ -97,9 +99,9 @@ export default function ArenaPage() {
   const isOverComplete = Boolean(
     match &&
     !match.active_bowler_id &&
-    match.current_ball === 0 &&
-    match.current_over > 0 &&
-    !match.winner
+    !match.winner &&
+    ((match.current_ball === 0 && match.current_over > 0) ||
+     (match.phase === 'SECOND' && match.current_over === 0 && match.current_ball === 0))
   )
 
   const needsBowlerSelect = Boolean(
@@ -204,6 +206,18 @@ export default function ArenaPage() {
       return () => clearTimeout(timer)
     }
   }, [showMicPrompt, roomId])
+
+  // Handle Innings Break notification
+  useEffect(() => {
+    if (inningsBreak || (match?.phase === 'SECOND' && match.current_over === 0 && match.current_ball === 0 && !match.winner)) {
+      setShowInningsBreakBanner(true)
+      setPickSubmitted(false)
+      setSelectedPick(null)
+      sound.playClick()
+      const timer = setTimeout(() => setShowInningsBreakBanner(false), 9000)
+      return () => clearTimeout(timer)
+    }
+  }, [inningsBreak, match?.phase, match?.current_over, match?.current_ball, match?.winner])
 
   const dismissMicPrompt = () => {
     setShowMicPrompt(false)
@@ -433,6 +447,18 @@ export default function ArenaPage() {
   const bowlingStatsList = battingTeamKey === 'A' ? teamBBowlers : teamABowlers
   const currentBowlerStat = bowlingStatsList.find(b => b.member.player.id === match.active_bowler_id) || bowlingStatsList[0]
 
+  // Check which team card is "My Team" vs "Opponent Team"
+  const isMyTeamA = myMembership?.team === 'A'
+  const isMyTeamB = myMembership?.team === 'B'
+  const teamACardClass = `${styles.card} ${isMyTeamA ? styles.myTeamCard : styles.opponentTeamCard}`
+  const pitchCardClass = `${styles.card} ${styles.centerPitchCard}`
+  const teamBCardClass = `${styles.card} ${isMyTeamB ? styles.myTeamCard : styles.opponentTeamCard}`
+
+  const captainA = members.find(m => m.team === 'A' && m.is_captain) || members.find(m => m.team === 'A')
+  const captainB = members.find(m => m.team === 'B' && m.is_captain) || members.find(m => m.team === 'B')
+  const displayTeamAName = match.team_a_name && match.team_a_name !== 'Team A' ? match.team_a_name : (captainA ? `${captainA.player.display_name}'s Team` : 'Team A')
+  const displayTeamBName = match.team_b_name && match.team_b_name !== 'Team B' ? match.team_b_name : (captainB ? `${captainB.player.display_name}'s Team` : 'Team B')
+
   return (
     <div className={styles.arena}>
       {/* ============================================================
@@ -571,15 +597,36 @@ export default function ArenaPage() {
           C. Main Responsive Broadcast Dashboard Grid
           ============================================================ */}
       <main className={styles.dashboardContainer}>
+        {/* Innings Break Notification Banner */}
+        {showInningsBreakBanner && (
+          <div className={styles.inningsBreakBanner} role="alert">
+            <span style={{ fontSize: '1.8rem' }}>🏏</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+              <strong style={{ fontSize: '1rem', color: 'var(--color-team-a)' }}>1st Innings Complete!</strong>
+              <span style={{ fontSize: '0.88rem', color: 'var(--color-text)' }}>
+                Target is <strong>{match.target} runs</strong> in {match.overs} overs ({match.overs * 6} balls). 2nd Innings has begun!
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '0.8rem' }}
+              onClick={() => setShowInningsBreakBanner(false)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Upper Row: Team A Scorecard | Center Pitch | Team B Scorecard */}
         <div className={styles.topRowGrid}>
           {/* LEFT: Team A Scorecard (Blue Header) */}
-          <div className={styles.card}>
+          <div className={teamACardClass}>
             <div className={styles.cardHeaderBlue}>
               <div className={styles.headerTeamCol}>
                 <div className={styles.headerTeamName}>
                   <span>🏏</span>
-                  <span>{match.team_a_name || 'TEAM A'}</span>
+                  <span>{displayTeamAName}</span>
                 </div>
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>
@@ -655,7 +702,7 @@ export default function ArenaPage() {
           </div>
 
           {/* CENTER: 3D Stadium Perspective Pitch */}
-          <div className={styles.card} style={{ minHeight: '400px' }}>
+          <div className={pitchCardClass} style={{ minHeight: '400px' }}>
             <PitchAnimation
               reveal={revealAnimation}
               countdown={countdown}
@@ -676,12 +723,12 @@ export default function ArenaPage() {
           </div>
 
           {/* RIGHT: Team B Scorecard (Orange Header) */}
-          <div className={styles.card}>
+          <div className={teamBCardClass}>
             <div className={styles.cardHeaderOrange}>
               <div className={styles.headerTeamCol}>
                 <div className={styles.headerTeamName}>
                   <span>⚾</span>
-                  <span>{match.team_b_name || 'TEAM B'}</span>
+                  <span>{displayTeamBName}</span>
                 </div>
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>

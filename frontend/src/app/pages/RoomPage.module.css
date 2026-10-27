@@ -1,7 +1,14 @@
+/* ============================================================
+   FoldCricket Lobby / Waiting Room Styles
+   Theme Support: Light Mode & Dark Mode using project variables
+   ============================================================ */
+
 .page {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 
 .centered {
@@ -29,10 +36,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 24px;
-  background: var(--color-surface);
+  background: var(--color-header-bg);
   border-bottom: 1px solid var(--color-border);
   flex-wrap: wrap;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(10px);
 }
 
 .headerLeft {
@@ -43,12 +54,13 @@
 
 .logo {
   font-family: var(--font-display);
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--color-team-a);
   display: flex;
   align-items: center;
   gap: 10px;
+  letter-spacing: 0.04em;
 }
 
 .logoImg {
@@ -56,40 +68,45 @@
   height: 28px;
   border-radius: 6px;
   object-fit: cover;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border);
 }
 
 .statusBadge {
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
   font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  background: rgba(59,130,246,0.15);
+  background: rgba(37, 99, 235, 0.12);
   color: var(--color-team-a);
-  border: 1px solid rgba(59,130,246,0.3);
+  border: 1px solid rgba(37, 99, 235, 0.3);
 }
 
 .joinInfo {
   display: flex;
   align-items: center;
   gap: 8px;
+  background: var(--color-surface-2);
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
 }
 
 .joinLabel {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
   text-transform: uppercase;
+  font-weight: 600;
   letter-spacing: 0.05em;
 }
 
 .joinCode {
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: var(--color-text);
-  letter-spacing: 0.15em;
+  letter-spacing: 0.12em;
 }
 
 .headerRight {
@@ -99,60 +116,106 @@
   flex-wrap: wrap;
 }
 
-/* Main layout */
+/* Main Layout Grid */
 .layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr 340px;
   gap: 0;
   flex: 1;
 }
 
 .teamsPanel {
-  padding: 24px;
+  padding: 24px 28px;
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-
-.chatPanel {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: calc(100vh - 65px);
+  background: var(--bg-gradient-page);
 }
 
 .sectionTitle {
   font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-text-dim);
 }
 
-/* Settings row */
-.settingsRow {
+/* Match Configuration Card */
+.configCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 18px 22px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: var(--color-surface-2);
-  padding: 12px 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
+  gap: 14px;
+  box-shadow: var(--card-shadow);
 }
 
-.settingsHeader {
+.configHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
+.configTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modeBadge {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-team-a);
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.settingBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--color-surface-2);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.settingLabelRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.settingLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-dim);
+}
+
+.settingValue {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-team-a);
+  font-size: 1.05rem;
+}
+
 .rangeSlider {
   width: 100%;
-  height: 8px;
-  border-radius: 4px;
+  height: 6px;
+  border-radius: 3px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   outline: none;
@@ -162,13 +225,13 @@
 
 .quickChips {
   display: flex;
-  gap: 5px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
 .chipBtn {
-  flex: 1 1 calc(10% - 5px);
-  min-width: 28px;
+  flex: 1 1 calc(10% - 4px);
+  min-width: 26px;
   padding: 5px 2px;
   text-align: center;
   background: var(--color-surface);
@@ -180,21 +243,89 @@
   cursor: pointer;
   transition: all var(--transition);
 }
+
 .chipBtn:hover {
   border-color: var(--color-team-a);
   color: var(--color-text);
 }
+
 .chipBtnActive {
   background: rgba(37, 99, 235, 0.15);
   border-color: var(--color-team-a);
   color: var(--color-team-a);
 }
 
-/* Teams grid */
+/* Guest summary */
+.guestSummaryRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  background: var(--color-surface-2);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+}
+
+.guestSummaryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summaryLabel {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.summaryValue {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-team-a);
+}
+
+/* Teams Showcase Card */
+.teamsShowcaseCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .teamsGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.vsBadgeContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.vsBadge {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-surface-2);
+  border: 2px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--color-text-muted);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  letter-spacing: 0.05em;
 }
 
 .teamCol {
@@ -204,20 +335,25 @@
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  transition: all var(--transition);
 }
 
-.teamColA { border-top: 3px solid var(--color-team-a); }
-.teamColB { border-top: 3px solid var(--color-team-b); }
+.teamColA {
+  border-top: 3px solid var(--color-team-a);
+}
+
+.teamColB {
+  border-top: 3px solid var(--color-team-b);
+}
 
 .teamHeaderRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px dashed var(--color-border);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .teamTitleWrap {
@@ -226,11 +362,23 @@
   gap: 8px;
 }
 
+.teamIcon {
+  font-size: 1.1rem;
+}
+
 .teamLabel {
   font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 700;
   margin: 0;
+}
+
+.teamColA .teamLabel {
+  color: var(--color-team-a);
+}
+
+.teamColB .teamLabel {
+  color: var(--color-team-b);
 }
 
 .editTeamBtn {
@@ -242,6 +390,7 @@
   transition: opacity 0.2s, transform 0.2s;
   padding: 2px 4px;
 }
+
 .editTeamBtn:hover {
   opacity: 1;
   transform: scale(1.15);
@@ -264,7 +413,7 @@
   font-weight: 700;
   padding: 4px 8px;
   flex: 1;
-  max-width: 160px;
+  max-width: 170px;
 }
 
 .saveBtn {
@@ -282,45 +431,92 @@
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--color-text-muted);
-  background: var(--color-surface-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   padding: 2px 8px;
   border-radius: 999px;
 }
 
-.teamColA .teamLabel { color: var(--color-team-a); }
-.teamColB .teamLabel { color: var(--color-team-b); }
+.playerList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
-.emptyTeam {
+.emptySlotPlaceholder {
+  padding: 16px;
+  text-align: center;
   color: var(--color-text-muted);
-  font-size: 0.82rem;
-  font-style: italic;
+  font-size: 0.85rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
 }
 
 .playerRow {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  flex-wrap: wrap;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--color-border);
+  padding: 8px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
 }
-.playerRow:last-child { border-bottom: none; }
 
-.myRow { background: rgba(59,130,246,0.05); border-radius: var(--radius-sm); padding: 6px; }
+.myRow {
+  border-color: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.playerInfoCol {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.playerAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.playerNameCol {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 
 .playerName {
-  font-weight: 500;
-  flex: 1;
-  font-size: 0.9rem;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .playerBadges {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
 }
 
-/* Unassigned */
+.playerStatusCol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Unassigned list */
 .unassigned {
   background: var(--color-surface-2);
   border: 1px dashed var(--color-border);
@@ -332,10 +528,16 @@
 }
 
 .unassignedLabel {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+.unassignedList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .unassignedPlayer {
@@ -347,29 +549,91 @@
 
 .assignBtns {
   display: flex;
-  gap: 4px;
+  gap: 6px;
 }
 
-/* Actions */
-.actions {
+/* Actions Bar */
+.actionsBar {
   display: flex;
-  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  box-shadow: var(--card-shadow);
   flex-wrap: wrap;
 }
 
-.waitingMsg {
-  color: var(--color-text-muted);
-  font-size: 0.88rem;
-  animation: pulse 2s infinite;
+.readyControl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-/* Chat */
+.readyHint {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.waitingBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--color-team-a);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.pulseDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse 1s infinite;
+  flex-shrink: 0;
+}
+
+/* Right Chat Panel */
+.chatPanel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--color-surface);
+  height: calc(100vh - 65px);
+  position: sticky;
+  top: 65px;
+}
+
+.chatHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.chatCounter {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 .chatMessages {
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding-right: 4px;
 }
 
@@ -377,33 +641,41 @@
   color: var(--color-text-muted);
   font-size: 0.85rem;
   text-align: center;
-  margin-top: 24px;
+  margin-top: 30px;
 }
 
 .chatMsg {
   display: flex;
-  gap: 6px;
-  font-size: 0.85rem;
-  animation: slideIn 0.15s ease;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  animation: fadeIn 0.2s ease;
+}
+
+.chatMsgTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
 }
 
 .chatName {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 0.82rem;
   color: var(--color-team-a);
-  white-space: nowrap;
-}
-
-.chatText {
-  color: var(--color-text);
-  flex: 1;
-  word-break: break-word;
 }
 
 .chatTime {
   color: var(--color-text-muted);
-  font-size: 0.72rem;
-  white-space: nowrap;
-  align-self: flex-end;
+  font-size: 0.68rem;
+}
+
+.chatText {
+  color: var(--color-text);
+  font-size: 0.86rem;
+  word-break: break-word;
 }
 
 .chatForm {
@@ -415,32 +687,34 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.75);
+  background: rgba(0, 0, 0, 0.78);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
   padding: 16px;
-  animation: fadeIn 4s ease;
+  animation: fadeIn 0.3s ease;
+  backdrop-filter: blur(6px);
 }
 
 .modal {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: 32px;
-  max-width: 500px;
+  padding: 28px;
+  max-width: 480px;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  animation: slideIn 0.2s ease;
+  gap: 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
 }
 
 .modalTitle {
   font-family: var(--font-display);
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   font-weight: 700;
+  color: var(--color-text);
 }
 
 .rulesContent {
@@ -449,95 +723,75 @@
   gap: 10px;
   color: var(--color-text-dim);
   font-size: 0.9rem;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
-.rulesContent strong {
-  color: var(--color-text);
-}
-
-/* Responsive Mobile & Tablet */
+/* Responsive Breakpoints */
 @media (max-width: 1024px) {
   .layout {
     grid-template-columns: 1fr;
   }
 
+  .teamsPanel {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
   .chatPanel {
     height: 420px;
-    border-top: 1px solid var(--color-border);
-    border-right: none;
+    position: static;
   }
 }
 
-@media (min-width: 601px) and (max-width: 1024px) {
-  .teamsGrid {
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  
-  .teamsPanel {
-    padding: 20px;
-  }
-}
-
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .header {
     padding: 10px 14px;
-    gap: 10px;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .headerLeft {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .headerRight {
-    justify-content: space-between;
-    width: 100%;
-    gap: 8px;
-  }
-
-  .joinInfo {
-    gap: 4px;
-  }
-
-  .joinCode {
-    font-size: 1.15rem;
-    letter-spacing: 0.1em;
   }
 
   .teamsPanel {
-    padding: 14px 12px;
-    gap: 16px;
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .settingsGrid {
+    grid-template-columns: 1fr;
   }
 
   .teamsGrid {
     grid-template-columns: 1fr;
-    gap: 14px;
+    gap: 12px;
   }
 
-  .quickChips {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
+  .vsBadgeContainer {
+    padding: 4px 0;
   }
 
-  .chipBtn {
-    flex: 1 1 calc(20% - 4px);
-    min-width: 26px;
-    padding: 6px 2px;
-    font-size: 0.8rem;
+  .actionsBar {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .chatPanel {
-    height: 340px;
-    padding: 14px 12px;
+  .readyControl {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .modal {
-    padding: 20px 16px;
-    margin: 12px;
+  .guestSummaryRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }

@@ -61,6 +61,8 @@ class DeliveryResult(str, Enum):
 class InningsPhase(str, Enum):
     FIRST = "FIRST"
     SECOND = "SECOND"
+    SUPER_OVER_FIRST = "SUPER_OVER_FIRST"
+    SUPER_OVER_SECOND = "SUPER_OVER_SECOND"
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +195,13 @@ class Match:
     is_all_out: bool = False
     all_out_team: Optional[str] = None
 
+    # Super Over Tracking
+    is_super_over: bool = False
+    main_match_team_a_runs: int = 0
+    main_match_team_b_runs: int = 0
+    main_match_team_a_wickets: int = 0
+    main_match_team_b_wickets: int = 0
+
     # Idempotency
     version: int = 0
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -211,6 +220,8 @@ class Match:
 
     def wicket_limit(self, team: str) -> int:
         """Configured match wickets or players on team + extra wicket allowance."""
+        if getattr(self, "is_super_over", False):
+            return 2
         base = getattr(self, "wickets", None)
         if base is not None and base > 0:
             return base

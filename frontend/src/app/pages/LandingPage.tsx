@@ -165,7 +165,7 @@ export default function LandingPage() {
                 id="displayName"
                 className="input"
                 type="text"
-                placeholder="e.g. Sachin"
+                placeholder="Enter your name"
                 value={displayName}
                 onChange={e => setDisplayName(e.target.value)}
                 maxLength={24}

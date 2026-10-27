@@ -40,6 +40,7 @@ export default function ArenaPage() {
     inningsBreak,
     matchFinished,
     allOutInfo,
+    superOverInfo,
     pingLatency,
     voiceStates,
     pausedInfo,
@@ -77,6 +78,12 @@ export default function ArenaPage() {
     wickets: number
     phase: string
   } | null>(null)
+  const [superOverAnnouncement, setSuperOverAnnouncement] = useState<{
+    message: string
+  } | null>(null)
+  const [showQuitModal, setShowQuitModal] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const hasShownSuperOverRef = useRef(false)
   const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
   const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams' | 'call'>('game')
 
@@ -173,6 +180,41 @@ export default function ArenaPage() {
       return () => clearTimeout(timer)
     }
   }, [allOutInfo, match?.is_all_out])
+
+  // Handle MATCH TIED: ENTERING SUPER OVER - exact 5 second payload display
+  useEffect(() => {
+    if (
+      superOverInfo ||
+      (match?.is_super_over && match?.phase === 'SUPER_OVER_FIRST' && !hasShownSuperOverRef.current)
+    ) {
+      hasShownSuperOverRef.current = true
+      setSuperOverAnnouncement({
+        message: 'MATCH TIED: ENTERING SUPER OVER',
+      })
+      sound.playOut()
+      vibration.wicket()
+      setCelebrationTrigger('WICKET')
+
+      const timer = setTimeout(() => {
+        setSuperOverAnnouncement(null)
+      }, 5000)
+
+      return () => clearTimeout(timer)
+    }
+  }, [superOverInfo, match?.is_super_over, match?.phase])
+
+  // "Are you sure you want to quit?" warning on browser navigation / tab close
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (match && !match.winner) {
+        e.preventDefault()
+        e.returnValue = 'Are you sure you want to quit? Your match progress will be lost.'
+        return e.returnValue
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [match])
 
   // Sync room on mount
   useEffect(() => {
@@ -579,7 +621,9 @@ export default function ArenaPage() {
         <div className={styles.navCenter}>
           <div className={styles.matchStatusRow}>
             <span className={styles.matchStatusText}>
-              {match.phase === 'FIRST' ? '1st INNINGS' : '2nd INNINGS'} • OVER {match.current_over}.{match.current_ball} ({match.overs})
+              {match.is_super_over
+                ? (match.phase === 'SUPER_OVER_FIRST' ? 'SUPER OVER (1st Inn)' : 'SUPER OVER (2nd Inn)')
+                : (match.phase === 'FIRST' ? '1st INNINGS' : '2nd INNINGS')} • OVER {match.current_over}.{match.current_ball} ({match.overs})
             </span>
             <span className={styles.liveBadge}>LIVE</span>
           </div>
@@ -596,89 +640,116 @@ export default function ArenaPage() {
 
         {/* Right Action Controls */}
         <div className={styles.navRight}>
-          {/* Room Code with one-click copy */}
+          {/* Desktop Nav Controls */}
+          <div className={styles.navDesktopItems}>
+            {/* Room Code with one-click copy */}
+            <button
+              type="button"
+              className={styles.roomPill}
+              onClick={handleCopyRoomId}
+              title="Click to copy Room Code"
+            >
+              <span>Room: {roomId}</span>
+              <span className={styles.copyIcon}>{copiedRoomId ? '✅' : '📋'}</span>
+            </button>
+
+            {/* Network Latency Indicator */}
+            <NetworkIndicator status={status} latency={pingLatency} />
+
+            {/* Voice Chat Microphone facility */}
+            <VoiceChat
+              roomId={roomId || ''}
+              myPlayerId={myPlayerId}
+              myDisplayName={myMembership?.player.display_name || 'Player'}
+              voiceStates={voiceStates}
+              onVoiceStateChange={updateVoiceState}
+              members={members}
+              incomingVoiceSignal={incomingVoiceSignal}
+              onSendSignal={sendVoiceSignal}
+              onSetVoiceMode={setVoiceMode}
+            />
+
+            {/* Video Call (Beta Feature Notice) */}
+            <button
+              type="button"
+              className={styles.videoBetaBtn}
+              onClick={() => setShowVideoBetaModal(true)}
+              title="Video Calling (Beta Feature)"
+            >
+              <span>📹 Video Call</span>
+              <span className={styles.videoBetaBadge}>BETA</span>
+            </button>
+
+            {/* Sound Toggle */}
+            <button
+              type="button"
+              className={styles.navBtn}
+              onClick={() => setIsMuted(sound.toggleMute())}
+              title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+            >
+              {isMuted ? '🔇 Muted' : '🔊 Sound'}
+            </button>
+
+            {/* Pause / Resume match */}
+            <button
+              type="button"
+              className={styles.navBtn}
+              onClick={() => roomId && (isPaused ? resumeMatch(roomId) : pauseMatch(roomId))}
+              title={isPaused ? 'Resume Match' : 'Pause Match'}
+            >
+              {isPaused ? '▶️ Resume' : '⏸️ Pause'}
+            </button>
+
+            {/* Video Call Modal Toggle */}
+            <button
+              type="button"
+              className={`${styles.navBtn} ${isVideoCallOpen ? styles.activeNavBtn : ''}`}
+              onClick={() => setIsVideoCallOpen(prev => !prev)}
+              title="Toggle Team Video Call"
+            >
+              📹 Video
+            </button>
+
+            {/* Chat Drawer Toggle with unread counter */}
+            <button
+              type="button"
+              className={`${styles.navBtn} ${isChatOpen ? styles.activeNavBtn : ''}`}
+              onClick={() => setIsChatOpen(prev => !prev)}
+              title="Toggle Match Chat"
+            >
+              💬 Chat
+              {chatMessages.length > 0 && (
+                <span className={styles.badgePill}>{chatMessages.length}</span>
+              )}
+            </button>
+
+            {/* Dark / Light Theme Toggle */}
+            <ThemeToggle />
+
+            {/* Quit Match Button */}
+            <button
+              type="button"
+              className={`${styles.navBtn} ${styles.quitBtn}`}
+              onClick={() => setShowQuitModal(true)}
+              title="Quit Match"
+            >
+              🚪 Quit
+            </button>
+          </div>
+
+          {/* Mobile Sandwich (Hamburger) Menu Button */}
           <button
             type="button"
-            className={styles.roomPill}
-            onClick={handleCopyRoomId}
-            title="Click to copy Room Code"
+            className={styles.hamburgerBtn}
+            onClick={() => setIsMobileMenuOpen(prev => !prev)}
+            aria-label="Toggle mobile menu"
+            title="Match Menu"
           >
-            <span>Room: {roomId}</span>
-            <span className={styles.copyIcon}>{copiedRoomId ? '✅' : '📋'}</span>
-          </button>
-
-          {/* Network Latency Indicator */}
-          <NetworkIndicator status={status} latency={pingLatency} />
-
-          {/* Voice Chat Microphone facility */}
-          <VoiceChat
-            roomId={roomId || ''}
-            myPlayerId={myPlayerId}
-            myDisplayName={myMembership?.player.display_name || 'Player'}
-            voiceStates={voiceStates}
-            onVoiceStateChange={updateVoiceState}
-            members={members}
-            incomingVoiceSignal={incomingVoiceSignal}
-            onSendSignal={sendVoiceSignal}
-            onSetVoiceMode={setVoiceMode}
-          />
-
-          {/* Video Call (Beta Feature Notice) */}
-          <button
-            type="button"
-            className={styles.videoBetaBtn}
-            onClick={() => setShowVideoBetaModal(true)}
-            title="Video Calling (Beta Feature)"
-          >
-            <span>📹 Video Call</span>
-            <span className={styles.videoBetaBadge}>BETA</span>
-          </button>
-
-          {/* Sound Toggle */}
-          <button
-            type="button"
-            className={styles.navBtn}
-            onClick={() => setIsMuted(sound.toggleMute())}
-            title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-          >
-            {isMuted ? '🔇 Muted' : '🔊 Sound'}
-          </button>
-
-          {/* Pause / Resume match */}
-          <button
-            type="button"
-            className={styles.navBtn}
-            onClick={() => roomId && (isPaused ? resumeMatch(roomId) : pauseMatch(roomId))}
-            title={isPaused ? 'Resume Match' : 'Pause Match'}
-          >
-            {isPaused ? '▶️ Resume' : '⏸️ Pause'}
-          </button>
-
-          {/* Video Call Modal Toggle */}
-          <button
-            type="button"
-            className={`${styles.navBtn} ${isVideoCallOpen ? styles.activeNavBtn : ''}`}
-            onClick={() => setIsVideoCallOpen(prev => !prev)}
-            title="Toggle Team Video Call"
-          >
-            📹 Video
-          </button>
-
-          {/* Chat Drawer Toggle with unread counter */}
-          <button
-            type="button"
-            className={`${styles.navBtn} ${isChatOpen ? styles.activeNavBtn : ''}`}
-            onClick={() => setIsChatOpen(prev => !prev)}
-            title="Toggle Match Chat"
-          >
-            💬 Chat
-            {chatMessages.length > 0 && (
-              <span className={styles.badgePill}>{chatMessages.length}</span>
+            <span className={styles.hamburgerIcon}>{isMobileMenuOpen ? '✕' : '☰'}</span>
+            {chatMessages.length > 0 && !isMobileMenuOpen && (
+              <span className={styles.hamburgerBadge}>{chatMessages.length}</span>
             )}
           </button>
-
-          {/* Dark / Light Theme Toggle */}
-          <ThemeToggle />
         </div>
       </header>
 
@@ -1478,6 +1549,181 @@ export default function ArenaPage() {
                 onClick={() => roomId && resumeMatch(roomId)}
               >
                 ▶️ Resume Match
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          J. Quit Match Confirmation Modal
+          ============================================================ */}
+      {showQuitModal && (
+        <div className={styles.quitModalOverlay} role="dialog" aria-modal="true" aria-labelledby="quit-title">
+          <div className={styles.quitModalCard}>
+            <div className={styles.quitModalIcon}>⚠️</div>
+            <h3 id="quit-title" className={styles.quitModalTitle}>Are you sure you want to quit?</h3>
+            <p className={styles.quitModalText}>
+              If you leave now, you will forfeit or disconnect from the active live match.
+            </p>
+            <div className={styles.quitModalActions}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowQuitModal(false)}
+              >
+                Cancel / Stay
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                style={{ background: '#ef4444', color: '#fff', fontWeight: 700 }}
+                onClick={() => {
+                  setShowQuitModal(false)
+                  navigate('/')
+                }}
+              >
+                Yes, Quit Game
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          K. Match Tied: Entering Super Over (Exact 5-second Overlay)
+          ============================================================ */}
+      {superOverAnnouncement && (
+        <div className={styles.superOverOverlay} role="alert">
+          <div className={styles.superOverCard}>
+            <div className={styles.superOverBadge}>⚔️ SUPER OVER</div>
+            <h1 className={styles.superOverTitle}>MATCH TIED: ENTERING SUPER OVER</h1>
+            <p className={styles.superOverSubtitle}>
+              Main match ended in a tie! 1 Over per side • Maximum 2 Wickets
+            </p>
+            <div className={styles.superOverTimerBar}>
+              <div className={styles.superOverProgress} />
+            </div>
+            <span className={styles.superOverCountdown}>Starting Super Over in 5 seconds…</span>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          L. Mobile Sandwich Menu Drawer
+          ============================================================ */}
+      {isMobileMenuOpen && (
+        <div className={styles.mobileMenuBackdrop} onClick={() => setIsMobileMenuOpen(false)}>
+          <div className={styles.mobileMenuPanel} onClick={e => e.stopPropagation()}>
+            <div className={styles.mobileMenuHeader}>
+              <span className={styles.mobileMenuTitle}>⚙️ Match Menu</span>
+              <button
+                type="button"
+                className={styles.mobileMenuCloseBtn}
+                onClick={() => setIsMobileMenuOpen(false)}
+                aria-label="Close menu"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.mobileMenuItems}>
+              {/* Room Code */}
+              <button
+                type="button"
+                className={styles.mobileMenuItem}
+                onClick={() => {
+                  handleCopyRoomId()
+                  setIsMobileMenuOpen(false)
+                }}
+              >
+                <span>📋 Room: {roomId}</span>
+                <span className={styles.mobileItemSub}>{copiedRoomId ? 'Copied!' : 'Tap to copy'}</span>
+              </button>
+
+              {/* Voice Chat Component in Mobile Menu */}
+              <div className={styles.mobileMenuVoiceRow}>
+                <VoiceChat
+                  roomId={roomId || ''}
+                  myPlayerId={myPlayerId}
+                  myDisplayName={myMembership?.player.display_name || 'Player'}
+                  voiceStates={voiceStates}
+                  onVoiceStateChange={updateVoiceState}
+                  members={members}
+                  incomingVoiceSignal={incomingVoiceSignal}
+                  onSendSignal={sendVoiceSignal}
+                  onSetVoiceMode={setVoiceMode}
+                />
+              </div>
+
+              {/* Match Chat Button */}
+              <button
+                type="button"
+                className={styles.mobileMenuItem}
+                onClick={() => {
+                  setIsChatOpen(true)
+                  setIsMobileMenuOpen(false)
+                }}
+              >
+                <span>💬 Match Chat</span>
+                {chatMessages.length > 0 && (
+                  <span className={styles.badgePill}>{chatMessages.length}</span>
+                )}
+              </button>
+
+              {/* Video Call (Beta Feature) */}
+              <button
+                type="button"
+                className={styles.mobileMenuItem}
+                onClick={() => {
+                  setShowVideoBetaModal(true)
+                  setIsMobileMenuOpen(false)
+                }}
+              >
+                <span>📹 Video Call</span>
+                <span className={styles.videoBetaBadge}>BETA</span>
+              </button>
+
+              {/* Sound Toggle */}
+              <button
+                type="button"
+                className={styles.mobileMenuItem}
+                onClick={() => setIsMuted(sound.toggleMute())}
+              >
+                <span>{isMuted ? '🔇 Sound (Muted)' : '🔊 Sound (Active)'}</span>
+              </button>
+
+              {/* Pause/Resume */}
+              <button
+                type="button"
+                className={styles.mobileMenuItem}
+                onClick={() => {
+                  if (roomId) {
+                    if (isPaused) resumeMatch(roomId)
+                    else pauseMatch(roomId)
+                  }
+                  setIsMobileMenuOpen(false)
+                }}
+              >
+                <span>{isPaused ? '▶️ Resume Match' : '⏸️ Pause Match'}</span>
+              </button>
+
+              {/* Network Latency & Theme Toggle Row */}
+              <div className={styles.mobileMenuBottomRow}>
+                <NetworkIndicator status={status} latency={pingLatency} />
+                <ThemeToggle />
+              </div>
+
+              {/* Quit Match Action */}
+              <button
+                type="button"
+                className={styles.mobileQuitItem}
+                onClick={() => {
+                  setIsMobileMenuOpen(false)
+                  setShowQuitModal(true)
+                }}
+              >
+                🚪 Quit Match
               </button>
             </div>
           </div>

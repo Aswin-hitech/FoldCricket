@@ -12,6 +12,7 @@ import type {
   InningsBreakInfo,
   PausedInfo,
   RoomSnapshot,
+  SuperOverInfo,
 } from '../services/types'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -24,6 +25,7 @@ interface UseSocketReturn {
   inningsBreak: InningsBreakInfo | null
   matchFinished: { winner: string; result_summary: string } | null
   allOutInfo: AllOutInfo | null
+  superOverInfo: SuperOverInfo | null
   lastError: string | null
   pingLatency: number | null
   voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
@@ -64,6 +66,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [inningsBreak, setInningsBreak] = useState<InningsBreakInfo | null>(null)
   const [matchFinished, setMatchFinished] = useState<{ winner: string; result_summary: string } | null>(null)
   const [allOutInfo, setAllOutInfo] = useState<AllOutInfo | null>(null)
+  const [superOverInfo, setSuperOverInfo] = useState<SuperOverInfo | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
   const [pingLatency, setPingLatency] = useState<number | null>(null)
   const [voiceStates, setVoiceStates] = useState<Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>>({})
@@ -113,6 +116,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     const onMatchFinished = (data: { winner: string; result_summary: string }) =>
       setMatchFinished(data)
     const onAllOut = (data: AllOutInfo) => setAllOutInfo(data)
+    const onSuperOver = (data: SuperOverInfo) => setSuperOverInfo(data)
     const onRoomCreated = (data: { success: boolean; error?: string }) => {
       if (!data.success) setLastError(data.error || 'unknown_error')
     }
@@ -155,6 +159,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('innings:break', onInningsBreak)
     s.on('match:finished', onMatchFinished)
     s.on('match:all_out', onAllOut)
+    s.on('match:super_over', onSuperOver)
     s.on('room:created', onRoomCreated)
     s.on('room:joined', onRoomJoined)
     s.on('pong_ack', onPongAck)
@@ -180,6 +185,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('delivery:reveal', onDeliveryReveal)
       s.off('match:finished', onMatchFinished)
       s.off('match:all_out', onAllOut)
+      s.off('match:super_over', onSuperOver)
       s.off('room:created', onRoomCreated)
       s.off('room:joined', onRoomJoined)
       s.off('pong_ack', onPongAck)
@@ -286,6 +292,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     inningsBreak,
     matchFinished,
     allOutInfo,
+    superOverInfo,
     lastError,
     pingLatency,
     voiceStates,

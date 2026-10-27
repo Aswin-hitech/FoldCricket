@@ -137,8 +137,8 @@ class GameRules:
             match.all_out_team = match.batting_team
             return True
 
-        # Target chased (second innings)
-        if match.phase == InningsPhase.SECOND and match.target is not None:
+        # Target chased (second innings or super over second innings)
+        if match.phase in (InningsPhase.SECOND, InningsPhase.SUPER_OVER_SECOND) and match.target is not None:
             runs = match.team_b_runs if match.batting_team == "B" else match.team_a_runs
             if runs >= match.target:
                 return True
@@ -148,7 +148,7 @@ class GameRules:
     @staticmethod
     def _advance_innings_or_end(match: Match) -> bool:
         """
-        Move to second innings or end the match.
+        Move to second innings, super over, or end the match.
         Returns True if match is over.
         """
         if match.phase == InningsPhase.FIRST:
@@ -164,10 +164,96 @@ class GameRules:
             match.active_batter_id = None
             match.active_bowler_id = None
             return False
-        else:
-            # Second innings ended → determine winner
-            GameRules._determine_winner(match)
+        elif match.phase == InningsPhase.SECOND:
+            # Check if tied -> Enter Super Over
+            if match.team_a_runs == match.team_b_runs:
+                match.is_super_over = True
+                match.phase = InningsPhase.SUPER_OVER_FIRST
+
+                # Store main match final scores
+                match.main_match_team_a_runs = match.team_a_runs
+                match.main_match_team_b_runs = match.team_b_runs
+                match.main_match_team_a_wickets = match.team_a_wickets
+                match.main_match_team_b_wickets = match.team_b_wickets
+
+                # Batting Priority: The team that batted second in main match must bat first in Super Over
+                first_batting = getattr(match, "first_batting_team", "A") or "A"
+                second_batting = "B" if first_batting == "A" else "A"
+                match.batting_team = second_batting
+
+                # Super Over specifications: 1-over per side, maximum 2 wickets
+                match.overs = 1
+                match.wickets = 2
+                match.team_a_runs = 0
+                match.team_b_runs = 0
+                match.team_a_wickets = 0
+                match.team_b_wickets = 0
+                match.target = None
+                match.current_over = 0
+                match.current_ball = 0
+                match.active_batter_id = None
+                match.active_bowler_id = None
+                match.dismissed_batters_a = []
+                match.dismissed_batters_b = []
+                match.is_all_out = False
+                match.all_out_team = None
+                match.winner = None
+                match.result_summary = None
+                return False
+            else:
+                GameRules._determine_winner(match)
+                return True
+        elif match.phase == InningsPhase.SUPER_OVER_FIRST:
+            # 1st innings of Super Over ended -> set target for 2nd innings of Super Over
+            first_super_runs = match.team_a_runs if match.batting_team == "A" else match.team_b_runs
+            match.target = first_super_runs + 1
+
+            # Swap batting/bowling for 2nd Super Over innings
+            match.batting_team = "B" if match.batting_team == "A" else "A"
+            match.phase = InningsPhase.SUPER_OVER_SECOND
+            match.current_over = 0
+            match.current_ball = 0
+            match.active_batter_id = None
+            match.active_bowler_id = None
+            match.is_all_out = False
+            match.all_out_team = None
+            return False
+        elif match.phase == InningsPhase.SUPER_OVER_SECOND:
+            # Super Over completed -> determine Super Over winner
+            GameRules._determine_super_over_winner(match)
             return True
+        return True
+
+    @staticmethod
+    def _determine_super_over_winner(match: Match) -> None:
+        name_a = getattr(match, "team_a_name", "Team A") or "Team A"
+        name_b = getattr(match, "team_b_name", "Team B") or "Team B"
+
+        if match.team_a_runs > match.team_b_runs:
+            match.winner = "A"
+            winning_name = name_a
+        elif match.team_b_runs > match.team_a_runs:
+            match.winner = "B"
+            winning_name = name_b
+        else:
+            match.winner = "TIE"
+            match.result_summary = "Super Over tied!"
+            return
+
+        first_batting = getattr(match, "first_batting_team", "A") or "A"
+        # Super over first batting was the team that batted second in main match
+        super_over_first_batting = "B" if first_batting == "A" else "A"
+
+        if match.winner == super_over_first_batting:
+            diff = abs(match.team_a_runs - match.team_b_runs)
+            match.result_summary = f"{winning_name} won the Super Over by {diff} run{'s' if diff != 1 else ''}"
+        else:
+            wlimit = 2
+            lost_wickets = match.team_a_wickets if match.winner == "A" else match.team_b_wickets
+            wickets_remaining = max(1, wlimit - lost_wickets)
+            match.result_summary = (
+                f"{winning_name} won the Super Over by {wickets_remaining} wicket{'s' if wickets_remaining != 1 else ''}"
+            )
 
     @staticmethod
     def _determine_winner(match: Match) -> None:

@@ -608,7 +608,26 @@ def on_delivery_submit(data):
                 room=room_id,
             )
         else:
-            if match.phase.value == "SECOND" and match.current_over == 0 and match.current_ball == 0 and match.target is not None:
+            if getattr(match, "is_super_over", False) and match.phase.value == "SUPER_OVER_FIRST" and match.current_over == 0 and match.current_ball == 0 and match.target is None:
+                socketio.emit(
+                    "match:super_over",
+                    {
+                        "message": "MATCH TIED: ENTERING SUPER OVER",
+                        "batting_team": match.batting_team,
+                        "overs": 1,
+                        "wickets": 2,
+                    },
+                    room=room_id,
+                )
+                sys_msg = {
+                    "id": str(uuid.uuid4()),
+                    "sender_id": "system",
+                    "sender_name": "FoldCricket Umpire",
+                    "text": "⚔️ MATCH TIED: ENTERING SUPER OVER! 1 Over • Max 2 Wickets per side.",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                }
+                socketio.emit("chat:message", sys_msg, room=room_id)
+            elif match.phase.value == "SECOND" and match.current_over == 0 and match.current_ball == 0 and match.target is not None:
                 socketio.emit(
                     "innings:break",
                     {
@@ -617,6 +636,18 @@ def on_delivery_submit(data):
                         "first_batting_team": getattr(match, "first_batting_team", "A"),
                         "first_innings_runs": match.team_a_runs if match.batting_team == "B" else match.team_b_runs,
                         "overs": match.overs,
+                    },
+                    room=room_id,
+                )
+            elif getattr(match, "is_super_over", False) and match.phase.value == "SUPER_OVER_SECOND" and match.current_over == 0 and match.current_ball == 0 and match.target is not None:
+                socketio.emit(
+                    "innings:break",
+                    {
+                        "innings": "SUPER_OVER_SECOND",
+                        "target": match.target,
+                        "first_batting_team": match.bowling_team,
+                        "first_innings_runs": match.target - 1,
+                        "overs": 1,
                     },
                     room=room_id,
                 )
@@ -865,6 +896,17 @@ def _schedule_delivery_timer(room_id: str, match_id: str) -> None:
                     room=room_id,
                 )
             else:
+                if getattr(match, "is_super_over", False) and match.phase.value == "SUPER_OVER_FIRST" and match.current_over == 0 and match.current_ball == 0 and match.target is None:
+                    socketio.emit(
+                        "match:super_over",
+                        {
+                            "message": "MATCH TIED: ENTERING SUPER OVER",
+                            "batting_team": match.batting_team,
+                            "overs": 1,
+                            "wickets": 2,
+                        },
+                        room=room_id,
+                    )
                 room = repo.get_room(room_id)
                 if room and room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
                     _schedule_delivery_timer(room_id, match.id)

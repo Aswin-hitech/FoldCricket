@@ -312,8 +312,8 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
     cur_a = getattr(room, "team_a_name", "")
     cur_b = getattr(room, "team_b_name", "")
 
-    final_team_a = cur_a if cur_a and cur_a != "Team A" else default_a
-    final_team_b = cur_b if cur_b and cur_b not in ("Team B", "Opponent's Team", "Challenger's Team") else default_b
+    final_team_a = cur_a if cur_a and cur_a not in ("Team A", "Host's Team") else default_a
+    final_team_b = cur_b if cur_b and cur_b not in ("Team B", "Guest's Team", "Opponent's Team", "Challenger's Team") else default_b
 
     room.team_a_name = final_team_a
     room.team_b_name = final_team_b
@@ -715,6 +715,11 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
             "dismissed_batters_b": getattr(match, "dismissed_batters_b", []),
             "is_all_out": getattr(match, "is_all_out", False),
             "all_out_team": getattr(match, "all_out_team", None),
+            "is_super_over": getattr(match, "is_super_over", False),
+            "main_match_team_a_runs": getattr(match, "main_match_team_a_runs", None),
+            "main_match_team_b_runs": getattr(match, "main_match_team_b_runs", None),
+            "main_match_team_a_wickets": getattr(match, "main_match_team_a_wickets", None),
+            "main_match_team_b_wickets": getattr(match, "main_match_team_b_wickets", None),
         }
 
         raw_delivery = repo.get_current_delivery(match.id)

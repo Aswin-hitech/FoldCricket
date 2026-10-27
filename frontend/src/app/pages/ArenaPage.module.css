@@ -122,7 +122,28 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.navDesktopItems {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
+}
+
+.hamburgerBtn {
+  display: none;
+}
+
+.quitBtn {
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.quitBtn:hover {
+  background: rgba(239, 68, 68, 0.22) !important;
+  border-color: #ef4444 !important;
 }
 
 .roomPill {
@@ -1139,6 +1160,49 @@
     display: none;
   }
 
+  .navDesktopItems {
+    display: none !important;
+  }
+
+  .hamburgerBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-size: 1.35rem;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+  }
+
+  .hamburgerBtn:hover {
+    background: var(--color-surface-3);
+    border-color: var(--color-team-a);
+  }
+
+  .hamburgerBadge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #ef4444;
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 800;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .dashboardContainer {
     padding: 10px 10px 75px;
     gap: 12px;
@@ -1153,22 +1217,22 @@
   }
 
   /* Mobile Hierarchy:
-     1. Player's Team Scorecard at the top
-     2. 3D Stadium Pitch Graphics in the middle
-     3. Delivery Controls Pad moved to top below graphics & above scorecards
-     4. Opponent Team Scorecard
-     5. Batsmen scorecard details
+     1. Navbar (top)
+     2. Graphics (Stadium Pitch Animation)
+     3. Delivery Controls (1, 2, 3, 4, 5, 6)
+     4. Scorecards (My team & Opponent team)
+     5. Batsmen & Bowler breakdown
      6. Recent balls & match info
   */
-  .myTeamCard {
+  .centerPitchCard {
     order: 1 !important;
   }
 
-  .centerPitchCard {
+  .controlsCard {
     order: 2 !important;
   }
 
-  .controlsCard {
+  .myTeamCard {
     order: 3 !important;
   }
 
@@ -1418,4 +1482,281 @@
   margin-left: 6px;
   display: inline-block;
   vertical-align: middle;
+}
+
+/* ============================================================
+   Quit Match Warning Confirmation Modal
+   ============================================================ */
+.quitModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.quitModalCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  padding: 28px 24px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  animation: bounceIn 0.3s ease;
+}
+
+.quitModalIcon {
+  font-size: 2.8rem;
+  line-height: 1;
+}
+
+.quitModalTitle {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.quitModalText {
+  font-size: 0.92rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.quitModalActions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.quitModalActions > button {
+  flex: 1;
+  padding: 10px 16px;
+  font-weight: 700;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* ============================================================
+   Match Tied: Entering Super Over (5-Second Text Payload)
+   ============================================================ */
+.superOverOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(4, 7, 20, 0.94);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+.superOverCard {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(30, 58, 138, 0.38));
+  border: 2px solid #f59e0b;
+  border-radius: 20px;
+  padding: 36px 28px;
+  max-width: 540px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 0 60px rgba(245, 158, 11, 0.4), inset 0 0 30px rgba(245, 158, 11, 0.2);
+  animation: bounceIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.superOverBadge {
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #0f172a;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.superOverTitle {
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 0 25px rgba(245, 158, 11, 0.8);
+  margin: 0;
+  line-height: 1.25;
+  letter-spacing: 0.04em;
+}
+
+.superOverSubtitle {
+  font-size: 0.95rem;
+  color: #cbd5e1;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.superOverTimerBar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.superOverProgress {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #ef4444);
+  animation: superOverTimerAnim 5s linear forwards;
+}
+
+@keyframes superOverTimerAnim {
+  0% { width: 100%; }
+  100% { width: 0%; }
+}
+
+.superOverCountdown {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+/* ============================================================
+   Mobile Sandwich Drawer Menu
+   ============================================================ */
+.mobileMenuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: flex-end;
+  animation: fadeIn 0.2s ease;
+}
+
+.mobileMenuPanel {
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  width: 290px;
+  max-width: 85vw;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 14px;
+  box-shadow: -10px 0 35px rgba(0, 0, 0, 0.5);
+  animation: slideInRight 0.25s ease;
+  overflow-y: auto;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.mobileMenuHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mobileMenuTitle {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.mobileMenuCloseBtn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.mobileMenuItems {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobileMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.mobileMenuItem:hover {
+  background: var(--color-surface-3);
+  border-color: var(--color-team-a);
+}
+
+.mobileItemSub {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.mobileMenuVoiceRow {
+  padding: 4px 0;
+}
+
+.mobileMenuBottomRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.mobileQuitItem {
+  margin-top: 8px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.mobileQuitItem:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
 }

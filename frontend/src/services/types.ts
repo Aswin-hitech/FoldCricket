@@ -58,7 +58,7 @@ export interface PausedInfo {
 
 export interface MatchInfo {
   id: string
-  phase: 'FIRST' | 'SECOND'
+  phase: 'FIRST' | 'SECOND' | 'SUPER_OVER_FIRST' | 'SUPER_OVER_SECOND'
   overs: number
   wickets?: number
   team_a_runs: number
@@ -81,6 +81,18 @@ export interface MatchInfo {
   dismissed_batters_b?: string[]
   is_all_out?: boolean
   all_out_team?: 'A' | 'B' | string | null
+  is_super_over?: boolean
+  main_match_team_a_runs?: number | null
+  main_match_team_b_runs?: number | null
+  main_match_team_a_wickets?: number | null
+  main_match_team_b_wickets?: number | null
+}
+
+export interface SuperOverInfo {
+  message: string
+  batting_team: string
+  overs: number
+  wickets: number
 }
 
 export interface AllOutInfo {

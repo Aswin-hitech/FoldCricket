@@ -523,6 +523,96 @@
   transition: all 0.2s ease;
 }
 
+/* Delivery Result Popup with 4-second fade in and fade out transition */
+.deliveryResultPopup {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: var(--radius-lg);
+  padding: 16px 28px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  z-index: 60;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+  animation: runsPopFade 4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  width: 90%;
+  max-width: 320px;
+}
+
+@keyframes runsPopFade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+  25% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+}
+
+.popupWicket {
+  background: radial-gradient(circle, rgba(220, 38, 38, 0.95) 0%, rgba(153, 27, 27, 0.98) 100%);
+  border: 3px solid #fbbf24;
+  box-shadow: 0 0 40px rgba(220, 38, 38, 0.8), 0 0 15px rgba(251, 191, 36, 0.6);
+}
+.popupWicket .popupTitle { color: #ffffff; text-shadow: 0 0 16px #fbbf24; }
+
+.popupSix {
+  background: radial-gradient(circle, rgba(234, 179, 8, 0.92) 0%, rgba(30, 58, 138, 0.95) 100%);
+  border: 3px solid #eab308;
+  box-shadow: 0 0 40px rgba(234, 179, 8, 0.75);
+}
+.popupSix .popupTitle { color: #facc15; text-shadow: 0 0 20px rgba(250, 204, 21, 0.9); }
+
+.popupFour {
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.92) 0%, rgba(30, 27, 75, 0.95) 100%);
+  border: 3px solid #3b82f6;
+  box-shadow: 0 0 35px rgba(59, 130, 246, 0.7);
+}
+.popupFour .popupTitle { color: #60a5fa; text-shadow: 0 0 16px rgba(96, 165, 250, 0.85); }
+
+.popupRuns {
+  background: rgba(34, 197, 94, 0.92);
+  border: 2px solid #22c55e;
+  box-shadow: 0 0 30px rgba(34, 197, 94, 0.6);
+}
+.popupRuns .popupTitle { color: #ffffff; }
+
+.popupEmoji {
+  font-size: 2.2rem;
+}
+
+.popupTitle {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 0.05em;
+}
+
+.popupSub {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fef08a;
+}
+
 .readyDone {
   background: rgba(34, 197, 94, 0.2);
   color: #4ade80;

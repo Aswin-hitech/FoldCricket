@@ -94,7 +94,7 @@
   border-radius: 999px;
   font-size: 0.76rem;
   font-weight: 600;
-  animation: fadeIn 0.3s ease;
+  animation: fadeIn 4s ease;
 }
 
 .speakerPulse {

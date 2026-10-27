@@ -123,7 +123,7 @@ export default function ArenaPage() {
       sound.playWin()
       vibration.win()
       setCelebrationTrigger('WIN')
-      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 3500)
+      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 4000)
       return () => clearTimeout(timer)
     }
   }, [matchFinished, navigate, roomId])
@@ -151,7 +151,7 @@ export default function ArenaPage() {
         sound.playRuns(lastReveal.runs_scored)
       }
 
-      const timer = setTimeout(() => setRevealAnimation(null), 3000)
+      const timer = setTimeout(() => setRevealAnimation(null), 4000)
       return () => clearTimeout(timer)
     }
   }, [lastReveal])

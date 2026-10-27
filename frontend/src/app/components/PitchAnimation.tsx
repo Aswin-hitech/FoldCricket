@@ -260,6 +260,39 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
         {/* Particle Canvas */}
         <canvas ref={canvasRef} className={styles.particleCanvas} />
 
+        {/* Delivery Result Popup: WICKET or +Runs with 4-second smooth fade in and fade out */}
+        {reveal && (
+          <div
+            className={`${styles.deliveryResultPopup} ${
+              isWicket
+                ? styles.popupWicket
+                : isSix
+                ? styles.popupSix
+                : isFour
+                ? styles.popupFour
+                : styles.popupRuns
+            }`}
+          >
+            <span className={styles.popupEmoji}>
+              {isWicket ? '💥' : isSix ? '🚀' : isFour ? '🔥' : '🏏'}
+            </span>
+            <div className={styles.popupTitle}>
+              {isWicket
+                ? 'WICKET !!!'
+                : isSix
+                ? '+6 MAXIMUM!'
+                : isFour
+                ? '+4 BOUNDARY!'
+                : `+${reveal.runs_scored} RUNS`}
+            </div>
+            <div className={styles.popupSub}>
+              {isWicket
+                ? 'Equal numbers matched — Batter is OUT!'
+                : `Batter chose ${reveal.batter_pick} vs Bowler ${reveal.bowler_pick}`}
+            </div>
+          </div>
+        )}
+
         {/* Center Countdown Timer */}
         {countdown !== null && countdown !== undefined && (
           <div className={styles.centerTimerBadge} data-urgent={countdown <= 5}>

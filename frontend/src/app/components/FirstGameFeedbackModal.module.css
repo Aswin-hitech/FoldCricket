@@ -8,7 +8,7 @@
   justify-content: center;
   z-index: 1000;
   padding: 16px;
-  animation: fadeIn 0.25s ease-out;
+  animation: fadeIn 4s ease-out;
 }
 
 .modal {

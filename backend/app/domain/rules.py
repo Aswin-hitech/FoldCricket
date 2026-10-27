@@ -129,10 +129,12 @@ class GameRules:
         if match.current_over >= match.overs and match.current_ball == 0:
             return True
 
-        # Wicket limit reached
+        # Wicket limit reached -> ALL OUT
         wlimit = match.wicket_limit(match.batting_team)
         wickets = match.team_a_wickets if match.batting_team == "A" else match.team_b_wickets
         if wickets >= wlimit:
+            match.is_all_out = True
+            match.all_out_team = match.batting_team
             return True
 
         # Target chased (second innings)

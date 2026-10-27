@@ -15,6 +15,8 @@ export interface MemberInfo {
   is_host: boolean
   role: 'BATTER' | 'BOWLER' | 'SPECTATOR'
   readiness: 'READY' | 'NOT_READY' | 'DISCONNECTED' | 'WAITING_FOR_BOWLER'
+  voice_mode?: 'EVERYONE' | 'TEAM_ONLY' | 'SELECTED_PLAYERS' | 'MUTED'
+  allowed_recipients?: string[]
 }
 
 export interface TossInfo {
@@ -72,8 +74,21 @@ export interface MatchInfo {
   delivery_deadline: string | null
   winner: string | null
   result_summary: string | null
+  first_batting_team?: string
   team_a_name?: string
   team_b_name?: string
+  dismissed_batters_a?: string[]
+  dismissed_batters_b?: string[]
+  is_all_out?: boolean
+  all_out_team?: 'A' | 'B' | string | null
+}
+
+export interface AllOutInfo {
+  team: string
+  team_name: string
+  runs: number
+  wickets: number
+  phase: string
 }
 
 export interface VoiceState {

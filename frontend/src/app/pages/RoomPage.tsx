@@ -12,6 +12,7 @@ import { Footer } from '../components/Footer'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { VoiceChat } from '../components/VoiceChat'
 import { sound } from '../../services/sound'
+import { formatPlayerWithTeam } from '../../utils/teamLabels'
 import type { MemberInfo, RoomInfo } from '../../services/types'
 import styles from './RoomPage.module.css'
 
@@ -381,6 +382,7 @@ export default function RoomPage() {
                 label={displayTeamAName}
                 members={teamA}
                 myPlayerId={myPlayerId}
+                myTeam={myMembership?.team}
                 isHost={isHost}
                 team="A"
                 onAssign={handleAssignTeam}
@@ -397,6 +399,7 @@ export default function RoomPage() {
                 label={displayTeamBName}
                 members={teamB}
                 myPlayerId={myPlayerId}
+                myTeam={myMembership?.team}
                 isHost={isHost}
                 team="B"
                 onAssign={handleAssignTeam}
@@ -487,17 +490,22 @@ export default function RoomPage() {
             {chatMessages.length === 0 ? (
               <p className={styles.chatEmpty}>No messages yet. Send a message to say hello! 👋</p>
             ) : (
-              chatMessages.map((msg, i) => (
-                <div key={i} className={styles.chatMsg}>
-                  <div className={styles.chatMsgTop}>
-                    <span className={styles.chatName}>{msg.display_name}</span>
-                    <span className={styles.chatTime}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+              chatMessages.map((msg, i) => {
+                const senderMem = members.find(m => m.player.display_name === msg.display_name || m.player.id === msg.player_id)
+                return (
+                  <div key={i} className={styles.chatMsg}>
+                    <div className={styles.chatMsgTop}>
+                      <span className={styles.chatName}>
+                        {formatPlayerWithTeam(msg.display_name, senderMem?.player.id || msg.player_id, myPlayerId, senderMem?.team, myMembership?.team)}
+                      </span>
+                      <span className={styles.chatTime}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <span className={styles.chatText}>{msg.text}</span>
                   </div>
-                  <span className={styles.chatText}>{msg.text}</span>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
 
@@ -562,6 +570,7 @@ function TeamColumn({
   label,
   members,
   myPlayerId,
+  myTeam,
   isHost,
   team,
   onAssign,
@@ -570,6 +579,7 @@ function TeamColumn({
   label: string
   members: MemberInfo[]
   myPlayerId: string
+  myTeam?: string | null
   isHost: boolean
   team: 'A' | 'B'
   onAssign: (playerId: string, team: 'A' | 'B') => void
@@ -641,7 +651,7 @@ function TeamColumn({
                 <div className={styles.playerAvatar}>👤</div>
                 <div className={styles.playerNameCol}>
                   <span className={styles.playerName}>
-                    {m.player.display_name} {m.player.id === myPlayerId ? '(You)' : ''}
+                    {formatPlayerWithTeam(m.player.display_name, m.player.id, myPlayerId, m.team, myTeam)}
                   </span>
                   <div className={styles.playerBadges}>
                     {m.is_host && <span className="badge badge-warning">Host</span>}

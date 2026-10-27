@@ -22,6 +22,7 @@ import { VoiceChat } from '../components/VoiceChat'
 import { PitchAnimation } from '../components/PitchAnimation'
 import { VideoCallPanel } from '../components/VideoCallPanel'
 import { CelebrationEffects } from '../components/CelebrationEffects'
+import { formatPlayerWithTeam, getTeamRoleLabel } from '../../utils/teamLabels'
 import type { DeliveryReveal, MatchInfo, MemberInfo, ResolvedDelivery } from '../../services/types'
 import styles from './ArenaPage.module.css'
 
@@ -38,16 +39,19 @@ export default function ArenaPage() {
     lastReveal,
     inningsBreak,
     matchFinished,
+    allOutInfo,
     pingLatency,
     voiceStates,
     pausedInfo,
     syncRoom,
     selectBowler,
+    selectBatter,
     submitPick,
     pauseMatch,
     resumeMatch,
     sendChat,
     updateVoiceState,
+    setVoiceMode,
     incomingVoiceSignal,
     sendVoiceSignal,
   } = useSocket(sessionToken)
@@ -65,6 +69,14 @@ export default function ArenaPage() {
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isVideoCallOpen, setIsVideoCallOpen] = useState(false)
   const [showBowlerModal, setShowBowlerModal] = useState(false)
+  const [showBatterModal, setShowBatterModal] = useState(false)
+  const [showVideoBetaModal, setShowVideoBetaModal] = useState(false)
+  const [allOutAnnouncement, setAllOutAnnouncement] = useState<{
+    teamName: string
+    runs: number
+    wickets: number
+    phase: string
+  } | null>(null)
   const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
   const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams' | 'call'>('game')
 
@@ -95,11 +107,31 @@ export default function ArenaPage() {
   const bowlingMembers = members.filter(m => m.team === bowlingTeam)
   const bowlingCaptain = bowlingMembers.find(m => m.is_captain) || bowlingMembers.find(m => m.is_host) || bowlingMembers[0]
 
+  const battingTeam = match?.batting_team || 'A'
+  const battingMembers = members.filter(m => m.team === battingTeam)
+  const battingCaptain = battingMembers.find(m => m.is_captain) || battingMembers.find(m => m.is_host) || battingMembers[0]
+  const isBattingCaptain = (isCaptain || isHost) && myMembership?.team === battingTeam
+
+  const dismissedBatters = battingTeam === 'A' ? (match?.dismissed_batters_a || []) : (match?.dismissed_batters_b || [])
+  const eligibleBatters = battingMembers.filter(m => !dismissedBatters.includes(m.player.id))
+
+  const isAllOut = Boolean(match?.is_all_out)
+
+  const needsBatterSelect = Boolean(
+    match &&
+    !match.active_batter_id &&
+    !match.winner &&
+    !isAllOut &&
+    eligibleBatters.length > 0 &&
+    battingMembers.length > 1
+  )
+
   // Detect over complete state
   const isOverComplete = Boolean(
     match &&
     !match.active_bowler_id &&
     !match.winner &&
+    !isAllOut &&
     ((match.current_ball === 0 && match.current_over > 0) ||
      (match.phase === 'SECOND' && match.current_over === 0 && match.current_ball === 0))
   )
@@ -108,9 +140,39 @@ export default function ArenaPage() {
     match &&
     !match.active_bowler_id &&
     !match.winner &&
+    !isAllOut &&
     (isCaptain || isHost) &&
     myMembership?.team === bowlingTeam
   )
+
+  // Handle ALL OUT declaration - 5 second transition
+  useEffect(() => {
+    if (allOutInfo || (match?.is_all_out && !allOutAnnouncement)) {
+      const info = allOutInfo
+        ? {
+            teamName: allOutInfo.team_name,
+            runs: allOutInfo.runs,
+            wickets: allOutInfo.wickets,
+            phase: allOutInfo.phase,
+          }
+        : {
+            teamName: (match?.all_out_team || match?.batting_team) === 'A' ? (match?.team_a_name || 'Team A') : (match?.team_b_name || 'Team B'),
+            runs: (match?.all_out_team || match?.batting_team) === 'A' ? (match?.team_a_runs ?? 0) : (match?.team_b_runs ?? 0),
+            wickets: (match?.all_out_team || match?.batting_team) === 'A' ? (match?.team_a_wickets ?? 0) : (match?.team_b_wickets ?? 0),
+            phase: match?.phase || 'FIRST',
+          }
+      setAllOutAnnouncement(info)
+      sound.playOut()
+      vibration.wicket()
+      setCelebrationTrigger('WICKET')
+
+      const timer = setTimeout(() => {
+        setAllOutAnnouncement(null)
+      }, 5000)
+
+      return () => clearTimeout(timer)
+    }
+  }, [allOutInfo, match?.is_all_out])
 
   // Sync room on mount
   useEffect(() => {
@@ -271,6 +333,14 @@ export default function ArenaPage() {
     setShowBowlerModal(false)
   }
 
+  // Handle captain batter selection
+  function handleBatterSelect(batterId: string) {
+    if (!roomId) return
+    sound.playClick()
+    selectBatter(roomId, batterId)
+    setShowBatterModal(false)
+  }
+
   // Copy Room Code
   function handleCopyRoomId() {
     if (!roomId) return
@@ -379,10 +449,19 @@ export default function ArenaPage() {
       const sr = balls > 0 ? ((runs / balls) * 100).toFixed(1) : '0.0'
       const isStriker = m.player.id === match?.active_batter_id
 
-      let status = 'Yet to bat'
-      if (isStriker) {
-        status = 'Striker'
-      } else if (isBattingTeam && balls > 0) {
+      const teamDismissed = m.team === 'A' ? (match?.dismissed_batters_a || []) : (match?.dismissed_batters_b || [])
+      const isDismissed = teamDismissed.includes(m.player.id) || myDelivs.some(d => d.result === 'OUT')
+
+      let status = 'Yet to Bat'
+      if (m.player.connection_state === 'DISCONNECTED') {
+        status = 'Disconnected'
+      } else if (isDismissed) {
+        status = 'Out'
+      } else if (isStriker) {
+        status = 'Currently Batting'
+      } else if (match?.active_batter_id === null && isBattingTeam && !isDismissed) {
+        status = 'Waiting for Selection'
+      } else if (balls > 0) {
         status = 'Not Out'
       }
 
@@ -395,6 +474,7 @@ export default function ArenaPage() {
         sr,
         status,
         isStriker,
+        isDismissed,
       }
     }
 
@@ -540,7 +620,19 @@ export default function ArenaPage() {
             members={members}
             incomingVoiceSignal={incomingVoiceSignal}
             onSendSignal={sendVoiceSignal}
+            onSetVoiceMode={setVoiceMode}
           />
+
+          {/* Video Call (Beta Feature Notice) */}
+          <button
+            type="button"
+            className={styles.videoBetaBtn}
+            onClick={() => setShowVideoBetaModal(true)}
+            title="Video Calling (Beta Feature)"
+          >
+            <span>📹 Video Call</span>
+            <span className={styles.videoBetaBadge}>BETA</span>
+          </button>
 
           {/* Sound Toggle */}
           <button
@@ -660,6 +752,9 @@ export default function ArenaPage() {
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>
                     {match.team_a_runs}/{match.team_a_wickets}
+                    {((match.is_all_out && match.all_out_team === 'A') || (match.phase === 'SECOND' && match.first_batting_team === 'A' && match.team_a_wickets >= (match.wickets || 10))) && (
+                      <span className={styles.allOutBadgeHeader}>ALL OUT</span>
+                    )}
                   </span>
                   <span className={styles.headerOvers}>
                     ({teamAOvers} / {match.overs} ov)
@@ -705,7 +800,7 @@ export default function ArenaPage() {
                           <div className={styles.playerIcon}>👤</div>
                           <div className={styles.playerNameCol}>
                             <span className={styles.tableName}>
-                              {b.member.player.display_name} {b.member.is_captain ? '(c)' : ''}
+                              {formatPlayerWithTeam(b.member.player.display_name, b.member.player.id, myPlayerId, b.member.team, myMembership?.team, b.member.is_captain)}
                             </span>
                             <span className={styles.tableSub}>Right Hand Bat</span>
                           </div>
@@ -762,6 +857,9 @@ export default function ArenaPage() {
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>
                     {match.team_b_runs}/{match.team_b_wickets}
+                    {((match.is_all_out && match.all_out_team === 'B') || (match.phase === 'SECOND' && match.first_batting_team === 'B' && match.team_b_wickets >= (match.wickets || 10))) && (
+                      <span className={styles.allOutBadgeHeader}>ALL OUT</span>
+                    )}
                   </span>
                   <span className={styles.headerOvers}>
                     ({teamBOvers} / {match.overs} ov)
@@ -810,7 +908,7 @@ export default function ArenaPage() {
                           </div>
                           <div className={styles.playerNameCol}>
                             <span className={styles.tableName}>
-                              {bw.member.player.display_name} {bw.member.is_captain ? '(c)' : ''}
+                              {formatPlayerWithTeam(bw.member.player.display_name, bw.member.player.id, myPlayerId, bw.member.team, myMembership?.team, bw.member.is_captain)}
                             </span>
                             <span className={styles.tableSub}>Right Arm Medium</span>
                           </div>
@@ -858,7 +956,7 @@ export default function ArenaPage() {
                           <span>🏏</span>
                           <div className={styles.playerNameCol}>
                             <span className={styles.tableName}>
-                              {strikerStat.member.player.display_name} {strikerStat.member.is_captain ? '(c)' : ''}
+                              {formatPlayerWithTeam(strikerStat.member.player.display_name, strikerStat.member.player.id, myPlayerId, strikerStat.member.team, myMembership?.team, strikerStat.member.is_captain)}
                             </span>
                             <span className={styles.tableSub}>Right Hand Bat</span>
                           </div>
@@ -878,7 +976,7 @@ export default function ArenaPage() {
                           <div className={styles.playerIcon}>👤</div>
                           <div className={styles.playerNameCol}>
                             <span className={styles.tableName}>
-                              {nonStrikerStat.member.player.display_name} {nonStrikerStat.member.is_captain ? '(c)' : ''}
+                              {formatPlayerWithTeam(nonStrikerStat.member.player.display_name, nonStrikerStat.member.player.id, myPlayerId, nonStrikerStat.member.team, myMembership?.team, nonStrikerStat.member.is_captain)}
                             </span>
                             <span className={styles.tableSub}>Left Hand Bat</span>
                           </div>
@@ -931,7 +1029,7 @@ export default function ArenaPage() {
                 <div className={styles.bowlerBadgeIcon}>🎯</div>
                 <div className={styles.bowlerTextCol}>
                   <span className={styles.bowlerTitle}>
-                    BOWLER: <span>{activeBowler?.player.display_name || 'Awaiting Selection'}</span>
+                    BOWLER: <span>{activeBowler ? formatPlayerWithTeam(activeBowler.player.display_name, activeBowler.player.id, myPlayerId, activeBowler.team, myMembership?.team, activeBowler.is_captain) : 'Awaiting Selection'}</span>
                   </span>
                   <span className={styles.bowlerSubtext}>Right Arm Medium</span>
                 </div>
@@ -985,8 +1083,36 @@ export default function ArenaPage() {
                 </>
               ) : (
                 <div className={styles.spectatorDeliveryBanner}>
-                  {isOverComplete ? (
-                    <span>🔔 Over completed! Waiting for Captain to choose bowler…</span>
+                  {needsBatterSelect ? (
+                    isBattingCaptain ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                        <span>🏏 Batter dismissed! You are the batting captain.</span>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ padding: '6px 16px', fontSize: '0.88rem' }}
+                          onClick={() => setShowBatterModal(true)}
+                        >
+                          Select Next Batter 🏏
+                        </button>
+                      </div>
+                    ) : (
+                      <span>🔔 Batter dismissed! Waiting for Captain ({battingCaptain?.player.display_name}) to select next batter…</span>
+                    )
+                  ) : needsBowlerSelect ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      <span>🎯 Over completed! You are the bowling captain.</span>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ padding: '6px 16px', fontSize: '0.88rem' }}
+                        onClick={() => setShowBowlerModal(true)}
+                      >
+                        Select Bowler 🎯
+                      </button>
+                    </div>
+                  ) : isOverComplete ? (
+                    <span>🔔 Over completed! Waiting for Captain ({bowlingCaptain?.player.display_name}) to choose bowler…</span>
                   ) : (
                     <span>👀 Watching the delivery in play…</span>
                   )}
@@ -1079,11 +1205,111 @@ export default function ArenaPage() {
                   className={styles.bowlerPickBtn}
                   onClick={() => handleBowlerSelect(m.player.id)}
                 >
-                  <span>{m.player.display_name} {m.is_captain ? '(Captain)' : ''}</span>
+                  <span>{formatPlayerWithTeam(m.player.display_name, m.player.id, myPlayerId, m.team, myMembership?.team, m.is_captain)}</span>
                   <span>👉 Select</span>
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginTop: '12px' }}
+              onClick={() => setShowBowlerModal(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          Captain Batter Selection Modal
+          ============================================================ */}
+      {(showBatterModal || (needsBatterSelect && isBattingCaptain && !match.active_batter_id)) && (
+        <div className={styles.bowlerModalOverlay} role="dialog" aria-modal aria-label="Select Next Batter">
+          <div className={styles.bowlerModalCard}>
+            <span style={{ fontSize: '2.5rem' }}>🏏</span>
+            <h3 className={styles.bowlerModalTitle}>
+              Select Next Batter
+            </h3>
+            <p className={styles.bowlerModalDesc}>
+              As batting team captain, select an eligible player from your roster to bat:
+            </p>
+            <div className={styles.bowlerModalList}>
+              {eligibleBatters.map(m => (
+                <button
+                  key={m.player.id}
+                  type="button"
+                  className={styles.bowlerPickBtn}
+                  onClick={() => handleBatterSelect(m.player.id)}
+                >
+                  <span>{formatPlayerWithTeam(m.player.display_name, m.player.id, myPlayerId, m.team, myMembership?.team, m.is_captain)}</span>
+                  <span>🏏 Send to Bat</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginTop: '12px' }}
+              onClick={() => setShowBatterModal(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          Video Call (Beta Feature Notice) Modal
+          ============================================================ */}
+      {showVideoBetaModal && (
+        <div className={styles.betaModalOverlay} onClick={() => setShowVideoBetaModal(false)}>
+          <div className={styles.betaModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.betaModalIcon}>📹</div>
+            <h3 className={styles.betaModalTitle}>Video Call (Beta Preview)</h3>
+            <div className={styles.betaBadgeLarge}>UNDER CONSTRUCTION</div>
+            <p className={styles.betaModalDesc}>
+              Video calling is currently being built and optimized for smooth multiplayer gaming.
+              It will be enabled in an upcoming release of FoldCricket!
+            </p>
+            <div className={styles.betaModalTip}>
+              💡 <strong>Tip:</strong> High-definition <strong>Voice Chat</strong> with private team audio channels is fully live! Click the <strong>🎙️ Mic</strong> button in the top bar to talk with your team.
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%', marginTop: '8px', padding: '10px' }}
+              onClick={() => setShowVideoBetaModal(false)}
+            >
+              Got It & Return to Game
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          ALL OUT 5-Second Declaration Overlay
+          ============================================================ */}
+      {allOutAnnouncement && (
+        <div className={styles.allOutOverlay}>
+          <div className={styles.allOutCard}>
+            <div className={styles.allOutIcon}>💥</div>
+            <h2 className={styles.allOutTitle}>ALL OUT!</h2>
+            <p className={styles.allOutSubtitle}>
+              <strong>{allOutAnnouncement.teamName}</strong> is all out!
+            </p>
+            <div className={styles.allOutScore}>
+              {allOutAnnouncement.runs} Runs • {allOutAnnouncement.wickets} Wickets
+            </div>
+            <div className={styles.allOutTimerBar}>
+              <div className={styles.allOutTimerFill} />
+            </div>
+            <span className={styles.allOutNextHint}>
+              {allOutAnnouncement.phase === 'FIRST'
+                ? 'Preparing 2nd Innings run chase in 5 seconds…'
+                : 'Finalizing match results in 5 seconds…'}
+            </span>
           </div>
         </div>
       )}
@@ -1117,7 +1343,12 @@ export default function ArenaPage() {
                 chatMessages.map((msg, i) => (
                   <div key={i} className={styles.chatItem}>
                     <div className={styles.chatMeta}>
-                      <span className={styles.chatAuthor}>{msg.display_name}:</span>
+                      <span className={styles.chatAuthor}>
+                        {(() => {
+                          const senderMem = members.find(m => m.player.display_name === msg.display_name || m.player.id === msg.player_id)
+                          return formatPlayerWithTeam(msg.display_name, senderMem?.player.id || msg.player_id, myPlayerId, senderMem?.team, myMembership?.team)
+                        })()}:
+                      </span>
                       <span className={styles.chatTime}>
                         {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>

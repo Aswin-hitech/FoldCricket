@@ -506,6 +506,29 @@ def on_bowler_select(data):
     _broadcast_snapshot(room_id)
 
 
+@socketio.on("match:select_batter")
+def on_select_batter(data):
+    player = _require_player()
+    if not player:
+        return emit("batter:selected", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    batter_id = (data or {}).get("batter_id", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("batter:selected", _err("room_not_found"))
+
+    try:
+        match = room_service.select_batter(room, player, batter_id)
+    except (ValueError, PermissionError) as e:
+        return emit("batter:selected", _err(str(e)))
+
+    emit("batter:selected", _ok(), room=room_id)
+    if match.active_bowler_id:
+        _schedule_delivery_timer(room_id, match.id)
+    _broadcast_snapshot(room_id)
+
+
 @socketio.on("delivery:submit")
 def on_delivery_submit(data):
     player = _require_player()
@@ -545,6 +568,38 @@ def on_delivery_submit(data):
             room=room_id,
         )
         _broadcast_snapshot(room_id)
+
+        # Check if ALL OUT occurred
+        if getattr(match, "is_all_out", False):
+            all_out_team = getattr(match, "all_out_team", match.batting_team) or match.batting_team
+            team_name = (
+                getattr(match, "team_a_name", "Team A")
+                if all_out_team == "A"
+                else getattr(match, "team_b_name", "Team B")
+            )
+            all_out_runs = match.team_a_runs if all_out_team == "A" else match.team_b_runs
+            all_out_wkts = match.team_a_wickets if all_out_team == "A" else match.team_b_wickets
+
+            socketio.emit(
+                "match:all_out",
+                {
+                    "team": all_out_team,
+                    "team_name": team_name,
+                    "runs": all_out_runs,
+                    "wickets": all_out_wkts,
+                    "phase": match.phase.value if hasattr(match.phase, "value") else str(match.phase),
+                },
+                room=room_id,
+            )
+            # Announce ALL OUT in system chat
+            sys_msg = {
+                "id": str(uuid.uuid4()),
+                "sender_id": "system",
+                "sender_name": "FoldCricket Umpire",
+                "text": f"💥 ALL OUT! {team_name} is all out for {all_out_runs} runs ({all_out_wkts} wkts)!",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            }
+            socketio.emit("chat:message", sys_msg, room=room_id)
 
         if match.winner:
             socketio.emit(
@@ -611,8 +666,29 @@ def on_chat_send(data):
 
 
 # ---------------------------------------------------------------------------
-# WebRTC signalling (relayed only – no audio transported over Socket.IO)
+# WebRTC signalling & Selective Voice Audience Security
 # ---------------------------------------------------------------------------
+
+@socketio.on("voice:mode")
+def on_voice_mode(data):
+    player = _require_player()
+    if not player:
+        return emit("voice:mode_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    mode = (data or {}).get("mode", "EVERYONE")
+    allowed = (data or {}).get("allowed_recipients", [])
+
+    mem = repo.get_membership(room_id, player.id)
+    if not mem:
+        return emit("voice:mode_ack", _err("not_in_room"))
+
+    mem.voice_mode = mode
+    mem.allowed_recipients = allowed
+    repo.save_membership(mem)
+    emit("voice:mode_ack", _ok({"mode": mode, "allowed_recipients": allowed}))
+    _broadcast_snapshot(room_id)
+
 
 @socketio.on("voice:signal")
 def on_voice_signal(data):
@@ -632,6 +708,19 @@ def on_voice_signal(data):
     # Verify target is in the same room
     target_mem = repo.get_membership(room_id, target_id)
     if not target_mem:
+        return
+
+    # Voice Permission Enforcement: verify sender's selective voice restrictions
+    sender_mode = getattr(mem, "voice_mode", "EVERYONE")
+    if sender_mode == "TEAM_ONLY":
+        # Opponents strictly blocked from receiving sender's WebRTC signaling!
+        if mem.team and target_mem.team != mem.team:
+            return
+    elif sender_mode == "SELECTED_PLAYERS":
+        allowed = getattr(mem, "allowed_recipients", [])
+        if target_id not in allowed:
+            return
+    elif sender_mode == "MUTED":
         return
 
     target_player = repo.get_player(target_id)

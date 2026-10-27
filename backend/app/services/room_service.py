@@ -364,6 +364,54 @@ def start_match(room: Room, host: Player) -> Match:
     return decide_toss(room, host, "BAT")
 
 
+def select_batter(room: Room, captain: Player, batter_player_id: str) -> Match:
+    match = repo.get_match_by_room(room.id)
+    if not match:
+        raise ValueError("no_active_match")
+    if room.status != RoomStatus.INNINGS_ACTIVE:
+        raise ValueError("not_in_active_innings")
+
+    captain_mem = repo.get_membership(room.id, captain.id)
+    if not captain_mem:
+        raise PermissionError("not_in_room")
+
+    # Captain must be on the batting team
+    if captain_mem.team != match.batting_team:
+        raise PermissionError("must_be_batting_team_captain")
+
+    batting_mems = [m for m in repo.get_room_members(room.id) if m.team == match.batting_team]
+    has_explicit_captain = any(m.is_captain for m in batting_mems)
+    if has_explicit_captain and not (captain_mem.is_captain or captain_mem.is_host):
+        raise PermissionError("not_captain")
+
+    batter_mem = repo.get_membership(room.id, batter_player_id)
+    if not batter_mem or batter_mem.team != match.batting_team:
+        raise ValueError("batter_not_on_batting_team")
+
+    # Ensure player has not already been dismissed in this innings
+    dismissed = (
+        getattr(match, "dismissed_batters_a", [])
+        if match.batting_team == "A"
+        else getattr(match, "dismissed_batters_b", [])
+    )
+    if batter_player_id in dismissed:
+        raise ValueError("player_already_dismissed")
+
+    # Update roles
+    members = repo.get_room_members(room.id)
+    for m in members:
+        if m.team == match.batting_team:
+            m.role = PlayerRole.BATTER if m.player_id == batter_player_id else PlayerRole.SPECTATOR
+            repo.save_membership(m)
+
+    match.active_batter_id = batter_player_id
+    # If bowler is also active, start delivery countdown!
+    if match.active_bowler_id:
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+    repo.save_match(match)
+    return match
+
+
 def select_bowler(room: Room, captain: Player, bowler_player_id: str) -> Match:
     match = repo.get_match_by_room(room.id)
     if not match:
@@ -408,6 +456,16 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
     """
     repo.save_delivery(outcome.delivery)
 
+    if outcome.delivery.result == DeliveryResult.OUT:
+        dismissed_id = outcome.delivery.batter_id or match.active_batter_id
+        dismissed_team = match.all_out_team or (match.bowling_team if outcome.innings_ended else match.batting_team)
+        if dismissed_team == "A":
+            if dismissed_id and dismissed_id not in match.dismissed_batters_a:
+                match.dismissed_batters_a.append(dismissed_id)
+        else:
+            if dismissed_id and dismissed_id not in match.dismissed_batters_b:
+                match.dismissed_batters_b.append(dismissed_id)
+
     if outcome.match_ended:
         room.status = RoomStatus.MATCH_COMPLETE
         match.delivery_deadline = None
@@ -449,13 +507,46 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
         return match, outcome.delivery
 
     # Normal delivery within the same innings
-    # 1. Did a wicket fall? Assign next batter if in team match
+    # 1. Did a wicket fall? Record dismissed batter and check ALL OUT / Captain batter selection
     if outcome.delivery.result == DeliveryResult.OUT:
+        dismissed_id = outcome.delivery.batter_id or match.active_batter_id
+        if match.batting_team == "A":
+            if dismissed_id and dismissed_id not in match.dismissed_batters_a:
+                match.dismissed_batters_a.append(dismissed_id)
+        else:
+            if dismissed_id and dismissed_id not in match.dismissed_batters_b:
+                match.dismissed_batters_b.append(dismissed_id)
+
         batting_mems = team_a if match.batting_team == "A" else team_b
+        dismissed = (
+            match.dismissed_batters_a
+            if match.batting_team == "A"
+            else match.dismissed_batters_b
+        )
+        eligible = [m for m in batting_mems if m.player_id not in dismissed]
+        wlimit = match.wicket_limit(match.batting_team)
         wickets = match.batting_wickets
-        if batting_mems:
-            next_idx = wickets % len(batting_mems)
-            match.active_batter_id = batting_mems[next_idx].player_id
+
+        if wickets >= wlimit or len(eligible) == 0:
+            match.is_all_out = True
+            match.all_out_team = match.batting_team
+            match.active_batter_id = None
+            match.delivery_deadline = None
+            if not outcome.innings_ended:
+                outcome.innings_ended = True
+                outcome.match_ended = GameRules._advance_innings_or_end(match)
+                if outcome.match_ended:
+                    room.status = RoomStatus.MATCH_COMPLETE
+                    repo.save_room(room)
+                    repo.save_match(match)
+                    return match, outcome.delivery
+        else:
+            if len(batting_mems) > 1 and room.mode == GameMode.TEAM:
+                # In team matches, captain selects the next batter
+                match.active_batter_id = None
+                match.delivery_deadline = None
+            elif batting_mems:
+                match.active_batter_id = batting_mems[0].player_id
 
     # 2. Did the over complete?
     over_completed = (match.current_ball == 0)
@@ -620,6 +711,10 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
             "wickets": getattr(match, "wickets", getattr(room, "wickets", 1)),
             "team_a_name": getattr(match, "team_a_name", getattr(room, "team_a_name", "Team A")),
             "team_b_name": getattr(match, "team_b_name", getattr(room, "team_b_name", "Team B")),
+            "dismissed_batters_a": getattr(match, "dismissed_batters_a", []),
+            "dismissed_batters_b": getattr(match, "dismissed_batters_b", []),
+            "is_all_out": getattr(match, "is_all_out", False),
+            "all_out_team": getattr(match, "all_out_team", None),
         }
 
         raw_delivery = repo.get_current_delivery(match.id)
@@ -668,6 +763,8 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
                 "is_host": m.is_host,
                 "role": m.role.value,
                 "readiness": m.readiness.value,
+                "voice_mode": getattr(m, "voice_mode", "EVERYONE"),
+                "allowed_recipients": getattr(m, "allowed_recipients", []),
             }
             for m in members
         ],

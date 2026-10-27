@@ -1217,3 +1217,205 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
+
+/* Video Call Beta Button */
+.videoBetaBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.videoBetaBtn:hover {
+  background: var(--color-surface-3);
+  border-color: #6366f1;
+}
+
+.videoBetaBadge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+/* ALL OUT High-impact Overlay */
+.allOutOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(8px);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+.allOutCard {
+  background: linear-gradient(145deg, #1e293b, #0f172a);
+  border: 2px solid #ef4444;
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 0 50px rgba(239, 68, 68, 0.45);
+  animation: bounceIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.allOutIcon {
+  font-size: 3.5rem;
+  line-height: 1;
+}
+
+.allOutTitle {
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  font-weight: 900;
+  color: #ef4444;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+}
+
+.allOutSubtitle {
+  font-size: 1.1rem;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.allOutScore {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 8px 18px;
+  border-radius: var(--radius-md);
+}
+
+.allOutTimerBar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.allOutTimerFill {
+  height: 100%;
+  background: #ef4444;
+  width: 100%;
+  animation: drainTimer 5s linear forwards;
+}
+
+@keyframes drainTimer {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+
+.allOutNextHint {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+/* Beta Video Modal */
+.betaModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.betaModal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.betaModalIcon {
+  font-size: 2.8rem;
+}
+
+.betaModalTitle {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.betaBadgeLarge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(234, 88, 12, 0.15);
+  color: #ea580c;
+  border: 1px solid rgba(234, 88, 12, 0.35);
+}
+
+.betaModalDesc {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.betaModalTip {
+  font-size: 0.8rem;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  text-align: left;
+  color: var(--color-text);
+}
+
+/* All Out Badge on Scorecard Header */
+.allOutBadgeHeader {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  margin-left: 6px;
+  display: inline-block;
+  vertical-align: middle;
+}

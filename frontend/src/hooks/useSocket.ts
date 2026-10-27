@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { connectSocket, disconnectSocket } from '../services/socket'
 import type {
+  AllOutInfo,
   ChatMessage,
   DeliveryReveal,
   InningsBreakInfo,
@@ -22,6 +23,7 @@ interface UseSocketReturn {
   lastReveal: DeliveryReveal | null
   inningsBreak: InningsBreakInfo | null
   matchFinished: { winner: string; result_summary: string } | null
+  allOutInfo: AllOutInfo | null
   lastError: string | null
   pingLatency: number | null
   voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
@@ -36,6 +38,7 @@ interface UseSocketReturn {
   callToss: (roomId: string, choice: 'HEADS' | 'TAILS') => void
   decideToss: (roomId: string, decision: 'BAT' | 'BOWL') => void
   selectBowler: (roomId: string, bowlerId: string) => void
+  selectBatter: (roomId: string, batterId: string) => void
   submitPick: (roomId: string, pick: number) => void
   pauseMatch: (roomId: string) => void
   resumeMatch: (roomId: string) => void
@@ -46,6 +49,7 @@ interface UseSocketReturn {
   updateSettings: (roomId: string, overs: number, wickets?: number) => void
   updateTeams: (roomId: string, teamAName: string, teamBName: string) => void
   updateVoiceState: (roomId: string, isSpeaking: boolean, isMuted: boolean) => void
+  setVoiceMode: (roomId: string, mode: string, allowedRecipients: string[]) => void
   sendVoiceSignal: (roomId: string, targetId: string, signal: unknown) => void
 }
 
@@ -59,6 +63,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [lastReveal, setLastReveal] = useState<DeliveryReveal | null>(null)
   const [inningsBreak, setInningsBreak] = useState<InningsBreakInfo | null>(null)
   const [matchFinished, setMatchFinished] = useState<{ winner: string; result_summary: string } | null>(null)
+  const [allOutInfo, setAllOutInfo] = useState<AllOutInfo | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
   const [pingLatency, setPingLatency] = useState<number | null>(null)
   const [voiceStates, setVoiceStates] = useState<Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>>({})
@@ -107,6 +112,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     const onInningsBreak = (info: InningsBreakInfo) => setInningsBreak(info)
     const onMatchFinished = (data: { winner: string; result_summary: string }) =>
       setMatchFinished(data)
+    const onAllOut = (data: AllOutInfo) => setAllOutInfo(data)
     const onRoomCreated = (data: { success: boolean; error?: string }) => {
       if (!data.success) setLastError(data.error || 'unknown_error')
     }
@@ -148,6 +154,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('delivery:reveal', onDeliveryReveal)
     s.on('innings:break', onInningsBreak)
     s.on('match:finished', onMatchFinished)
+    s.on('match:all_out', onAllOut)
     s.on('room:created', onRoomCreated)
     s.on('room:joined', onRoomJoined)
     s.on('pong_ack', onPongAck)
@@ -172,6 +179,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('chat:message', onChatMessage)
       s.off('delivery:reveal', onDeliveryReveal)
       s.off('match:finished', onMatchFinished)
+      s.off('match:all_out', onAllOut)
       s.off('room:created', onRoomCreated)
       s.off('room:joined', onRoomJoined)
       s.off('pong_ack', onPongAck)
@@ -218,6 +226,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('over:bowler-select', { room_id: roomId, bowler_id: bowlerId })
   }, [])
 
+  const selectBatter = useCallback((roomId: string, batterId: string) => {
+    socketRef.current.emit('match:select_batter', { room_id: roomId, batter_id: batterId })
+  }, [])
+
   const submitPick = useCallback((roomId: string, pick: number) => {
     socketRef.current.emit('delivery:submit', { room_id: roomId, pick })
   }, [])
@@ -250,6 +262,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('voice:state', { room_id: roomId, is_speaking: isSpeaking, is_muted: isMuted })
   }, [])
 
+  const setVoiceMode = useCallback((roomId: string, mode: string, allowedRecipients: string[]) => {
+    socketRef.current.emit('voice:mode', { room_id: roomId, mode, allowed_recipients: allowedRecipients })
+  }, [])
+
   const sendVoiceSignal = useCallback((roomId: string, targetId: string, signal: unknown) => {
     socketRef.current.emit('voice:signal', { room_id: roomId, target_player_id: targetId, signal })
   }, [])
@@ -269,6 +285,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     lastReveal,
     inningsBreak,
     matchFinished,
+    allOutInfo,
     lastError,
     pingLatency,
     voiceStates,
@@ -282,6 +299,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     callToss,
     decideToss,
     selectBowler,
+    selectBatter,
     submitPick,
     pauseMatch,
     resumeMatch,
@@ -292,6 +310,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     updateSettings,
     updateTeams,
     updateVoiceState,
+    setVoiceMode,
     sendVoiceSignal,
   }
 }

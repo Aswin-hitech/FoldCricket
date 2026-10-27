@@ -100,6 +100,8 @@ class Membership:
     role: PlayerRole = PlayerRole.SPECTATOR
     readiness: ReadinessState = ReadinessState.NOT_READY
     rules_acked_version: Optional[str] = None
+    voice_mode: str = "EVERYONE"         # "EVERYONE" | "TEAM_ONLY" | "SELECTED_PLAYERS" | "MUTED"
+    allowed_recipients: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +186,12 @@ class Match:
     # Result
     winner: Optional[str] = None        # "A" | "B" | "TIE"
     result_summary: Optional[str] = None
+
+    # Team Match Batting Order & All Out Tracking
+    dismissed_batters_a: list[str] = field(default_factory=list)
+    dismissed_batters_b: list[str] = field(default_factory=list)
+    is_all_out: bool = False
+    all_out_team: Optional[str] = None
 
     # Idempotency
     version: int = 0

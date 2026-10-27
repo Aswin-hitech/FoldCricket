@@ -45,6 +45,7 @@ export default function RoomPage() {
   const [rulesAcked, setRulesAcked] = useState(false)
   const [showRules, setShowRules] = useState(true)
   const [overs, setOvers] = useState(2)
+  const [isTossAnnouncing, setIsTossAnnouncing] = useState(false)
 
   const room: RoomInfo | null = snapshot?.room ?? null
   const members: MemberInfo[] = snapshot?.members ?? []
@@ -58,12 +59,24 @@ export default function RoomPage() {
     }
   }, [roomId, syncRoom, status])
 
-  // Navigate to arena when match starts
+  // Watch for toss decision completion: display announcement smoothly for 3.4s before moving to arena
   useEffect(() => {
-    if (snapshot?.match && snapshot.room.status === 'INNINGS_ACTIVE') {
+    if (room?.toss?.elected_choice) {
+      setIsTossAnnouncing(true)
+      const timer = setTimeout(() => {
+        setIsTossAnnouncing(false)
+        navigate(`/room/${roomId}/arena`)
+      }, 3400)
+      return () => clearTimeout(timer)
+    }
+  }, [room?.toss?.elected_choice, roomId, navigate])
+
+  // Navigate to arena when match starts if not in toss transition
+  useEffect(() => {
+    if (snapshot?.match && snapshot.room.status === 'INNINGS_ACTIVE' && !isTossAnnouncing && !room?.toss?.elected_choice) {
       navigate(`/room/${roomId}/arena`)
     }
-  }, [snapshot?.room?.status, snapshot?.match, navigate, roomId])
+  }, [snapshot?.room?.status, snapshot?.match, navigate, roomId, isTossAnnouncing, room?.toss?.elected_choice])
 
   useEffect(() => {
     if (room?.overs) setOvers(room.overs)
@@ -360,9 +373,9 @@ export default function RoomPage() {
       )}
 
       {/* 3D Animated Coin Toss Modal */}
-      {room?.status === 'TOSS' && (
+      {(room?.status === 'TOSS' || isTossAnnouncing) && (
         <CoinTossModal
-          toss={room.toss}
+          toss={room?.toss}
           myPlayerId={myPlayerId}
           onCall={handleCallToss}
           onDecide={handleDecideToss}

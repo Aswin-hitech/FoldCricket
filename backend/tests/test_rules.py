@@ -185,21 +185,51 @@ class TestWinner:
         GameRules._determine_winner(match)
         assert match.winner == "TIE"
 
-    def test_team_a_wins(self):
+    def test_team_a_wins_defending(self):
+        # Team A batted first, scored 50. Team B chased, scored 40. Team A won by 10 runs.
         match = make_match()
+        match.first_batting_team = "A"
         match.team_a_runs = 50
         match.team_b_runs = 40
         GameRules._determine_winner(match)
         assert match.winner == "A"
+        assert "won by 10 runs" in match.result_summary
 
-    def test_team_b_wins(self):
+    def test_team_b_wins_chasing(self):
+        # Team A batted first, scored 30. Team B chased, scored 45 with 1 wicket lost out of 5. Team B won by 4 wickets.
         match = make_match()
+        match.first_batting_team = "A"
         match.team_a_runs = 30
         match.team_b_runs = 45
         match._team_b_size = 5
+        match.team_b_wickets = 1
         match.team_b_extra_wickets = 0
         GameRules._determine_winner(match)
         assert match.winner == "B"
+        assert "won by 4 wickets" in match.result_summary
+
+    def test_team_b_wins_defending(self):
+        # Team B batted first, scored 60. Team A chased, scored 48. Team B won by 12 runs.
+        match = make_match()
+        match.first_batting_team = "B"
+        match.team_b_runs = 60
+        match.team_a_runs = 48
+        GameRules._determine_winner(match)
+        assert match.winner == "B"
+        assert "won by 12 runs" in match.result_summary
+
+    def test_team_a_wins_chasing(self):
+        # Team B batted first, scored 50. Team A chased, scored 52 with 2 wickets lost out of 5. Team A won by 3 wickets.
+        match = make_match()
+        match.first_batting_team = "B"
+        match.team_b_runs = 50
+        match.team_a_runs = 52
+        match._team_a_size = 5
+        match.team_a_wickets = 2
+        match.team_a_extra_wickets = 0
+        GameRules._determine_winner(match)
+        assert match.winner == "A"
+        assert "won by 3 wickets" in match.result_summary
 
 
 # ---------------------------------------------------------------------------

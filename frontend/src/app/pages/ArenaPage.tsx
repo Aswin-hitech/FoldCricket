@@ -483,6 +483,13 @@ export default function ArenaPage() {
         <div className={styles.finishedOverlay}>
           <div className={styles.finishedCard}>
             <div className={styles.finishedEmoji}>🏆</div>
+            {/* Mention match score first */}
+            <div className={styles.finishedScores}>
+              <span>{match?.team_a_name || 'Team A'}: <strong>{match?.team_a_runs ?? 0}/{match?.team_a_wickets ?? 0}</strong></span>
+              <span className={styles.finishedScoresVs}>vs</span>
+              <span>{match?.team_b_name || 'Team B'}: <strong>{match?.team_b_runs ?? 0}/{match?.team_b_wickets ?? 0}</strong></span>
+            </div>
+            {/* Then display match result */}
             <h2 className={styles.finishedTitle}>{matchFinished.result_summary}</h2>
             <p className={styles.finishedSub}>Redirecting to results…</p>
           </div>

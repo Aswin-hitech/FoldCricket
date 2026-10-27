@@ -27,11 +27,12 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
       setIsFlipping(true)
       sound.playCoinToss()
 
+      // Smooth and slow coin flip (2600ms)
       const timer = setTimeout(() => {
         setIsFlipping(false)
         setDisplayResult(toss.coin_result)
         sound.playCoinLand()
-      }, 2200)
+      }, 2600)
 
       return () => clearTimeout(timer)
     }
@@ -109,49 +110,73 @@ export const CoinTossModal: React.FC<CoinTossModalProps> = ({
           </div>
         )}
 
-        {/* Toss Phase 2: Deciding Bat or Bowl */}
+        {/* Toss Phase 2: Announcement if decided, else choosing Bat/Bowl */}
         {!isFlipping && displayResult && (
           <div className={styles.resultSection}>
-            <div className={styles.resultBanner}>
-              It's <strong>{displayResult}</strong>!
-            </div>
-            <p className={styles.winnerText}>
-              🎉 <strong>{toss.winner_name || `Team ${toss.winner_team}`}</strong> won the toss!
-            </p>
-
-            {isWinner ? (
-              <div className={styles.decisionBox}>
-                <p className={styles.prompt}>What do you elect to do first?</p>
-                <div className={styles.btnRow}>
-                  <button
-                    type="button"
-                    className="btn btn-success"
-                    style={{ flex: 1, padding: '14px', fontSize: '1.05rem' }}
-                    onClick={() => {
-                      sound.playClick()
-                      onDecide('BAT')
-                    }}
-                  >
-                    🏏 BAT FIRST
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ flex: 1, padding: '14px', fontSize: '1.05rem' }}
-                    onClick={() => {
-                      sound.playClick()
-                      onDecide('BOWL')
-                    }}
-                  >
-                    🎯 BOWL FIRST
-                  </button>
+            {toss.elected_choice ? (
+              <div className={styles.announcementSection}>
+                <div className={styles.announcementBadge}>🪙 TOSS CONCLUDED</div>
+                <h3 className={styles.announcementTitle}>
+                  🎉 <strong>{toss.winner_name || `Team ${toss.winner_team}`}</strong> won the toss and chose to{' '}
+                  <span style={{ color: 'var(--color-team-a)', textDecoration: 'underline' }}>
+                    {toss.elected_choice.toLowerCase()}
+                  </span>!
+                </h3>
+                <p className={styles.announcementSub}>
+                  Taking the pitch… Match is starting!
+                </p>
+                <div className={styles.transitionCountdown}>
+                  <span className={styles.pulseDot} />
+                  <span>Moving to match arena…</span>
+                </div>
+                <div className={styles.tossProgressBar}>
+                  <div className={styles.tossProgressFill} />
                 </div>
               </div>
             ) : (
-              <div className={styles.waiting}>
-                <span className={styles.spinner} />
-                <p>Waiting for {toss.winner_name || 'opponent'} to choose Bat or Bowl…</p>
-              </div>
+              <>
+                <div className={styles.resultBanner}>
+                  It's <strong>{displayResult}</strong>!
+                </div>
+                <p className={styles.winnerText}>
+                  🎉 <strong>{toss.winner_name || `Team ${toss.winner_team}`}</strong> won the toss!
+                </p>
+
+                {isWinner ? (
+                  <div className={styles.decisionBox}>
+                    <p className={styles.prompt}>What do you elect to do first?</p>
+                    <div className={styles.btnRow}>
+                      <button
+                        type="button"
+                        className="btn btn-success"
+                        style={{ flex: 1, padding: '14px', fontSize: '1.05rem' }}
+                        onClick={() => {
+                          sound.playClick()
+                          onDecide('BAT')
+                        }}
+                      >
+                        🏏 BAT FIRST
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ flex: 1, padding: '14px', fontSize: '1.05rem' }}
+                        onClick={() => {
+                          sound.playClick()
+                          onDecide('BOWL')
+                        }}
+                      >
+                        🎯 BOWL FIRST
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={styles.waiting}>
+                    <span className={styles.spinner} />
+                    <p>Waiting for {toss.winner_name || 'opponent'} to choose Bat or Bowl…</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

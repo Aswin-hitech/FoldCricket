@@ -171,21 +171,30 @@ class GameRules:
     def _determine_winner(match: Match) -> None:
         name_a = getattr(match, "team_a_name", "Team A") or "Team A"
         name_b = getattr(match, "team_b_name", "Team B") or "Team B"
+
         if match.team_a_runs > match.team_b_runs:
             match.winner = "A"
-            diff = match.team_a_runs - match.team_b_runs
-            match.result_summary = f"{name_a} wins by {diff} run{'s' if diff != 1 else ''}"
         elif match.team_b_runs > match.team_a_runs:
             match.winner = "B"
-            # Calculate wickets in hand
-            wlimit_b = match.wicket_limit("B")
-            wickets_remaining = wlimit_b - match.team_b_wickets
-            match.result_summary = (
-                f"{name_b} wins by {wickets_remaining} wicket{'s' if wickets_remaining != 1 else ''}"
-            )
         else:
             match.winner = "TIE"
             match.result_summary = "Match tied!"
+            return
+
+        first_batting = getattr(match, "first_batting_team", "A") or "A"
+        winning_name = name_a if match.winner == "A" else name_b
+
+        # If first batting team wins the match -> win by runs; else win by wickets
+        if match.winner == first_batting:
+            diff = abs(match.team_a_runs - match.team_b_runs)
+            match.result_summary = f"{winning_name} won by {diff} run{'s' if diff != 1 else ''}"
+        else:
+            wlimit = match.wicket_limit(match.winner)
+            lost_wickets = match.team_a_wickets if match.winner == "A" else match.team_b_wickets
+            wickets_remaining = max(1, wlimit - lost_wickets)
+            match.result_summary = (
+                f"{winning_name} won by {wickets_remaining} wicket{'s' if wickets_remaining != 1 else ''}"
+            )
 
     # ---------------------------------------------------------------------------
     # Validation helpers

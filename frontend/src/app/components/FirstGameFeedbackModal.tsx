@@ -118,7 +118,7 @@ export const FirstGameFeedbackModal: React.FC<FirstGameFeedbackModalProps> = ({
             <span className={styles.thankYouIcon}>🎉</span>
             <h3 className={styles.thankYouTitle}>Thank You for Your Feedback!</h3>
             <p className={styles.thankYouDesc}>
-              Your feedback has been collected in Supabase to help us perfect the vintage school hand cricket experience.
+              Your feedback has been received to help us perfect the vintage school hand cricket experience.
             </p>
           </div>
         ) : (
@@ -214,7 +214,7 @@ export const FirstGameFeedbackModal: React.FC<FirstGameFeedbackModalProps> = ({
                   className="btn btn-primary"
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? 'Submitting to Supabase…' : '🌟 Submit Report'}
+                  {isSubmitting ? 'Submitting…' : '🌟 Submit Report'}
                 </button>
               </div>
             </form>

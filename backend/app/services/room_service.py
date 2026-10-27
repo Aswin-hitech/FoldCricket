@@ -289,6 +289,7 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
         team_a_extra_wickets=extra_a,
         team_b_extra_wickets=extra_b,
         batting_team=batting_team,
+        first_batting_team=batting_team,
         phase=InningsPhase.FIRST,
         team_a_name=getattr(room, "team_a_name", "Team A"),
         team_b_name=getattr(room, "team_b_name", "Team B"),
@@ -569,6 +570,7 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
             ),
             "winner": match.winner,
             "result_summary": match.result_summary,
+            "first_batting_team": getattr(match, "first_batting_team", "A"),
             "team_a_name": getattr(match, "team_a_name", getattr(room, "team_a_name", "Team A")),
             "team_b_name": getattr(match, "team_b_name", getattr(room, "team_b_name", "Team B")),
         }

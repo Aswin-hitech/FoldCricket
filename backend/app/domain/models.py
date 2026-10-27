@@ -168,6 +168,7 @@ class Match:
     current_over: int = 0               # 0-indexed
     current_ball: int = 0               # balls within current over (0-5)
     batting_team: str = "A"             # "A" or "B"
+    first_batting_team: str = "A"       # team that batted in first innings
 
     # Active players
     active_batter_id: Optional[str] = None

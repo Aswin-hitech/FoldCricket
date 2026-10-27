@@ -104,7 +104,37 @@ export default function ResultPage() {
           {isWin ? '🏆' : isLoss ? '🏏' : isTie ? '🤝' : '🏆'}
         </div>
 
-        {/* Personalized Outcome Badge */}
+        {/* 1. Mention the Match Score First */}
+        <div className={styles.scoreSummaryBox}>
+          <div className={styles.scoreSummaryItem}>
+            <span className={styles.scoreSummaryTeam}>{match?.team_a_name || 'Team A'}</span>
+            <span className={styles.scoreSummaryRuns}>{teamATotal}/{match?.team_a_wickets ?? 0}</span>
+          </div>
+          <span className={styles.scoreSummaryVs}>VS</span>
+          <div className={styles.scoreSummaryItem}>
+            <span className={styles.scoreSummaryTeam}>{match?.team_b_name || 'Team B'}</span>
+            <span className={styles.scoreSummaryRuns}>{teamBTotal}/{match?.team_b_wickets ?? 0}</span>
+          </div>
+        </div>
+
+        {/* 2. Then Display the Match Result */}
+        <h1
+          className={`${styles.title} ${
+            isWin ? styles.titleWin : isLoss ? styles.titleLoss : styles.titleTie
+          }`}
+        >
+          {match?.result_summary
+            ? match.result_summary
+            : isWin
+            ? 'You Won the Match!'
+            : isLoss
+            ? 'Hard Luck — You Lost'
+            : isTie
+            ? 'What a Match! It’s a Draw!'
+            : 'Match Concluded'}
+        </h1>
+
+        {/* Outcome Badge */}
         <div className={styles.outcomeBadge} data-type={outcomeType}>
           {isWin
             ? '🎉 VICTORY'
@@ -114,25 +144,6 @@ export default function ResultPage() {
             ? '🤝 TIED MATCH'
             : 'MATCH COMPLETE'}
         </div>
-
-        {/* Headline */}
-        <h1
-          className={`${styles.title} ${
-            isWin ? styles.titleWin : isLoss ? styles.titleLoss : styles.titleTie
-          }`}
-        >
-          {isWin
-            ? 'You Won the Match!'
-            : isLoss
-            ? 'Hard Luck — You Lost'
-            : isTie
-            ? 'What a Match! It’s a Draw!'
-            : winner === 'A'
-            ? `${match?.team_a_name || 'Team A'} Wins!`
-            : winner === 'B'
-            ? `${match?.team_b_name || 'Team B'} Wins!`
-            : 'Match Concluded'}
-        </h1>
 
         <p className={styles.summary}>{match?.result_summary ?? ''}</p>
 

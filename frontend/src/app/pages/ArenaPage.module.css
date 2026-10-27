@@ -28,7 +28,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px;
+  padding: 12px 24px;
   background: var(--color-header-bg);
   border-bottom: 1px solid var(--color-border);
   backdrop-filter: blur(10px);
@@ -36,13 +36,13 @@
   top: 0;
   z-index: 10;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
 }
 
 .headerBrand {
   font-family: var(--font-display);
-  font-size: 1.15rem;
-  font-weight: 700;
+  font-size: 1.3rem;
+  font-weight: 800;
   color: var(--color-team-a);
   display: flex;
   align-items: center;
@@ -50,30 +50,31 @@
 }
 
 .headerBrandLogo {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   object-fit: cover;
   border: 1px solid var(--border-color);
 }
 
 .headerMeta {
   display: flex;
-  gap: 16px;
+  gap: 18px;
   align-items: center;
   flex-wrap: wrap;
 }
 
 .metaItem {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: 0.95rem;
+  font-weight: 700;
   color: var(--color-text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .connBadge {
-  font-size: 0.78rem;
+  font-size: 0.88rem;
+  font-weight: 700;
   color: var(--color-warning);
   animation: pulse 1s infinite;
 }
@@ -107,7 +108,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 16px 20px;
+  padding: 18px 22px;
   text-align: center;
   transition: all var(--transition);
   position: relative;
@@ -124,8 +125,8 @@
 
 .scoreLabel {
   font-family: var(--font-display);
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: 1.05rem;
+  font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -134,33 +135,35 @@
 
 .scoreRuns {
   font-family: var(--font-display);
-  font-size: 3.5rem;
-  font-weight: 700;
+  font-size: 3.8rem;
+  font-weight: 800;
   line-height: 1;
   color: var(--color-text);
 }
 
 .scoreWickets {
-  font-size: 1rem;
+  font-size: 1.2rem;
+  font-weight: 700;
   color: var(--color-text-muted);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .battingIndicator {
   position: absolute;
   top: 8px;
   right: 8px;
-  font-size: 0.62rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 800;
   letter-spacing: 0.1em;
   color: var(--color-success);
   animation: pulse 2s infinite;
 }
 
 .targetLabel {
-  font-size: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
   color: var(--color-warning);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .vsSection {
@@ -169,14 +172,14 @@
 
 .vs {
   font-family: var(--font-display);
-  font-size: 1.4rem;
-  font-weight: 700;
+  font-size: 1.6rem;
+  font-weight: 800;
   color: var(--color-text-muted);
 }
 
 .target {
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.98rem;
+  font-weight: 700;
   color: var(--color-warning);
   text-align: center;
   line-height: 1.4;
@@ -208,8 +211,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 12px;
+  gap: 8px;
+  padding: 16px 14px;
   border-radius: var(--radius-md);
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
@@ -224,34 +227,36 @@
 }
 
 .activePlayerLabel {
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.92rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--color-text-muted);
 }
 
 .activePlayerName {
   font-family: var(--font-display);
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: 1.4rem;
+  font-weight: 800;
   color: var(--color-text);
 }
 
 .activePlayerYou {
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-size: 0.85rem;
+  font-weight: 800;
   color: var(--color-team-a);
   letter-spacing: 0.1em;
 }
 
 .activePlayerSubmitted {
-  font-size: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
   color: var(--color-success);
 }
 
 .activePlayerWaiting {
-  font-size: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
   color: var(--color-warning);
   animation: pulse 1.5s infinite;
 }
@@ -424,7 +429,7 @@
 }
 
 .pickLabelTag {
-  font-size: 0.68rem;
+  font-size: 0.82rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -434,17 +439,17 @@
 .pickBadge {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   background: var(--color-surface-2);
   border: 2px solid var(--color-team-a);
   border-radius: 999px;
-  padding: 4px 14px 4px 8px;
+  padding: 6px 16px 6px 10px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), var(--glow-team-a);
 }
 
 .pickBadgeNum {
   font-family: var(--font-display);
-  font-size: 1.4rem;
+  font-size: 1.75rem;
   font-weight: 900;
   color: var(--color-text);
 }
@@ -452,15 +457,15 @@
 .audioToggleBtn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
+  gap: 6px;
+  padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   background: var(--color-surface-2);
   color: var(--color-text);
   cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   transition: all var(--transition);
 }
 .audioToggleBtn:hover {
@@ -472,22 +477,29 @@
   background: var(--color-surface);
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .bowlerSelect h3 {
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 1.15rem;
+  font-weight: 800;
   color: var(--color-warning);
 }
 
 .bowlerList {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
+}
+
+.bowlerBtn {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  padding: 10px 18px !important;
+  border-radius: var(--radius-md) !important;
 }
 
 /* Number pad */
@@ -495,11 +507,11 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 24px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
 }
 
 .padHeader {
@@ -508,35 +520,36 @@
 }
 
 .padLabel {
-  font-size: 0.92rem;
-  font-weight: 700;
+  font-size: 1.25rem;
+  font-weight: 800;
   color: var(--color-team-a);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .padSubLabel {
-  font-size: 0.76rem;
+  font-size: 0.95rem;
   color: var(--color-text-dim);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .pad {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
+  gap: 14px;
   width: 100%;
-  max-width: 440px;
+  max-width: 480px;
 }
 
 .padBtn {
   aspect-ratio: 0.88;
-  max-width: 76px;
+  max-width: 88px;
+  min-height: 88px;
   justify-self: center;
   width: 100%;
   border: 2px solid var(--color-border);
-  border-radius: 14px;
+  border-radius: 16px;
   background: linear-gradient(180deg, var(--color-surface-2) 0%, var(--color-surface) 100%);
   color: var(--color-text);
   font-family: var(--font-display);
@@ -546,7 +559,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 4px 6px;
+  padding: 10px 4px 8px;
   position: relative;
   overflow: hidden;
   box-shadow: 0 4px 0 var(--color-border), 0 6px 14px rgba(0, 0, 0, 0.15);
@@ -573,7 +586,7 @@
 
 .gestureSlot {
   width: 100%;
-  height: 38px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -581,8 +594,8 @@
 }
 
 .padBtnNumber {
-  font-size: 1.4rem;
-  font-weight: 800;
+  font-size: 1.85rem;
+  font-weight: 900;
   line-height: 1;
 }
 
@@ -593,16 +606,21 @@
 
 .submitBtn {
   width: 100%;
-  max-width: 300px;
-  padding: 14px;
-  font-size: 1rem;
+  max-width: 440px;
+  padding: 16px 24px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  border-radius: 14px;
+  min-height: 56px;
+  letter-spacing: 0.02em;
 }
 
 .spectatorMsg {
   text-align: center;
-  padding: 20px;
+  padding: 24px;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: 1.15rem;
+  font-weight: 700;
   background: var(--color-surface);
   border-radius: var(--radius-md);
   border: 1px dashed var(--color-border);
@@ -613,30 +631,30 @@
   border-left: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 52px);
+  height: calc(100vh - 58px);
   overflow: hidden;
 }
 
 .rosterSection {
-  padding: 16px;
+  padding: 18px 16px;
   border-bottom: 1px solid var(--color-border);
   overflow-y: auto;
-  max-height: 50%;
+  max-height: 48%;
 }
 
 .chatSection {
-  padding: 12px 16px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
   overflow: hidden;
 }
 
 .sidePanelTitle {
   font-family: var(--font-display);
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -657,11 +675,11 @@
 }
 
 .rosterTeamLabel {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.88rem;
+  font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .rosterTeamLabel[data-team="A"] { color: var(--color-team-a); }
@@ -671,15 +689,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  padding: 5px 6px;
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: var(--radius-sm);
-  font-size: 0.82rem;
+  font-size: 0.92rem;
 }
 
 .rosterPlayerMe { background: rgba(59,130,246,0.08); }
 
-.rosterName { flex: 1; font-weight: 500; }
+.rosterName { flex: 1; font-weight: 600; }
 
 .rosterMeta {
   display: flex;
@@ -702,25 +720,57 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 0.8rem;
+  gap: 8px;
+  font-size: 0.95rem;
 }
 
 .chatMsg {
   display: flex;
-  gap: 5px;
+  gap: 6px;
+  line-height: 1.45;
   animation: slideIn 0.15s ease;
 }
 
 .chatName {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--color-team-a);
   white-space: nowrap;
 }
 
 .chatForm {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.chatInput {
+  flex: 1;
+  font-size: 1.05rem !important;
+  padding: 12px 14px !important;
+  min-height: 48px;
+  border-radius: var(--radius-md) !important;
+  font-weight: 500;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.chatInput:focus {
+  border-color: var(--color-team-a);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.chatSubmitBtn {
+  min-height: 48px;
+  padding: 10px 18px !important;
+  font-size: 1rem !important;
+  font-weight: 800 !important;
+  border-radius: var(--radius-md) !important;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 /* Match finished overlay */
@@ -808,8 +858,8 @@
 
 @media (max-width: 600px) {
   .header {
-    padding: 8px 10px;
-    gap: 8px;
+    padding: 10px 12px;
+    gap: 10px;
     flex-direction: column;
     align-items: stretch;
   }
@@ -817,48 +867,50 @@
   .headerBrand {
     justify-content: space-between;
     width: 100%;
-    font-size: 1.05rem;
+    font-size: 1.2rem;
   }
 
   .headerBrandLogo {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
   }
 
   .headerMeta {
     justify-content: space-between;
     width: 100%;
-    gap: 6px;
-    font-size: 0.75rem;
+    gap: 8px;
+    font-size: 0.88rem;
   }
 
   .metaItem {
-    font-size: 0.72rem;
+    font-size: 0.85rem;
     letter-spacing: 0.03em;
   }
 
   .mainPanel {
-    padding: 12px 8px;
-    gap: 12px;
+    padding: 14px 10px;
+    gap: 14px;
   }
 
   .scoreboard {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto;
-    padding: 12px 10px;
-    gap: 8px;
+    padding: 14px 12px;
+    gap: 10px;
   }
 
   .scoreRuns {
-    font-size: clamp(1.8rem, 6.5vw, 2.3rem);
+    font-size: clamp(2.4rem, 7.5vw, 3rem);
   }
 
-  .scoreTeam {
-    font-size: 0.85rem;
+  .scoreLabel {
+    font-size: 0.95rem;
+    font-weight: 800;
   }
 
-  .scoreSub {
-    font-size: 0.72rem;
+  .scoreWickets {
+    font-size: 1.05rem;
+    font-weight: 700;
   }
 
   .vsSection {
@@ -878,6 +930,39 @@
     grid-row: 2;
   }
 
+  .activePlayer {
+    padding: 14px 10px;
+    gap: 6px;
+  }
+
+  .activePlayerLabel {
+    font-size: 0.85rem;
+    font-weight: 800;
+  }
+
+  .activePlayerName {
+    font-size: 1.25rem;
+    font-weight: 800;
+  }
+
+  .activePlayerYou {
+    font-size: 0.8rem;
+    font-weight: 800;
+  }
+
+  .pickLabelTag {
+    font-size: 0.75rem;
+  }
+
+  .pickBadge {
+    padding: 4px 12px;
+    gap: 8px;
+  }
+
+  .pickBadgeNum {
+    font-size: 1.45rem;
+  }
+
   .pitchContainer {
     width: 100%;
     max-width: 100%;
@@ -886,41 +971,69 @@
   }
 
   .numberPad {
-    padding: 14px 10px;
-    gap: 12px;
+    padding: 18px 12px;
+    gap: 14px;
     width: 100%;
+  }
+
+  .padLabel {
+    font-size: 1.15rem;
+    font-weight: 800;
+  }
+
+  .padSubLabel {
+    font-size: 0.88rem;
   }
 
   .pad {
     grid-template-columns: repeat(5, 1fr);
-    gap: 4px;
+    gap: 6px;
     width: 100%;
   }
 
   .padBtn {
-    padding: 6px 2px 4px;
-    border-radius: 10px;
-    min-height: 64px;
+    padding: 8px 2px 6px;
+    border-radius: 12px;
+    min-height: 74px;
   }
 
   .gestureSlot {
-    height: 26px;
+    height: 32px;
   }
 
   .padBtnNumber {
-    font-size: 1.15rem;
+    font-size: 1.45rem;
   }
 
   .submitBtn {
     width: 100%;
     max-width: 100%;
-    padding: 12px;
-    font-size: 0.95rem;
+    padding: 14px 16px;
+    font-size: 1.12rem;
+    font-weight: 800;
+    min-height: 52px;
   }
 
   .chatSection {
-    height: 220px;
-    padding: 10px;
+    height: 250px;
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .chatMessages {
+    font-size: 0.92rem;
+  }
+
+  .chatInput {
+    font-size: 1.05rem !important;
+    padding: 10px 12px !important;
+    min-height: 46px;
+  }
+
+  .chatSubmitBtn {
+    min-height: 46px;
+    padding: 8px 14px !important;
+    font-size: 1rem !important;
   }
 
   .pausedCard {

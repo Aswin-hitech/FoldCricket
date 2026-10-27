@@ -388,7 +388,7 @@ export default function ArenaPage() {
                 {bowlingMembers.map(m => (
                   <button
                     key={m.player.id}
-                    className="btn btn-secondary"
+                    className={`btn btn-secondary ${styles.bowlerBtn}`}
                     onClick={() => handleBowlerSelect(m.player.id)}
                   >
                     {m.player.display_name}
@@ -420,7 +420,7 @@ export default function ArenaPage() {
                     aria-pressed={selectedPick === n}
                   >
                     <div className={styles.gestureSlot}>
-                      <HandGesture number={n} size={36} />
+                      <HandGesture number={n} size={42} />
                     </div>
                     <span className={styles.padBtnNumber}>{n}</span>
                   </button>
@@ -465,15 +465,14 @@ export default function ArenaPage() {
             </div>
             <form onSubmit={handleSendChat} className={styles.chatForm}>
               <input
-                className="input"
-                style={{ fontSize: '0.85rem', padding: '7px 10px' }}
-                placeholder="Message…"
+                className={`input ${styles.chatInput}`}
+                placeholder="Type a message…"
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 maxLength={200}
               />
-              <button type="submit" className="btn btn-secondary" style={{ padding: '7px 12px' }}>
-                →
+              <button type="submit" className={`btn btn-primary ${styles.chatSubmitBtn}`}>
+                Send
               </button>
             </form>
           </div>
@@ -616,7 +615,7 @@ function ActivePlayer({
         <div className={styles.pickRevealContainer}>
           <span className={styles.pickLabelTag}>CHOSE</span>
           <div className={styles.pickBadge}>
-            <HandGesture number={pickRevealed} size={32} animated />
+            <HandGesture number={pickRevealed} size={38} animated />
             <span className={styles.pickBadgeNum}>{pickRevealed}</span>
           </div>
         </div>

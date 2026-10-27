@@ -119,18 +119,22 @@ export default function ArenaPage() {
     }
   }, [roomId, syncRoom, status])
 
-  // Handle match finished redirect
+  // Handle match finished redirect - 5 second transition
   useEffect(() => {
     if (matchFinished) {
       sound.playWin()
       vibration.win()
       setCelebrationTrigger('WIN')
-      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 4000)
-      return () => clearTimeout(timer)
+      const popperTimer = setTimeout(() => setCelebrationTrigger(null), 2000)
+      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 5000)
+      return () => {
+        clearTimeout(popperTimer)
+        clearTimeout(timer)
+      }
     }
   }, [matchFinished, navigate, roomId])
 
-  // Handle delivery reveal sound & vibration
+  // Handle delivery reveal sound & vibration - 5s popup animation & 2s party popper
   useEffect(() => {
     if (lastReveal) {
       setRevealAnimation(lastReveal)
@@ -153,8 +157,14 @@ export default function ArenaPage() {
         sound.playRuns(lastReveal.runs_scored)
       }
 
-      const timer = setTimeout(() => setRevealAnimation(null), 4000)
-      return () => clearTimeout(timer)
+      // Party popper effect strictly for 2 seconds
+      const popperTimer = setTimeout(() => setCelebrationTrigger(null), 2000)
+      // Reveal popup outcome animation holds for 5 seconds
+      const timer = setTimeout(() => setRevealAnimation(null), 5000)
+      return () => {
+        clearTimeout(popperTimer)
+        clearTimeout(timer)
+      }
     }
   }, [lastReveal])
 
@@ -499,6 +509,18 @@ export default function ArenaPage() {
           {/* Network Latency Indicator */}
           <NetworkIndicator status={status} latency={pingLatency} />
 
+          {/* Voice Chat Microphone facility */}
+          <VoiceChat
+            roomId={roomId || ''}
+            myPlayerId={myPlayerId}
+            myDisplayName={myMembership?.player.display_name || 'Player'}
+            voiceStates={voiceStates}
+            onVoiceStateChange={updateVoiceState}
+            members={members}
+            incomingVoiceSignal={incomingVoiceSignal}
+            onSendSignal={sendVoiceSignal}
+          />
+
           {/* Sound Toggle */}
           <button
             type="button"
@@ -578,20 +600,6 @@ export default function ArenaPage() {
           </div>
         </div>
       )}
-
-      {/* Hidden VoiceChat WebRTC audio engine */}
-      <div style={{ display: 'none' }}>
-        <VoiceChat
-          roomId={roomId || ''}
-          myPlayerId={myPlayerId}
-          myDisplayName={myMembership?.player.display_name || 'Player'}
-          voiceStates={voiceStates}
-          onVoiceStateChange={updateVoiceState}
-          members={members}
-          incomingVoiceSignal={incomingVoiceSignal}
-          onSendSignal={sendVoiceSignal}
-        />
-      </div>
 
       {/* ============================================================
           C. Main Responsive Broadcast Dashboard Grid

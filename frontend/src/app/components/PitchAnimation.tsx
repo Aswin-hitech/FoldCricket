@@ -111,7 +111,9 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
       })
     }
 
+    let frame = 0
     const render = () => {
+      frame++
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       let active = false
 
@@ -133,7 +135,7 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
         }
       }
 
-      if (active) {
+      if (active && frame < 120) {
         animIdRef.current = requestAnimationFrame(render)
       }
     }

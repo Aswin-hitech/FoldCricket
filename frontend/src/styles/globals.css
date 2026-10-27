@@ -303,7 +303,7 @@ body {
 
 /* Page Entry Transition */
 .page {
-  animation: pageSlideFadeIn 4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: pageSlideFadeIn 5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes pageSlideFadeIn {

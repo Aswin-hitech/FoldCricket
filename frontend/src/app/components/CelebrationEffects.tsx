@@ -76,10 +76,16 @@ export const CelebrationEffects: React.FC<CelebrationEffectsProps> = ({
         rot: Math.random() * Math.PI * 2,
         vRot: (Math.random() - 0.5) * 0.2,
         opacity: 1,
-        decay: trigger === 'WIN' ? 0.003 : 0.008 + Math.random() * 0.006,
+        // Tuned to conclude within strictly 2 seconds (120 frames at 60fps)
+        decay: 0.016 + Math.random() * 0.008,
         flutter: Math.random() * 0.1,
       })
     }
+
+    // Hard cap party popper effect to strictly 2 seconds
+    const popperTimer = setTimeout(() => {
+      onComplete?.()
+    }, 2000)
 
     let frame = 0
     const render = () => {
@@ -107,7 +113,7 @@ export const CelebrationEffects: React.FC<CelebrationEffectsProps> = ({
         }
       }
 
-      if (active) {
+      if (active && frame < 120) {
         animRef.current = requestAnimationFrame(render)
       } else {
         onComplete?.()
@@ -117,6 +123,7 @@ export const CelebrationEffects: React.FC<CelebrationEffectsProps> = ({
     render()
 
     return () => {
+      clearTimeout(popperTimer)
       if (animRef.current) cancelAnimationFrame(animRef.current)
     }
   }, [trigger, onComplete])

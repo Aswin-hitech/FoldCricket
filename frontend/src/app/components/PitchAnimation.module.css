@@ -539,7 +539,7 @@
   z-index: 60;
   pointer-events: none;
   backdrop-filter: blur(10px);
-  animation: runsPopFade 4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: runsPopFade 5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   width: 90%;
   max-width: 320px;
 }
@@ -549,15 +549,15 @@
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.5);
   }
-  15% {
+  12% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1.06);
   }
-  25% {
+  20% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
   }
-  75% {
+  80% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
   }

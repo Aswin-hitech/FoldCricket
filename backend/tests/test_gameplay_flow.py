@@ -102,3 +102,26 @@ def test_solo_gameplay_progression_and_innings_transition():
     # Target chased! Match should be complete!
     assert match.winner is not None
     assert room.status == RoomStatus.MATCH_COMPLETE
+
+
+def test_custom_wickets_setting_and_match_limit():
+    p1, _ = room_service.create_or_restore_player("Dhoni", None)
+    # Solo match with 3 wickets per team (max 5)
+    room, _ = room_service.create_room(p1, "SOLO", 2, wickets=3)
+    assert room.wickets == 3
+
+    p2, _ = room_service.create_or_restore_player("Kohli", None)
+    room_service.join_room(p2, room.join_code)
+    room_service.ack_rules(room, p1)
+    room_service.ack_rules(room, p2)
+    room_service.set_ready(room, p1, True)
+    room_service.set_ready(room, p2, True)
+
+    room_service.start_toss(room, p1)
+    toss = room_service.call_toss(room, p2, "HEADS")
+    winner = p1 if toss["winner_id"] == p1.id else p2
+    match = room_service.decide_toss(room, winner, "BAT")
+
+    assert match.wickets == 3
+    assert match.wicket_limit("A") == 3
+    assert match.wicket_limit("B") == 3

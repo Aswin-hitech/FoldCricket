@@ -289,6 +289,7 @@ export default function ArenaPage() {
               team="A"
               runs={match.team_a_runs}
               wickets={match.team_a_wickets}
+              maxWickets={match.wickets}
               isBatting={match.batting_team === 'A'}
               target={match.batting_team === 'B' ? match.target : null}
             />
@@ -310,6 +311,7 @@ export default function ArenaPage() {
               team="B"
               runs={match.team_b_runs}
               wickets={match.team_b_wickets}
+              maxWickets={match.wickets}
               isBatting={match.batting_team === 'B'}
               target={match.batting_team === 'A' ? match.target : null}
             />
@@ -553,12 +555,13 @@ export default function ArenaPage() {
 // -----------------------------------------------------------------------
 
 function ScoreCard({
-  label, team, runs, wickets, isBatting, target
+  label, team, runs, wickets, maxWickets, isBatting, target
 }: {
   label: string
   team: 'A' | 'B'
   runs: number
   wickets: number
+  maxWickets?: number
   isBatting: boolean
   target: number | null | undefined
 }) {
@@ -578,7 +581,9 @@ function ScoreCard({
     <div className={`${styles.scoreCard} ${isBatting ? styles.scoreCardBatting : ''}`} data-team={team}>
       <div className={styles.scoreLabel}>{label}</div>
       <div className={`${styles.scoreRuns} ${pop ? 'scorePopAnim' : ''}`}>{runs}</div>
-      <div className={styles.scoreWickets}>-{wickets}</div>
+      <div className={styles.scoreWickets}>
+        /{wickets} {maxWickets ? <small style={{ fontSize: '0.72rem', opacity: 0.75 }}>({maxWickets} max)</small> : 'wkts'}
+      </div>
       {isBatting && <div className={styles.battingIndicator}>▶ BATTING</div>}
       {target && <div className={styles.targetLabel}>Target: {target}</div>}
     </div>

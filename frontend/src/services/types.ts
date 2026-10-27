@@ -36,6 +36,8 @@ export interface RoomInfo {
   mode: 'SOLO' | 'TEAM'
   status: string
   overs: number
+  wickets?: number
+  max_wickets?: number
   capacity: number
   rules_version: string
   toss?: TossInfo | null
@@ -56,6 +58,7 @@ export interface MatchInfo {
   id: string
   phase: 'FIRST' | 'SECOND'
   overs: number
+  wickets?: number
   team_a_runs: number
   team_a_wickets: number
   team_b_runs: number

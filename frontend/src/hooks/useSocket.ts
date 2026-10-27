@@ -41,7 +41,7 @@ interface UseSocketReturn {
   setReady: (roomId: string, ready: boolean) => void
   ackRules: (roomId: string) => void
   assignTeam: (roomId: string, playerId: string, team: string) => void
-  updateSettings: (roomId: string, overs: number) => void
+  updateSettings: (roomId: string, overs: number, wickets?: number) => void
   updateTeams: (roomId: string, teamAName: string, teamBName: string) => void
   updateVoiceState: (roomId: string, isSpeaking: boolean, isMuted: boolean) => void
   sendVoiceSignal: (roomId: string, targetId: string, signal: unknown) => void
@@ -229,8 +229,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('team:assign', { room_id: roomId, player_id: playerId, team })
   }, [])
 
-  const updateSettings = useCallback((roomId: string, overs: number) => {
-    socketRef.current.emit('match:settings', { room_id: roomId, overs })
+  const updateSettings = useCallback((roomId: string, overs: number, wickets?: number) => {
+    socketRef.current.emit('match:settings', { room_id: roomId, overs, wickets })
   }, [])
 
   const updateTeams = useCallback((roomId: string, teamAName: string, teamBName: string) => {

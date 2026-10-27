@@ -118,6 +118,7 @@ class Room:
     created_at: datetime = field(default_factory=datetime.utcnow)
     # Match settings
     overs: int = 2
+    wickets: int = 1
     allowed_overs: list = field(default_factory=lambda: list(range(1, 11)))
     toss: Optional[dict] = None
     team_a_name: str = "Team A"
@@ -130,6 +131,8 @@ class Room:
             "mode": self.mode.value,
             "status": self.status.value,
             "overs": self.overs,
+            "wickets": getattr(self, "wickets", 1 if self.mode == GameMode.SOLO else 5),
+            "max_wickets": 5 if self.mode == GameMode.SOLO else 10,
             "allowed_overs": self.allowed_overs,
             "capacity": self.capacity,
             "rules_version": self.rules_version,
@@ -150,6 +153,7 @@ class Match:
     room_id: str = ""
     phase: InningsPhase = InningsPhase.FIRST
     overs: int = 2
+    wickets: Optional[int] = None
     team_a_name: str = "Team A"
     team_b_name: str = "Team B"
 
@@ -198,8 +202,11 @@ class Match:
         return "B" if self.batting_team == "A" else "A"
 
     def wicket_limit(self, team: str) -> int:
-        """Players on team + extra wicket allowance (configurable)."""
-        # Stored at match creation; default 10 if not set
+        """Configured match wickets or players on team + extra wicket allowance."""
+        base = getattr(self, "wickets", None)
+        if base is not None and base > 0:
+            return base
+        # Fallback stored at match creation; default 10 if not set
         if team == "A":
             return getattr(self, "_team_a_size", 10) + self.team_a_extra_wickets
         return getattr(self, "_team_b_size", 10) + self.team_b_extra_wickets

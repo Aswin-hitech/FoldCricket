@@ -45,7 +45,10 @@ export default function RoomPage() {
   const [rulesAcked, setRulesAcked] = useState(false)
   const [showRules, setShowRules] = useState(true)
   const [overs, setOvers] = useState(2)
+  const [wickets, setWickets] = useState(1)
   const [isTossAnnouncing, setIsTossAnnouncing] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
+  const [copiedCode, setCopiedCode] = useState(false)
 
   const room: RoomInfo | null = snapshot?.room ?? null
   const members: MemberInfo[] = snapshot?.members ?? []
@@ -58,6 +61,12 @@ export default function RoomPage() {
       syncRoom(roomId)
     }
   }, [roomId, syncRoom, status])
+
+  // Sync settings when room snapshot updates
+  useEffect(() => {
+    if (room?.overs) setOvers(room.overs)
+    if (room?.wickets) setWickets(room.wickets)
+  }, [room?.overs, room?.wickets])
 
   // Watch for toss decision completion: display announcement smoothly for 3.4s before moving to arena
   useEffect(() => {
@@ -114,7 +123,12 @@ export default function RoomPage() {
 
   function handleOversChange(o: number) {
     setOvers(o)
-    if (roomId) updateSettings(roomId, o)
+    if (roomId) updateSettings(roomId, o, wickets)
+  }
+
+  function handleWicketsChange(w: number) {
+    setWickets(w)
+    if (roomId) updateSettings(roomId, overs, w)
   }
 
   function handleSendChat(e: React.FormEvent) {
@@ -194,19 +208,38 @@ export default function RoomPage() {
           <ThemeToggle />
           {room && (
             <div className={styles.joinInfo}>
-              <span className={styles.joinLabel}>Room Code</span>
+              <span className={styles.joinLabel}>Room</span>
               <span className={styles.joinCode}>{room.join_code}</span>
               <button
                 type="button"
                 className="btn btn-secondary"
-                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                style={{ padding: '6px 10px', fontSize: '0.78rem' }}
                 onClick={() => {
                   sound.playClick()
                   navigator.clipboard.writeText(room.join_code)
+                  setCopiedCode(true)
+                  setTimeout(() => setCopiedCode(false), 2000)
                 }}
                 aria-label="Copy room code"
+                title="Copy room code"
               >
-                Copy
+                {copiedCode ? 'Copied! ✅' : 'Code'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                onClick={() => {
+                  sound.playClick()
+                  const link = `${window.location.origin}/join/${room.join_code}`
+                  navigator.clipboard.writeText(link)
+                  setCopiedLink(true)
+                  setTimeout(() => setCopiedLink(false), 2000)
+                }}
+                aria-label="Copy shareable room link"
+                title="Copy direct invite link for friends"
+              >
+                {copiedLink ? 'Link Copied! 📋' : '🔗 Copy Link'}
               </button>
             </div>
           )}
@@ -218,11 +251,12 @@ export default function RoomPage() {
         <section className={styles.teamsPanel}>
           <h2 className={styles.sectionTitle}>Teams</h2>
 
-          {isHost && (
+          {isHost ? (
             <div className={styles.settingsRow}>
+              {/* Overs */}
               <div className={styles.settingsHeader}>
                 <span className={styles.settingsLabel}>Match Overs:</span>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.1rem' }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.05rem' }}>
                   {overs} {overs === 1 ? 'Over' : 'Overs'} ({overs * 6} Balls)
                 </span>
               </div>
@@ -247,6 +281,50 @@ export default function RoomPage() {
                     {o}
                   </button>
                 ))}
+              </div>
+
+              {/* Wickets Per Team */}
+              <div className={styles.settingsHeader} style={{ marginTop: '12px' }}>
+                <span className={styles.settingsLabel}>
+                  Wickets Per Team:
+                  <small style={{ marginLeft: '6px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
+                    ({room?.mode === 'SOLO' ? 'Max 5 for Solo' : 'Max 10 for Group'})
+                  </small>
+                </span>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.05rem' }}>
+                  {wickets} {wickets === 1 ? 'Wicket' : 'Wickets'}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max={room?.mode === 'SOLO' ? 5 : 10}
+                step="1"
+                value={wickets}
+                onChange={e => handleWicketsChange(Number(e.target.value))}
+                className={styles.rangeSlider}
+                aria-label="Wickets Per Team Range Slider"
+              />
+              <div className={styles.quickChips}>
+                {(room?.mode === 'SOLO' ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map(w => (
+                  <button
+                    key={w}
+                    type="button"
+                    className={`${styles.chipBtn} ${wickets === w ? styles.chipBtnActive : ''}`}
+                    onClick={() => handleWicketsChange(w)}
+                  >
+                    {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className={styles.settingsRow}>
+              <div className={styles.settingsHeader}>
+                <span className={styles.settingsLabel}>Match Configuration:</span>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '0.95rem' }}>
+                  {overs} Overs • {wickets} Wicket{wickets !== 1 ? 's' : ''} per team
+                </span>
               </div>
             </div>
           )}

@@ -70,18 +70,27 @@ def create_or_restore_player(
 # Room service
 # ---------------------------------------------------------------------------
 
-def create_room(host: Player, mode: str, overs: int) -> tuple[Room, Membership]:
+def create_room(host: Player, mode: str, overs: int, wickets: Optional[int] = None) -> tuple[Room, Membership]:
     overs = int(overs)
     if not (1 <= overs <= 10):
         raise ValueError(f"overs_not_allowed: {overs}")
 
     game_mode = GameMode(mode.upper())
+    max_wickets = 5 if game_mode == GameMode.SOLO else 10
+
+    if wickets is not None:
+        wickets_val = int(wickets)
+        if not (1 <= wickets_val <= max_wickets):
+            raise ValueError(f"wickets_must_be_between_1_and_{max_wickets}")
+    else:
+        wickets_val = 1 if game_mode == GameMode.SOLO else 5
 
     room = Room(
         join_code=generate_join_code(),
         host_id=host.id,
         mode=game_mode,
         overs=overs,
+        wickets=wickets_val,
         status=RoomStatus.WAITING_FOR_PLAYERS,
     )
     repo.save_room(room)
@@ -286,6 +295,7 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
     match = Match(
         room_id=room.id,
         overs=room.overs,
+        wickets=getattr(room, "wickets", 1 if room.mode == GameMode.SOLO else 5),
         team_a_extra_wickets=extra_a,
         team_b_extra_wickets=extra_b,
         batting_team=batting_team,
@@ -571,6 +581,7 @@ def get_room_snapshot(room_id: str, requesting_player_id: str) -> dict:
             "winner": match.winner,
             "result_summary": match.result_summary,
             "first_batting_team": getattr(match, "first_batting_team", "A"),
+            "wickets": getattr(match, "wickets", getattr(room, "wickets", 1)),
             "team_a_name": getattr(match, "team_a_name", getattr(room, "team_a_name", "Team A")),
             "team_b_name": getattr(match, "team_b_name", getattr(room, "team_b_name", "Team B")),
         }

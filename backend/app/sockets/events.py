@@ -270,9 +270,10 @@ def on_room_create(data):
 
     mode = (data or {}).get("mode", "SOLO")
     overs = int((data or {}).get("overs", 2))
+    wickets = (data or {}).get("wickets")
 
     try:
-        room, membership = room_service.create_room(player, mode, overs)
+        room, membership = room_service.create_room(player, mode, overs, wickets)
     except ValueError as e:
         return emit("room:created", _err(str(e)))
 
@@ -659,6 +660,14 @@ def on_match_settings(data):
         if not (1 <= overs_int <= 10):
             return emit("settings:updated", _err("overs_must_be_between_1_and_10"))
         room.overs = overs_int
+
+    wickets = (data or {}).get("wickets")
+    if wickets is not None:
+        max_wickets = 5 if room.mode == GameMode.SOLO else 10
+        w_int = int(wickets)
+        if not (1 <= w_int <= max_wickets):
+            return emit("settings:updated", _err(f"wickets_must_be_between_1_and_{max_wickets}"))
+        room.wickets = w_int
 
     team_a_name = (data or {}).get("team_a_name")
     if team_a_name and isinstance(team_a_name, str):

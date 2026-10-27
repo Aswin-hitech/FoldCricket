@@ -18,6 +18,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/join/:code" element={<LandingPage />} />
           <Route path="/room/:roomId" element={<RoomPage />} />
           <Route path="/room/:roomId/arena" element={<ArenaPage />} />
           <Route path="/room/:roomId/result" element={<ResultPage />} />

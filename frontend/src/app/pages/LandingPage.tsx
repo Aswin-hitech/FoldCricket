@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { connectSocket } from '../../services/socket'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { logClientSession } from '../../services/telemetry'
@@ -17,14 +17,27 @@ type Tab = 'create' | 'join'
 
 export default function LandingPage() {
   const navigate = useNavigate()
+  const { code: routeCode } = useParams<{ code?: string }>()
+  const [searchParams] = useSearchParams()
+  const invitedCode = routeCode || searchParams.get('join') || searchParams.get('code')
+
   const { status, pingLatency } = useSocket()
-  const [tab, setTab] = useState<Tab>('create')
+  const [tab, setTab] = useState<Tab>(invitedCode ? 'join' : 'create')
   const [displayName, setDisplayName] = useState('')
-  const [joinCode, setJoinCode] = useState('')
+  const [joinCode, setJoinCode] = useState(invitedCode ? invitedCode.toUpperCase() : '')
   const [mode, setMode] = useState<'SOLO' | 'TEAM'>('SOLO')
   const [overs, setOvers] = useState(2)
+  const [wickets, setWickets] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // Pre-fill join code if invited via link
+  useEffect(() => {
+    if (invitedCode) {
+      setTab('join')
+      setJoinCode(invitedCode.toUpperCase())
+    }
+  }, [invitedCode])
 
   // Restore display name from storage
   useEffect(() => {
@@ -60,8 +73,8 @@ export default function LandingPage() {
       localStorage.setItem('hcl_display_name', name)
 
       if (tab === 'create') {
-        logClientSession('create_room', { mode, overs, display_name: name })
-        socket.emit('room:create', { mode, overs, session_token: data.session_token })
+        logClientSession('create_room', { mode, overs, wickets, display_name: name })
+        socket.emit('room:create', { mode, overs, wickets, session_token: data.session_token })
         socket.once('room:created', (roomData: { success: boolean; room_id?: string; join_code?: string; error?: string }) => {
           setLoading(false)
           if (!roomData.success) {
@@ -121,17 +134,23 @@ export default function LandingPage() {
       {/* Form card */}
       <main className={styles.main}>
         <div className={styles.card}>
+          {invitedCode && (
+            <div className={styles.invitedBanner}>
+              <span>🔗</span>
+              <span>Invited to join room <strong>{invitedCode.toUpperCase()}</strong>! Enter your name below to play.</span>
+            </div>
+          )}
           <div className={styles.tabs}>
             <button
               className={`${styles.tab} ${tab === 'create' ? styles.tabActive : ''}`}
-              onClick={() => setTab('create')}
+              onClick={() => { sound.playClick(); setTab('create') }}
               type="button"
             >
               Create Room
             </button>
             <button
               className={`${styles.tab} ${tab === 'join' ? styles.tabActive : ''}`}
-              onClick={() => setTab('join')}
+              onClick={() => { sound.playClick(); setTab('join') }}
               type="button"
             >
               Join Room
@@ -164,7 +183,12 @@ export default function LandingPage() {
                         key={m}
                         type="button"
                         className={`${styles.modeBtn} ${mode === m ? styles.modeBtnActive : ''}`}
-                        onClick={() => setMode(m)}
+                        onClick={() => {
+                          sound.playClick()
+                          setMode(m)
+                          if (m === 'SOLO' && wickets > 5) setWickets(1)
+                          if (m === 'TEAM' && wickets < 2) setWickets(5)
+                        }}
                       >
                         {m === 'SOLO' ? '👤 Solo (1v1)' : '👥 Team Match'}
                       </button>
@@ -203,6 +227,46 @@ export default function LandingPage() {
                         }}
                       >
                         {o}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Wickets per team selection */}
+                <div className={styles.field}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className={styles.label}>
+                      Wickets Per Team <small style={{ textTransform: 'none', color: 'var(--color-text-muted)' }}>({mode === 'SOLO' ? 'Max 5 for Solo' : 'Max 10 for Group'})</small>
+                    </label>
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-team-a)', fontSize: '1.15rem' }}>
+                      {wickets} {wickets === 1 ? 'Wicket' : 'Wickets'}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max={mode === 'SOLO' ? 5 : 10}
+                    step="1"
+                    value={wickets}
+                    onChange={e => {
+                      sound.playClick()
+                      setWickets(Number(e.target.value))
+                    }}
+                    className={styles.rangeSlider}
+                    aria-label="Wickets Per Team Slider"
+                  />
+                  <div className={styles.quickChips}>
+                    {(mode === 'SOLO' ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map(w => (
+                      <button
+                        key={w}
+                        type="button"
+                        className={`${styles.chipBtn} ${wickets === w ? styles.chipBtnActive : ''}`}
+                        onClick={() => {
+                          sound.playClick()
+                          setWickets(w)
+                        }}
+                      >
+                        {w}
                       </button>
                     ))}
                   </div>

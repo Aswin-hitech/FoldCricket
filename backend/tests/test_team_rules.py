@@ -60,6 +60,10 @@ def test_team_batting_order_captain_selection_and_all_out():
     room_service.call_toss(room, p3, "HEADS")
     winner = p1 if room.toss["winner_id"] == p1.id else p3
     match = room_service.decide_toss(room, winner, "BAT")
+    for m in repo.get_room_members(room.id):
+        room, match, _ = room_service.confirm_first_ball_ready(
+            room, repo.get_player(m.player_id)
+        )
 
     # Ensure match started
     assert room.status == RoomStatus.INNINGS_ACTIVE

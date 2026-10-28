@@ -10,6 +10,7 @@ from app.domain.models import (
     InningsPhase,
     Player,
     PlayerRole,
+    ReadinessState,
     RoomStatus,
 )
 from app.repositories import memory as repo
@@ -52,6 +53,10 @@ def test_solo_gameplay_progression_and_innings_transition():
     toss = room_service.call_toss(room, p2, "HEADS")  # Opponent calls toss
     winner = p1 if toss["winner_id"] == p1.id else p2
     match = room_service.decide_toss(room, winner, "BAT")
+    for m in repo.get_room_members(room.id):
+        room, match, _ = room_service.confirm_first_ball_ready(
+            room, repo.get_player(m.player_id)
+        )
 
     assert room.status == RoomStatus.INNINGS_ACTIVE
     batting_p = p1 if match.batting_team == "A" else p2
@@ -107,6 +112,57 @@ def test_solo_gameplay_progression_and_innings_transition():
     # Target chased! Match should be complete!
     assert match.winner is not None
     assert room.status == RoomStatus.MATCH_COMPLETE
+
+
+def test_duplicate_toss_actions_are_rejected():
+    """A retried toss call/decision must not re-flip the coin or create a second match."""
+    p1, _ = room_service.create_or_restore_player("Rohit", None)
+    p2, _ = room_service.create_or_restore_player("Bumrah", None)
+    room, _ = room_service.create_room(p1, "SOLO", 2)
+    room_service.join_room(p2, room.join_code)
+    room_service.start_toss(room, p1)
+
+    toss = room_service.call_toss(room, p2, "HEADS")
+    with pytest.raises(ValueError):
+        room_service.call_toss(room, p2, "TAILS")
+
+    winner = p1 if toss["winner_id"] == p1.id else p2
+    room_service.decide_toss(room, winner, "BAT")
+    with pytest.raises(ValueError):
+        room_service.decide_toss(room, winner, "BOWL")
+
+    match = repo.get_match_by_room(room.id)
+    assert match is not None
+    assert match.phase == InningsPhase.FIRST
+
+
+def test_rematch_resets_finished_room():
+    p1, _ = room_service.create_or_restore_player("Ganguly", None)
+    p2, _ = room_service.create_or_restore_player("Dravid", None)
+    room, _ = room_service.create_room(p1, "SOLO", 2)
+    room_service.join_room(p2, room.join_code)
+    room_service.start_toss(room, p1)
+
+    room.status = RoomStatus.MATCH_COMPLETE
+    room.toss = {"state": "COMPLETED"}
+    repo.save_room(room)
+
+    # Existing members can rejoin a finished room (needed by the result page).
+    rejoined_room, mem = room_service.join_room(p2, room.join_code)
+    assert mem.player_id == p2.id
+    assert rejoined_room.status == RoomStatus.MATCH_COMPLETE
+
+    room = room_service.reset_room_for_rematch(room, p1)
+    assert room.status == RoomStatus.LOBBY_READY
+    assert room.toss is None
+    assert all(
+        m.readiness == ReadinessState.NOT_READY
+        for m in repo.get_room_members(room.id)
+    )
+
+    # The host can start the next toss immediately.
+    room_service.start_toss(room, p1)
+    assert room.status == RoomStatus.TOSS
 
 
 def test_custom_wickets_setting_and_match_limit():

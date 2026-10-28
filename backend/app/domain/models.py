@@ -22,6 +22,7 @@ class RoomStatus(str, Enum):
     RULEBOOK_REQUIRED = "RULEBOOK_REQUIRED"
     TOSS = "TOSS"
     MATCH_SETUP = "MATCH_SETUP"
+    AWAITING_FIRST_BALL = "AWAITING_FIRST_BALL"
     INNINGS_ACTIVE = "INNINGS_ACTIVE"
     INNINGS_BREAK = "INNINGS_BREAK"
     MATCH_COMPLETE = "MATCH_COMPLETE"
@@ -272,4 +273,5 @@ class Delivery:
             "bowler_id": getattr(self, "bowler_id", None),
             "result": self.result.value if self.result else None,
             "runs_scored": self.runs_scored,
+            "timeout_reason": self.timeout_reason,
         }

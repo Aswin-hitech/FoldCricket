@@ -82,8 +82,9 @@
 .indicatorContainer {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 5px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
   font-family: var(--font-display, inherit);
   font-size: 0.76rem;
@@ -93,6 +94,12 @@
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
   user-select: none;
   transition: all 0.25s ease;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  box-sizing: border-box;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 /* Bars icon */

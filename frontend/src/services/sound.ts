@@ -31,12 +31,17 @@ class SoundEngine {
     return this.muted
   }
 
-  public toggleMute(): boolean {
-    this.muted = !this.muted
+  public setMuted(muted: boolean): boolean {
+    this.muted = muted
     if (typeof window !== 'undefined') {
       localStorage.setItem('hcl_sound_muted', String(this.muted))
+      window.dispatchEvent(new CustomEvent('hcl:sound_mute_changed', { detail: { muted: this.muted } }))
     }
     return this.muted
+  }
+
+  public toggleMute(): boolean {
+    return this.setMuted(!this.muted)
   }
 
   // --- Coin Toss Sounds ---
@@ -181,6 +186,7 @@ class SoundEngine {
   // --- Run Scored Sound (1-5, 7-10) ---
   public playRuns(count: number): void {
     if (this.muted) return
+    if (count <= 0) return // dot ball / timed-out delivery: no sound
     if (count === 6) {
       this.playSix()
       return

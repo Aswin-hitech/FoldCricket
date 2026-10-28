@@ -54,17 +54,22 @@ export default function ArenaPage() {
     sendChat,
     updateVoiceState,
     setVoiceMode,
-    incomingVoiceSignal,
+    voiceSignals,
     sendVoiceSignal,
     crossTeamRequests,
     requestCrossTeamVoice,
     respondCrossTeamVoice,
     revokeCrossTeamVoice,
+    firstBallReady,
+    firstBallAck,
+    deliveryAck,
+    serverNow,
   } = useSocket(sessionToken)
 
   const [chatInput, setChatInput] = useState('')
   const [selectedPick, setSelectedPick] = useState<number | null>(null)
   const [pickSubmitted, setPickSubmitted] = useState(false)
+  const [pickError, setPickError] = useState<string | null>(null)
   const [revealAnimation, setRevealAnimation] = useState<DeliveryReveal | null>(null)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [isMuted, setIsMuted] = useState(() => sound.isMuted())
@@ -86,7 +91,7 @@ export default function ArenaPage() {
   } | null>(null)
   const [showQuitModal, setShowQuitModal] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const hasShownSuperOverRef = useRef(false)
+  const shownSuperOverMatchesRef = useRef<Set<string>>(new Set())
   const shownAllOutRef = useRef<Set<string>>(new Set())
   const [showInningsBreakBanner, setShowInningsBreakBanner] = useState(false)
   const [breakCountdown, setBreakCountdown] = useState<number>(10)
@@ -116,6 +121,14 @@ export default function ArenaPage() {
   const isCaptain = myMembership?.is_captain ?? false
   const isPaused = snapshot?.room?.status === 'PAUSED' || snapshot?.room?.is_paused || (pausedInfo?.paused ?? false)
   const isTeamMatch = snapshot?.room?.mode === 'TEAM'
+
+  // Arena entry gate: no delivery starts until every connected player
+  // explicitly confirms they are ready for the first ball.
+  const awaitingFirstBall = snapshot?.room?.status === 'AWAITING_FIRST_BALL'
+  const myFirstBallReady = myMembership?.readiness === 'READY'
+  const connectedMembers = members.filter(m => m.player.connection_state === 'CONNECTED')
+  const allConnected = members.length > 0 && connectedMembers.length === members.length
+  const readyCount = members.filter(m => m.readiness === 'READY').length
 
   const bowlingTeam = match?.batting_team === 'A' ? 'B' : 'A'
   const bowlingMembers = members.filter(m => m.team === bowlingTeam)
@@ -166,19 +179,24 @@ export default function ArenaPage() {
      (match.phase === 'SECOND' && match.current_over === 0 && match.current_ball === 0 && !isInningsBreak))
   )
 
+  // SOLO matches auto-assign the bowler server-side, so the captain prompt only
+  // applies to TEAM mode and must not appear while the innings break is running.
   const needsBowlerSelect = Boolean(
     match &&
+    isTeamMatch &&
     !match.active_bowler_id &&
     !match.winner &&
     !isAllOut &&
+    !isInningsBreak &&
     (isCaptain || isHost) &&
     myMembership?.team === bowlingTeam
   )
 
-  // Handle ALL OUT declaration - 5 second transition, STRICTLY ONCE per all-out event
+  // Handle ALL OUT declaration - 5 second transition, STRICTLY ONCE per team per match
   useEffect(() => {
+    const matchId = match?.id || 'm'
     if (allOutInfo) {
-      const key = `${allOutInfo.team}_${allOutInfo.phase}`
+      const key = `${matchId}_${allOutInfo.team}`
       if (!shownAllOutRef.current.has(key)) {
         shownAllOutRef.current.add(key)
         setAllOutAnnouncement({
@@ -190,15 +208,9 @@ export default function ArenaPage() {
         sound.playOut()
         vibration.wicket()
         setCelebrationTrigger('WICKET')
-
-        const timer = setTimeout(() => {
-          setAllOutAnnouncement(null)
-        }, 5000)
-
-        return () => clearTimeout(timer)
       }
     } else if (match?.is_all_out && match?.all_out_team) {
-      const key = `${match.all_out_team}_${match.phase}`
+      const key = `${matchId}_${match.all_out_team}`
       if (!shownAllOutRef.current.has(key)) {
         shownAllOutRef.current.add(key)
         setAllOutAnnouncement({
@@ -210,31 +222,27 @@ export default function ArenaPage() {
         sound.playOut()
         vibration.wicket()
         setCelebrationTrigger('WICKET')
-
-        const timer = setTimeout(() => {
-          setAllOutAnnouncement(null)
-        }, 5000)
-
-        return () => clearTimeout(timer)
       }
     }
-  }, [allOutInfo, match?.is_all_out, match?.all_out_team, match?.phase])
+  }, [allOutInfo, match?.is_all_out, match?.all_out_team, match?.id, match?.team_a_name, match?.team_b_name, match?.team_a_runs, match?.team_b_runs, match?.team_a_wickets, match?.team_b_wickets, match?.phase])
 
-  // Reset Super Over guard when starting a normal match
+  // Auto-dismiss the ALL OUT declaration after 5 seconds. Kept separate from the
+  // trigger effect above so unrelated snapshot updates cannot cancel the timer.
   useEffect(() => {
-    if (match && !match.is_super_over && match.phase === 'FIRST') {
-      hasShownSuperOverRef.current = false
-    }
-  }, [match?.phase, match?.is_super_over])
+    if (!allOutAnnouncement) return
+    const timer = setTimeout(() => setAllOutAnnouncement(null), 5000)
+    return () => clearTimeout(timer)
+  }, [allOutAnnouncement])
 
-  // Handle MATCH TIED: ENTERING SUPER OVER - exact 5 second payload display (strictly once)
+  // Handle MATCH TIED: ENTERING SUPER OVER - exact 5 second payload display (strictly once per match)
   useEffect(() => {
     const isSuperOverStarting =
       Boolean(superOverInfo) ||
       Boolean(match?.is_super_over && match?.phase === 'SUPER_OVER_FIRST')
 
-    if (!hasShownSuperOverRef.current && isSuperOverStarting) {
-      hasShownSuperOverRef.current = true
+    const matchId = match?.id || 'so_match'
+    if (!shownSuperOverMatchesRef.current.has(matchId) && isSuperOverStarting) {
+      shownSuperOverMatchesRef.current.add(matchId)
       clearSuperOverInfo()
       setSuperOverAnnouncement({
         message: 'MATCH TIED: ENTERING SUPER OVER',
@@ -242,14 +250,16 @@ export default function ArenaPage() {
       sound.playOut()
       vibration.wicket()
       setCelebrationTrigger('WICKET')
-
-      const timer = setTimeout(() => {
-        setSuperOverAnnouncement(null)
-      }, 5000)
-
-      return () => clearTimeout(timer)
     }
-  }, [superOverInfo, match?.is_super_over, match?.phase, clearSuperOverInfo])
+  }, [superOverInfo, match?.is_super_over, match?.phase, match?.id, clearSuperOverInfo])
+
+  // Auto-dismiss the super-over declaration after 5 seconds (separate effect so
+  // the clearSuperOverInfo() call above cannot cancel its own timer).
+  useEffect(() => {
+    if (!superOverAnnouncement) return
+    const timer = setTimeout(() => setSuperOverAnnouncement(null), 5000)
+    return () => clearTimeout(timer)
+  }, [superOverAnnouncement])
 
   // "Are you sure you want to quit?" warning on browser navigation / tab close
   useEffect(() => {
@@ -334,7 +344,7 @@ export default function ArenaPage() {
         deadlineStr += 'Z'
       }
       const deadline = new Date(deadlineStr).getTime()
-      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+      const remaining = Math.max(0, Math.ceil((deadline - serverNow()) / 1000))
       setCountdown(remaining)
       if (remaining <= 5 && remaining > 0) {
         sound.playTick()
@@ -349,7 +359,7 @@ export default function ArenaPage() {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current)
     }
-  }, [match?.delivery_deadline, match?.active_bowler_id, isPaused])
+  }, [match?.delivery_deadline, match?.active_bowler_id, isPaused, serverNow])
 
   // Scroll chat to bottom
   useEffect(() => {
@@ -376,7 +386,7 @@ export default function ArenaPage() {
       setSelectedPick(null)
       const updateRemaining = () => {
         if (deadlineStr) {
-          const ms = new Date(deadlineStr).getTime() - Date.now()
+          const ms = new Date(deadlineStr).getTime() - serverNow()
           const secs = Math.max(0, Math.ceil(ms / 1000))
           setBreakCountdown(secs)
         } else {
@@ -389,7 +399,7 @@ export default function ArenaPage() {
     } else {
       setBreakCountdown(10)
     }
-  }, [isInningsBreak, match?.innings_break_deadline, inningsBreak?.break_deadline])
+  }, [isInningsBreak, match?.innings_break_deadline, inningsBreak?.break_deadline, serverNow])
 
   const dismissMicPrompt = () => {
     setShowMicPrompt(false)
@@ -400,7 +410,7 @@ export default function ArenaPage() {
 
   // Handle pick select
   function handlePickSelect(pick: number) {
-    if (pickSubmitted || !isActivePlayer || isInningsBreak || match?.winner) return
+    if (pickSubmitted || !isActivePlayer || isInningsBreak || awaitingFirstBall || match?.winner) return
     sound.playClick()
     vibration.tap()
     setSelectedPick(pick)
@@ -408,11 +418,19 @@ export default function ArenaPage() {
 
   // Handle pick submit
   function handlePickSubmit() {
-    if (selectedPick === null || pickSubmitted || !roomId || isInningsBreak || match?.winner) return
+    if (selectedPick === null || pickSubmitted || !roomId || isInningsBreak || awaitingFirstBall || match?.winner) return
     sound.playClick()
     vibration.tap()
     submitPick(roomId, selectedPick)
     setPickSubmitted(true)
+  }
+
+  // Arena entry gate: confirm readiness for the first ball
+  function handleFirstBallReady() {
+    if (!roomId || myFirstBallReady || !allConnected) return
+    sound.playClick()
+    vibration.tap()
+    firstBallReady(roomId)
   }
 
   // Handle send chat
@@ -451,7 +469,31 @@ export default function ArenaPage() {
     }).catch(() => {})
   }
 
+  // Master Sound on/off toggle (controls both game effects and remote voice audio)
+  function handleToggleSound() {
+    const nextMuted = sound.toggleMute()
+    setIsMuted(nextMuted)
+    if (!nextMuted) {
+      sound.playCoinLand()
+    }
+  }
+
   const currentDelivery = snapshot?.current_delivery
+
+  // Server rejected the pick (deadline passed / already submitted): unlock the
+  // keypad instead of leaving the player stuck on "Pick Locked".
+  useEffect(() => {
+    if (!deliveryAck) return
+    if (deliveryAck.success) {
+      setPickError(null)
+      return
+    }
+    setPickSubmitted(false)
+    setSelectedPick(null)
+    setPickError(deliveryAck.error || 'pick_rejected')
+    const timer = setTimeout(() => setPickError(null), 3500)
+    return () => clearTimeout(timer)
+  }, [deliveryAck])
 
   // Unlock keypad on new ball
   useEffect(() => {
@@ -508,9 +550,11 @@ export default function ArenaPage() {
     const curOver = match.current_over
     const curInnings = match.phase
 
-    // Filter deliveries belonging to current innings (valid hand-cricket outcomes: OUT or 1, 2, 3, 4, 6)
+    // Filter deliveries belonging to current innings. Timed-out deliveries are
+    // dead balls (0 runs, no wicket) and must still appear as dots.
     const inningsDelivs = recentDeliveries.filter(
-      d => (d.innings === curInnings || !d.innings) && (d.result === 'OUT' || d.runs_scored > 0)
+      d => (d.innings === curInnings || !d.innings) &&
+        (d.result === 'OUT' || d.result === 'TIMEOUT' || d.runs_scored > 0)
     )
 
     // Current over deliveries
@@ -607,8 +651,9 @@ export default function ArenaPage() {
   }, [members, recentDeliveries, match])
 
   if (!match) {
-    if (snapshot?.room && snapshot.room.status === 'LOBBY') {
-      navigate(`/room/${roomId}`)
+    const lobbyStatuses = ['WAITING_FOR_PLAYERS', 'LOBBY_READY', 'RULEBOOK_REQUIRED', 'TOSS']
+    if (snapshot?.room && lobbyStatuses.includes(snapshot.room.status)) {
+      navigate(`/room/${roomId}`, { replace: true })
       return null
     }
 
@@ -721,7 +766,7 @@ export default function ArenaPage() {
               voiceStates={voiceStates}
               onVoiceStateChange={updateVoiceState}
               members={members}
-              incomingVoiceSignal={incomingVoiceSignal}
+              incomingVoiceSignals={voiceSignals}
               onSendSignal={sendVoiceSignal}
               onSetVoiceMode={setVoiceMode}
               isTeamMatch={isTeamMatch}
@@ -732,6 +777,7 @@ export default function ArenaPage() {
               onRespondCrossTeam={respondCrossTeamVoice}
               onRevokeCrossTeam={revokeCrossTeamVoice}
               voicePermissions={snapshot?.voice_permissions || []}
+              isSoundMuted={isMuted}
             />
           </div>
 
@@ -751,14 +797,14 @@ export default function ArenaPage() {
             {/* Network Latency Indicator */}
             <NetworkIndicator status={status} latency={pingLatency} />
 
-            {/* Sound Toggle */}
+            {/* Sound Toggle (controls remote speech & sound effects) */}
             <button
               type="button"
-              className={styles.navBtn}
-              onClick={() => setIsMuted(sound.toggleMute())}
-              title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+              className={`${styles.navBtn} ${isMuted ? styles.soundOffBtn : styles.soundOnBtn}`}
+              onClick={handleToggleSound}
+              title={isMuted ? 'Sound is OFF: Click to turn Sound ON and hear other players & game audio' : 'Sound is ON: Hearing players & game. Click to Mute'}
             >
-              {isMuted ? '🔇 Muted' : '🔊 Sound'}
+              {isMuted ? '🔇 Sound Off' : '🔊 Sound On'}
             </button>
 
             {/* Pause / Resume match */}
@@ -1195,7 +1241,26 @@ export default function ArenaPage() {
                   : 'PICK YOUR DELIVERY'}
               </div>
 
-              {isActivePlayer && match.active_bowler_id ? (
+              {pickError && (
+                <div
+                  role="alert"
+                  style={{
+                    margin: '0 12px 8px',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.45)',
+                    color: '#ef4444',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    textAlign: 'center',
+                  }}
+                >
+                  ⚠️ Pick not accepted: {pickError.replace(/_/g, ' ')}
+                </div>
+              )}
+
+              {isActivePlayer && match.active_bowler_id && !awaitingFirstBall ? (
                 <>
                   <div className={styles.deliveryCardsRow}>
                     {[1, 2, 3, 4, 5, 6].map(n => (
@@ -1290,7 +1355,7 @@ export default function ArenaPage() {
                           : styles.chipNeutral
                       }`}
                     >
-                      {b.isOut ? 'W' : b.runs}
+                      {b.isOut ? 'W' : b.runs === 0 ? '•' : b.runs}
                     </div>
                   ))
                 ) : (
@@ -1332,6 +1397,79 @@ export default function ArenaPage() {
           </div>
         </div>
       </main>
+
+      {/* ============================================================
+          C2. Arena Entry Gate: "Are you ready for the first ball?"
+          ============================================================ */}
+      {awaitingFirstBall && !isPaused && (
+        <div className={styles.pausedOverlay} role="dialog" aria-modal="true" aria-label="Ready for the first ball">
+          <div className={styles.pausedCard}>
+            <span style={{ fontSize: '3rem' }}>🏏</span>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', margin: 0 }}>
+              Are you ready for the first ball?
+            </h2>
+            <p style={{ color: 'var(--color-text-dim)', fontSize: '0.95rem', margin: 0 }}>
+              The match starts only when every player is connected and has confirmed readiness.
+            </p>
+
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+              {members.map(m => {
+                const isMe = m.player.id === myPlayerId
+                const isConnected = m.player.connection_state === 'CONNECTED'
+                const isReady = m.readiness === 'READY'
+                return (
+                  <div
+                    key={m.player.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: 'var(--color-surface-2)',
+                      fontSize: '0.88rem',
+                    }}
+                  >
+                    <span style={{ fontWeight: isMe ? 800 : 600 }}>
+                      {m.player.display_name}{isMe ? ' (You)' : ''}
+                    </span>
+                    <span style={{ color: isConnected ? (isReady ? '#22c55e' : 'var(--color-text-muted)') : '#ef4444', fontWeight: 700 }}>
+                      {isConnected ? (isReady ? '✅ Ready' : '⏳ Waiting') : '🔌 Disconnected'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {!allConnected && (
+              <p style={{ color: 'var(--color-warning, #f59e0b)', fontSize: '0.85rem', margin: 0, fontWeight: 700 }}>
+                Waiting for all players to reconnect…
+              </p>
+            )}
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px', fontWeight: 800 }}
+              disabled={myFirstBallReady || !allConnected}
+              onClick={handleFirstBallReady}
+            >
+              {myFirstBallReady ? '✅ Ready — waiting for other players' : '🏏 I’m Ready for the First Ball'}
+            </button>
+
+            <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+              {readyCount} of {members.length} player{members.length !== 1 ? 's' : ''} ready
+            </span>
+
+            {firstBallAck && !firstBallAck.success && (
+              <span style={{ fontSize: '0.8rem', color: '#ef4444', fontWeight: 700 }}>
+                ⚠️ {firstBallAck.error?.replace(/_/g, ' ')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ============================================================
           D. Captain Bowler Selection Modal
@@ -1757,9 +1895,10 @@ export default function ArenaPage() {
               <button
                 type="button"
                 className={styles.mobileMenuItem}
-                onClick={() => setIsMuted(sound.toggleMute())}
+                onClick={handleToggleSound}
+                title={isMuted ? 'Turn Sound On' : 'Turn Sound Off'}
               >
-                <span>{isMuted ? '🔇 Sound (Muted)' : '🔊 Sound (Active)'}</span>
+                <span>{isMuted ? '🔇 Sound Off' : '🔊 Sound On'}</span>
               </button>
 
               {/* Pause/Resume */}

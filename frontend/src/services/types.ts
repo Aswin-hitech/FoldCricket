@@ -146,6 +146,7 @@ export interface ResolvedDelivery {
   batter_id?: string | null
   bowler_id?: string | null
   innings?: string
+  timeout_reason?: string | null
 }
 
 export interface VoicePermissionEntry {
@@ -163,6 +164,7 @@ export interface CrossTeamVoiceRequest {
 }
 
 export interface RoomSnapshot {
+  server_time?: string
   room: RoomInfo
   members: MemberInfo[]
   match: MatchInfo | null
@@ -188,4 +190,5 @@ export interface DeliveryReveal {
   bowler_id?: string
   result: 'RUNS' | 'OUT' | 'TIMEOUT'
   runs_scored: number
+  timeout_reason?: string | null
 }

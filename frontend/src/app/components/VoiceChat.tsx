@@ -25,7 +25,7 @@ interface VoiceChatProps {
     team?: 'A' | 'B' | string | null
     is_captain?: boolean
   }>
-  incomingVoiceSignal?: { from_player_id: string; signal: unknown; timestamp: number } | null
+  incomingVoiceSignals?: Array<{ id: number; from_player_id: string; signal: unknown; timestamp: number }>
   onSendSignal?: (roomId: string, targetId: string, signal: unknown) => void
   onSetVoiceMode?: (roomId: string, mode: string, allowedRecipients: string[]) => void
   isTeamMatch?: boolean
@@ -36,6 +36,7 @@ interface VoiceChatProps {
   onRespondCrossTeam?: (roomId: string, senderId: string, accept: boolean) => void
   onRevokeCrossTeam?: (roomId: string, targetId: string) => void
   voicePermissions?: VoicePermissionEntry[]
+  isSoundMuted?: boolean
 }
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -75,7 +76,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   voiceStates,
   onVoiceStateChange,
   members = [],
-  incomingVoiceSignal,
+  incomingVoiceSignals,
   onSendSignal,
   onSetVoiceMode,
   isTeamMatch = false,
@@ -86,6 +87,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   onRespondCrossTeam,
   onRevokeCrossTeam,
   voicePermissions = [],
+  isSoundMuted = false,
 }) => {
   const [micEnabled, setMicEnabled] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
@@ -109,7 +111,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const iceQueuesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
-  const lastSignalTimeRef = useRef<number>(0)
+  const processedSignalIdRef = useRef<number>(0)
+  const offeredPeersRef = useRef<Set<string>>(new Set())
+  const readySentRef = useRef<Set<string>>(new Set())
 
   // Identify current player's team
   const myMem = members.find((m) => m.player.id === myPlayerId)
@@ -192,6 +196,21 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         pc.addTransceiver('audio', { direction: 'sendrecv' })
       }
 
+      // Self-heal broken transports: drop the connection so a later snapshot
+      // rebuilds it instead of leaving the player silently deaf.
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          offeredPeersRef.current.delete(peerId)
+          readySentRef.current.delete(peerId)
+          if (peerConnectionsRef.current.get(peerId) === pc) {
+            peerConnectionsRef.current.delete(peerId)
+          }
+          try {
+            pc.close()
+          } catch {}
+        }
+      }
+
       // Send local ICE candidates to the remote peer
       pc.onicecandidate = (event) => {
         if (event.candidate && onSendSignal) {
@@ -216,8 +235,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         }
         const stream = event.streams[0] || new MediaStream([event.track])
         audio.srcObject = stream
-        // Apply local incoming listening mute preference if set
-        const isLocallyMuted = Boolean(incomingMutes[peerId])
+        // Apply master sound mute and per-player incoming mute preference
+        const isLocallyMuted = Boolean(incomingMutes[peerId]) || Boolean(isSoundMuted)
         audio.muted = isLocallyMuted
         audio.volume = isLocallyMuted ? 0 : 1.0
         const playPromise = audio.play()
@@ -260,7 +279,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       return pc
     },
-    [roomId, onSendSignal, isTeamMatch, blockedRecipients, isMuted, incomingMutes, members, myTeam, isMutualConsentActive]
+    [roomId, onSendSignal, isTeamMatch, blockedRecipients, isMuted, incomingMutes, isSoundMuted, members, myTeam, isMutualConsentActive]
   )
 
   // Attach local tracks to all existing peer connections respecting blocked state
@@ -367,116 +386,157 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       // Attach tracks to all existing peer connections
       addLocalTracksToAllPeers(stream)
-
-      // Broadcast ready signal to all members in the room
-      members
-        .filter((m) => m.player.id !== myPlayerId)
-        .forEach((m) => {
-          const pc = getOrCreatePeerConnection(m.player.id)
-          onSendSignal?.(roomId, m.player.id, { type: 'ready' })
-
-          if (myPlayerId > m.player.id) {
-            pc.createOffer({ offerToReceiveAudio: true })
-              .then((offer) => pc.setLocalDescription(offer).then(() => offer))
-              .then((offer) => {
-                onSendSignal?.(roomId, m.player.id, { type: 'offer', sdp: offer })
-              })
-              .catch((err) => console.warn('Error creating offer:', err))
-          }
-        })
     } catch (err) {
       console.error('Microphone access denied:', err)
       setPermissionError('Microphone permission denied. Allow mic access in your browser to talk.')
       setMicEnabled(false)
       setIsMuted(true)
     }
-  }, [roomId, myPlayerId, members, onVoiceStateChange, onSendSignal, getOrCreatePeerConnection, addLocalTracksToAllPeers])
+  }, [roomId, onVoiceStateChange, addLocalTracksToAllPeers])
 
-  // Handle incoming WebRTC signaling from peers
+  // Handle incoming WebRTC signaling from peers. Signals are processed as an
+  // ordered queue because React batches state updates: a single-value slot
+  // silently loses offer/answer/candidate messages that arrive together.
   useEffect(() => {
-    if (!incomingVoiceSignal) return
-    const { from_player_id, signal, timestamp } = incomingVoiceSignal
-    if (timestamp === lastSignalTimeRef.current) return
-    lastSignalTimeRef.current = timestamp
+    const pending = (incomingVoiceSignals || []).filter((s) => s.id > processedSignalIdRef.current)
+    if (!pending.length) return
+    processedSignalIdRef.current = pending[pending.length - 1].id
 
-    const data = signal as {
-      type: string
-      sdp?: RTCSessionDescriptionInit
-      candidate?: RTCIceCandidateInit
+    const flushCandidates = async (pc: RTCPeerConnection, peerId: string) => {
+      const queue = iceQueuesRef.current.get(peerId) || []
+      for (const cand of queue) {
+        await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
+      }
+      iceQueuesRef.current.set(peerId, [])
     }
-    if (!data || !data.type) return
 
-    const handleSignal = async () => {
-      const pc = getOrCreatePeerConnection(from_player_id)
-
-      if (data.type === 'ready') {
-        if (myPlayerId > from_player_id) {
-          try {
-            const offer = await pc.createOffer({ offerToReceiveAudio: true })
-            await pc.setLocalDescription(offer)
-            onSendSignal?.(roomId, from_player_id, { type: 'offer', sdp: offer })
-          } catch (err) {
-            console.warn('Error creating offer on ready:', err)
-          }
+    const run = async () => {
+      for (const entry of pending) {
+        const fromPlayerId = entry.from_player_id
+        const data = entry.signal as {
+          type: string
+          sdp?: RTCSessionDescriptionInit
+          candidate?: RTCIceCandidateInit
         }
-      } else if (data.type === 'offer' && data.sdp) {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-          const queue = iceQueuesRef.current.get(from_player_id) || []
-          for (const cand of queue) {
-            await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
-          }
-          iceQueuesRef.current.set(from_player_id, [])
+        if (!data || !data.type) continue
 
-          const answer = await pc.createAnswer()
-          await pc.setLocalDescription(answer)
-          onSendSignal?.(roomId, from_player_id, { type: 'answer', sdp: answer })
-        } catch (err) {
-          console.warn('Error handling offer:', err)
-        }
-      } else if (data.type === 'answer' && data.sdp) {
-        try {
-          if (pc.signalingState === 'have-local-offer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-            const queue = iceQueuesRef.current.get(from_player_id) || []
-            for (const cand of queue) {
-              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
+        const pc = getOrCreatePeerConnection(fromPlayerId)
+
+        if (data.type === 'ready') {
+          if (
+            myPlayerId > fromPlayerId &&
+            !offeredPeersRef.current.has(fromPlayerId) &&
+            pc.signalingState === 'stable'
+          ) {
+            offeredPeersRef.current.add(fromPlayerId)
+            try {
+              const offer = await pc.createOffer({ offerToReceiveAudio: true })
+              await pc.setLocalDescription(offer)
+              onSendSignal?.(roomId, fromPlayerId, { type: 'offer', sdp: offer })
+            } catch (err) {
+              console.warn('Error creating offer on ready:', err)
             }
-            iceQueuesRef.current.set(from_player_id, [])
           }
-        } catch (err) {
-          console.warn('Error handling answer:', err)
-        }
-      } else if (data.type === 'candidate' && data.candidate) {
-        try {
-          if (pc.remoteDescription && pc.remoteDescription.type) {
-            await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
-          } else {
-            const queue = iceQueuesRef.current.get(from_player_id) || []
-            queue.push(data.candidate)
-            iceQueuesRef.current.set(from_player_id, queue)
+        } else if (data.type === 'offer' && data.sdp) {
+          try {
+            // Deterministic roles prevent most glare; if it still happens the
+            // lower id is the polite peer and rolls its own offer back.
+            if (pc.signalingState === 'have-local-offer' && myPlayerId < fromPlayerId) {
+              await pc.setLocalDescription({ type: 'rollback' })
+            }
+            await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+            await flushCandidates(pc, fromPlayerId)
+
+            const answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            onSendSignal?.(roomId, fromPlayerId, { type: 'answer', sdp: answer })
+          } catch (err) {
+            console.warn('Error handling offer:', err)
           }
-        } catch (err) {
-          console.warn('Error adding ICE candidate:', err)
+        } else if (data.type === 'answer' && data.sdp) {
+          try {
+            if (pc.signalingState === 'have-local-offer') {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+              await flushCandidates(pc, fromPlayerId)
+            }
+          } catch (err) {
+            console.warn('Error handling answer:', err)
+          }
+        } else if (data.type === 'candidate' && data.candidate) {
+          try {
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+              await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+            } else {
+              const queue = iceQueuesRef.current.get(fromPlayerId) || []
+              queue.push(data.candidate)
+              iceQueuesRef.current.set(fromPlayerId, queue)
+            }
+          } catch (err) {
+            console.warn('Error adding ICE candidate:', err)
+          }
         }
       }
     }
 
-    handleSignal()
-  }, [incomingVoiceSignal, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId])
+    void run()
+  }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId])
 
-  // Announce to new peers when members list updates while mic is enabled
+  // Establish WebRTC connections once per peer (not once per snapshot).
   useEffect(() => {
-    if (!micEnabled) return
+    if (!roomId) return
+    const peerIds = new Set(members.filter((m) => m.player.id !== myPlayerId).map((m) => m.player.id))
+    Array.from(offeredPeersRef.current).forEach((id) => {
+      if (!peerIds.has(id)) offeredPeersRef.current.delete(id)
+    })
+    Array.from(readySentRef.current).forEach((id) => {
+      if (!peerIds.has(id)) readySentRef.current.delete(id)
+    })
+
     members
       .filter((m) => m.player.id !== myPlayerId)
       .forEach((m) => {
-        if (!peerConnectionsRef.current.has(m.player.id)) {
-          getOrCreatePeerConnection(m.player.id)
+        const pc = getOrCreatePeerConnection(m.player.id)
+
+        if (!readySentRef.current.has(m.player.id)) {
+          readySentRef.current.add(m.player.id)
           onSendSignal?.(roomId, m.player.id, { type: 'ready' })
         }
+
+        // Higher player id is the sole offerer for this pair.
+        if (myPlayerId <= m.player.id) return
+        if (offeredPeersRef.current.has(m.player.id)) return
+        if (pc.signalingState !== 'stable') return
+        if (pc.connectionState === 'connected') {
+          offeredPeersRef.current.add(m.player.id)
+          return
+        }
+
+        offeredPeersRef.current.add(m.player.id)
+        pc.createOffer({ offerToReceiveAudio: true })
+          .then((offer) => pc.setLocalDescription(offer).then(() => offer))
+          .then((offer) => {
+            onSendSignal?.(roomId, m.player.id, { type: 'offer', sdp: offer })
+          })
+          .catch((err) => {
+            offeredPeersRef.current.delete(m.player.id)
+            console.warn('Error creating auto-receive offer:', err)
+          })
       })
-  }, [members, micEnabled, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection])
+  }, [members, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection])
+
+  // Synchronize master Sound On / Off setting to physical audio playback elements
+  useEffect(() => {
+    audioElementsRef.current.forEach((audio, peerId) => {
+      const isMuted = Boolean(incomingMutes[peerId]) || Boolean(isSoundMuted)
+      audio.muted = isMuted
+      audio.volume = isMuted ? 0 : 1.0
+      if (!isMuted && audio.paused && audio.srcObject) {
+        audio.play().catch((err) => {
+          console.warn('Audio auto-play prevented (will resume on click):', err)
+        })
+      }
+    })
+  }, [isSoundMuted, incomingMutes])
 
   // Toggle Mute / Unmute
   const toggleMute = () => {
@@ -664,14 +724,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         type="button"
         className={`${styles.micBtn} ${!isMuted && micEnabled ? styles.micActive : styles.micMuted} ${isSpeakingLocal ? styles.micSpeaking : ''}`}
         onClick={toggleMute}
-        title={!micEnabled ? 'Connect Voice Chat' : isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+        title={!micEnabled ? 'Connect Microphone to Speak' : isMuted ? 'Microphone is Muted. Click to Speak' : 'Microphone is Live. Click to Mute'}
         aria-label="Toggle Microphone"
       >
         <span className={styles.micIcon}>
           {!micEnabled ? '🎙️' : isMuted ? '🔇' : '🎙️'}
         </span>
         <span className={styles.micLabel}>
-          {!micEnabled ? 'Connect Mic' : isMuted ? 'Muted' : 'Mic Live'}
+          {!micEnabled ? 'Connect Mic' : isMuted ? 'Mic Muted' : 'Mic On'}
         </span>
 
         {/* Animated wave bars when mic is live */}
@@ -707,7 +767,13 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       {activeSpeakers.length > 0 && (
         <div className={styles.speakerPill}>
           <span className={styles.speakerPulse} />
-          <span>🗣️ {activeSpeakers.join(', ')} speaking...</span>
+          {isSoundMuted ? (
+            <span style={{ color: '#f59e0b', fontWeight: 700 }}>
+              🔇 Sound Off — Turn Sound On to hear {activeSpeakers.join(', ')}
+            </span>
+          ) : (
+            <span>🗣️ {activeSpeakers.join(', ')} speaking...</span>
+          )}
         </div>
       )}
 

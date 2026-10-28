@@ -49,6 +49,10 @@ def test_pick_confidentiality_during_active_delivery():
     toss = room_service.call_toss(room, p2, "HEADS")
     winner = p1 if toss["winner_id"] == p1.id else p2
     match = room_service.decide_toss(room, winner, "BAT")
+    for m in repo.get_room_members(room.id):
+        room, match, _ = room_service.confirm_first_ball_ready(
+            room, repo.get_player(m.player_id)
+        )
     batting_p = p1 if match.batting_team == "A" else p2
 
     # Batter submits confidential pick
@@ -76,6 +80,10 @@ def test_invalid_pick_validation():
     toss = room_service.call_toss(room, p2, "HEADS")
     winner = p1 if toss["winner_id"] == p1.id else p2
     match = room_service.decide_toss(room, winner, "BAT")
+    for m in repo.get_room_members(room.id):
+        room, match, _ = room_service.confirm_first_ball_ready(
+            room, repo.get_player(m.player_id)
+        )
     batting_p = p1 if match.batting_team == "A" else p2
 
     # Negative pick

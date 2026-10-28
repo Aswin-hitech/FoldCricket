@@ -12,7 +12,7 @@ import json
 import os
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from ..domain.models import (
@@ -656,9 +656,14 @@ def get_match(match_id: str) -> Optional[Match]:
 
 def get_match_by_room(room_id: str) -> Optional[Match]:
     with _lock:
+        # The cache stores every match ever played in the room, so return the
+        # newest one – matching the ORDER BY created_at DESC query below.
+        newest = None
         for m in _matches_cache.values():
-            if m.room_id == room_id:
-                return m
+            if m.room_id == room_id and (newest is None or m.created_at > newest.created_at):
+                newest = m
+        if newest is not None:
+            return newest
         with _get_connection() as conn:
             row = conn.execute(
                 "SELECT * FROM matches WHERE room_id = ? ORDER BY created_at DESC LIMIT 1",
@@ -904,6 +909,39 @@ def delete_voice_permission(room_id: str, p1: str, p2: str) -> None:
             """,
             (room_id, p1, p2, p2, p1),
         )
+
+
+def purge_stale_data(max_age_seconds: int = 3600) -> int:
+    """
+    Purges any rooms, matches, deliveries, voice permissions, and inactive players older than max_age_seconds (1 hour).
+    Ensures zero residual activity remains after 1 hour.
+    """
+    cutoff = datetime.utcnow() - timedelta(seconds=max_age_seconds)
+    cutoff_iso = cutoff.isoformat()
+    with _lock, _get_connection() as conn:
+        rows = conn.execute("SELECT id FROM rooms WHERE created_at < ?;", (cutoff_iso,)).fetchall()
+        stale_room_ids = [r["id"] for r in rows]
+
+        if stale_room_ids:
+            placeholders = ",".join("?" * len(stale_room_ids))
+            conn.execute(f"DELETE FROM voice_permissions WHERE room_id IN ({placeholders});", stale_room_ids)
+            conn.execute(f"DELETE FROM deliveries WHERE match_id IN (SELECT id FROM matches WHERE room_id IN ({placeholders}));", stale_room_ids)
+            conn.execute(f"DELETE FROM matches WHERE room_id IN ({placeholders});", stale_room_ids)
+            conn.execute(f"DELETE FROM memberships WHERE room_id IN ({placeholders});", stale_room_ids)
+            conn.execute(f"DELETE FROM rooms WHERE id IN ({placeholders});", stale_room_ids)
+
+            for rid in stale_room_ids:
+                _rooms_cache.pop(rid, None)
+                _memberships_cache.pop(rid, None)
+                _matches_cache.pop(rid, None)
+
+        # Purge players older than cutoff with no remaining room memberships
+        conn.execute("DELETE FROM players WHERE created_at < ? AND id NOT IN (SELECT player_id FROM memberships);", (cutoff_iso,))
+        for pid, p in list(_players_cache.items()):
+            if p.created_at < cutoff:
+                _players_cache.pop(pid, None)
+
+        return len(stale_room_ids)
 
 
 def cleanup_player_voice_permissions(room_id: str, player_id: str) -> None:

@@ -58,6 +58,8 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
   // 60fps Particle celebration effects on canvas
   useEffect(() => {
     if (!reveal) return
+    // Dead deliveries (timeout) get no celebration particles
+    if (reveal.result === 'TIMEOUT') return
 
     const canvas = canvasRef.current
     if (!canvas) return
@@ -148,6 +150,7 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
   }, [reveal])
 
   const isWicket = reveal?.result === 'OUT'
+  const isTimeout = reveal?.result === 'TIMEOUT'
   const isSix = reveal?.runs_scored === 6
   const isFour = reveal?.runs_scored === 4
 
@@ -166,7 +169,7 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
       } else if (outcome.runs > 0) {
         overBalls.push({ label: String(outcome.runs), type: 'neutral' })
       } else {
-        overBalls.push({ label: '', type: 'empty' })
+        overBalls.push({ label: '•', type: 'neutral' })
       }
     } else {
       overBalls.push({ label: '', type: 'empty' })
@@ -268,6 +271,8 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
             className={`${styles.deliveryResultPopup} ${
               isWicket
                 ? styles.popupWicket
+                : isTimeout
+                ? styles.popupRuns
                 : isSix
                 ? styles.popupSix
                 : isFour
@@ -276,11 +281,13 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
             }`}
           >
             <span className={styles.popupEmoji}>
-              {isWicket ? '💥' : isSix ? '🚀' : isFour ? '🔥' : '🏏'}
+              {isWicket ? '💥' : isTimeout ? '⏱️' : isSix ? '🚀' : isFour ? '🔥' : '🏏'}
             </span>
             <div className={styles.popupTitle}>
               {isWicket
                 ? 'WICKET !!!'
+                : isTimeout
+                ? 'TIME OUT — 0 RUNS'
                 : isSix
                 ? '+6 MAXIMUM!'
                 : isFour
@@ -290,6 +297,8 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
             <div className={styles.popupSub}>
               {isWicket
                 ? 'Equal numbers matched — Batter is OUT!'
+                : isTimeout
+                ? 'No pick in time — dead ball, no wicket'
                 : `Batter chose ${reveal.batter_pick} vs Bowler ${reveal.bowler_pick}`}
             </div>
           </div>

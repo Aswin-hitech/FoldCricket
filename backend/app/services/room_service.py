@@ -136,13 +136,23 @@ def join_room(player: Player, join_code: str) -> tuple[Room, Membership]:
     room = repo.get_room_by_code(join_code)
     if not room:
         raise ValueError("room_not_found")
-    if room.status == RoomStatus.MATCH_COMPLETE:
-        raise ValueError("room_closed")
 
     members = repo.get_room_members(room.id)
     existing = next((m for m in members if m.player_id == player.id), None)
     if existing:
-        return room, existing  # Rejoin
+        return room, existing  # Rejoin (allowed even after the match ended)
+
+    if room.status == RoomStatus.MATCH_COMPLETE:
+        raise ValueError("room_closed")
+
+    if room.status in (
+        RoomStatus.TOSS,
+        RoomStatus.AWAITING_FIRST_BALL,
+        RoomStatus.INNINGS_ACTIVE,
+        RoomStatus.INNINGS_BREAK,
+        RoomStatus.PAUSED,
+    ):
+        raise ValueError("game_in_progress")
 
     if len(members) >= room.capacity:
         raise ValueError("room_full")
@@ -213,6 +223,30 @@ def set_ready(room: Room, player: Player, ready: bool) -> Membership:
     return mem
 
 
+def reset_room_for_rematch(room: Room, player: Player) -> Room:
+    """Return a finished room to the lobby so the same players can play again."""
+    with _match_lock:
+        room = repo.get_room(room.id) or room
+        if room.status != RoomStatus.MATCH_COMPLETE:
+            raise ValueError("match_not_complete")
+        if not repo.get_membership(room.id, player.id):
+            raise PermissionError("not_in_room")
+
+        members = repo.get_room_members(room.id)
+        room.toss = None
+        room.status = (
+            RoomStatus.LOBBY_READY if len(members) >= 2 else RoomStatus.WAITING_FOR_PLAYERS
+        )
+        repo.save_room(room)
+
+        # Everyone must re-confirm readiness for the new match.
+        for m in members:
+            m.readiness = ReadinessState.NOT_READY
+            m.role = PlayerRole.SPECTATOR
+            repo.save_membership(m)
+        return room
+
+
 # Match & Toss service
 # ---------------------------------------------------------------------------
 
@@ -260,123 +294,192 @@ def start_toss(room: Room, host: Player) -> dict:
 
 
 def call_toss(room: Room, player: Player, choice: str) -> dict:
-    if room.status != RoomStatus.TOSS or not room.toss:
-        raise ValueError("not_in_toss")
-    if player.id != room.toss.get("caller_id"):
-        raise PermissionError("not_toss_caller")
+    # Atomic: a retried call must not flip the coin a second time.
+    with _match_lock:
+        room = repo.get_room(room.id) or room
+        if room.status != RoomStatus.TOSS or not room.toss:
+            raise ValueError("not_in_toss")
+        if room.toss.get("state") != "CALLING":
+            raise ValueError("toss_already_called")
+        if player.id != room.toss.get("caller_id"):
+            raise PermissionError("not_toss_caller")
 
-    choice = choice.strip().upper()
-    if choice not in ("HEADS", "TAILS"):
-        raise ValueError("invalid_toss_choice")
+        choice = choice.strip().upper()
+        if choice not in ("HEADS", "TAILS"):
+            raise ValueError("invalid_toss_choice")
 
-    coin_result = secrets.choice(["HEADS", "TAILS"])
-    members = repo.get_room_members(room.id)
-    caller_mem = repo.get_membership(room.id, player.id)
-    other_mems = [m for m in members if m.team != caller_mem.team]
-    if not other_mems:
-        raise ValueError("opponent_not_found")
-    other_captain = next((m for m in other_mems if m.is_captain), other_mems[0])
-    other_player = repo.get_player(other_captain.player_id)
+        coin_result = secrets.choice(["HEADS", "TAILS"])
+        members = repo.get_room_members(room.id)
+        caller_mem = repo.get_membership(room.id, player.id)
+        other_mems = [m for m in members if m.team != caller_mem.team]
+        if not other_mems:
+            raise ValueError("opponent_not_found")
+        other_captain = next((m for m in other_mems if m.is_captain), other_mems[0])
+        other_player = repo.get_player(other_captain.player_id)
 
-    if choice == coin_result:
-        winner_id = player.id
-        winner_name = player.display_name
-        winner_team = caller_mem.team
-    else:
-        winner_id = other_player.id
-        winner_name = other_player.display_name
-        winner_team = other_captain.team
+        if choice == coin_result:
+            winner_id = player.id
+            winner_name = player.display_name
+            winner_team = caller_mem.team
+        else:
+            winner_id = other_player.id
+            winner_name = other_player.display_name
+            winner_team = other_captain.team
 
-    room.toss.update({
-        "state": "DECIDING",
-        "called_choice": choice,
-        "coin_result": coin_result,
-        "winner_id": winner_id,
-        "winner_name": winner_name,
-        "winner_team": winner_team,
-    })
-    repo.save_room(room)
-    return room.toss
+        room.toss.update({
+            "state": "DECIDING",
+            "called_choice": choice,
+            "coin_result": coin_result,
+            "winner_id": winner_id,
+            "winner_name": winner_name,
+            "winner_team": winner_team,
+        })
+        repo.save_room(room)
+        return room.toss
 
 
 def decide_toss(room: Room, player: Player, decision: str) -> Match:
-    if room.status != RoomStatus.TOSS or not room.toss:
-        raise ValueError("not_in_toss")
-    if player.id != room.toss.get("winner_id"):
-        raise PermissionError("not_toss_winner")
+    # Atomic: a duplicated/retried toss decision must never create a second
+    # match row for the same room.
+    with _match_lock:
+        room = repo.get_room(room.id) or room
+        if room.status != RoomStatus.TOSS or not room.toss:
+            raise ValueError("not_in_toss")
+        if player.id != room.toss.get("winner_id"):
+            raise PermissionError("not_toss_winner")
 
-    decision = decision.strip().upper()
-    if decision not in ("BAT", "BOWL"):
-        raise ValueError("invalid_toss_decision")
+        decision = decision.strip().upper()
+        if decision not in ("BAT", "BOWL"):
+            raise ValueError("invalid_toss_decision")
 
-    room.toss["elected_choice"] = decision
-    room.toss["state"] = "COMPLETED"
+        room.toss["elected_choice"] = decision
+        room.toss["state"] = "COMPLETED"
 
-    # Batting team based on toss decision
-    winner_team = room.toss["winner_team"]
-    if decision == "BAT":
-        batting_team = winner_team
-    else:
-        batting_team = "B" if winner_team == "A" else "A"
-
-    members = repo.get_room_members(room.id)
-    team_a = [m for m in members if m.team == "A"]
-    team_b = [m for m in members if m.team == "B"]
-    extra_a, extra_b = GameRules.compute_extra_wickets(len(team_a), len(team_b))
-
-    p_a = repo.get_player(team_a[0].player_id) if team_a else None
-    p_b = repo.get_player(team_b[0].player_id) if team_b else None
-
-    default_a = f"{(p_a.display_name or '').strip() or 'Host'}'s Team" if p_a else "Team A"
-    default_b = f"{(p_b.display_name or '').strip() or 'Guest'}'s Team" if p_b else "Team B"
-
-    cur_a = getattr(room, "team_a_name", "")
-    cur_b = getattr(room, "team_b_name", "")
-
-    final_team_a = cur_a if cur_a and cur_a not in ("Team A", "Host's Team") else default_a
-    final_team_b = cur_b if cur_b and cur_b not in ("Team B", "Guest's Team", "Opponent's Team", "Challenger's Team") else default_b
-
-    room.team_a_name = final_team_a
-    room.team_b_name = final_team_b
-    repo.save_room(room)
-
-    match = Match(
-        room_id=room.id,
-        overs=room.overs,
-        wickets=getattr(room, "wickets", 1 if room.mode == GameMode.SOLO else 5),
-        team_a_extra_wickets=extra_a,
-        team_b_extra_wickets=extra_b,
-        batting_team=batting_team,
-        first_batting_team=batting_team,
-        phase=InningsPhase.FIRST,
-        team_a_name=final_team_a,
-        team_b_name=final_team_b,
-    )
-    match._team_a_size = len(team_a)
-    match._team_b_size = len(team_b)
-
-    batting_mems = team_a if batting_team == "A" else team_b
-    bowling_mems = team_b if batting_team == "A" else team_a
-    match.active_batter_id = batting_mems[0].player_id if batting_mems else None
-
-    # In SOLO mode or 1v1, auto-assign the lone bowler so players never get stuck
-    if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
-        match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
-        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
-
-    for m in members:
-        if m.team == batting_team and m.player_id == match.active_batter_id:
-            m.role = PlayerRole.BATTER
-        elif m.team == match.bowling_team and m.player_id == match.active_bowler_id:
-            m.role = PlayerRole.BOWLER
+        # Batting team based on toss decision
+        winner_team = room.toss["winner_team"]
+        if decision == "BAT":
+            batting_team = winner_team
         else:
-            m.role = PlayerRole.SPECTATOR
-        repo.save_membership(m)
+            batting_team = "B" if winner_team == "A" else "A"
 
-    room.status = RoomStatus.INNINGS_ACTIVE
-    repo.save_room(room)
-    repo.save_match(match)
-    return match
+        members = repo.get_room_members(room.id)
+        team_a = [m for m in members if m.team == "A"]
+        team_b = [m for m in members if m.team == "B"]
+        extra_a, extra_b = GameRules.compute_extra_wickets(len(team_a), len(team_b))
+
+        p_a = repo.get_player(team_a[0].player_id) if team_a else None
+        p_b = repo.get_player(team_b[0].player_id) if team_b else None
+
+        default_a = f"{(p_a.display_name or '').strip() or 'Host'}'s Team" if p_a else "Team A"
+        default_b = f"{(p_b.display_name or '').strip() or 'Guest'}'s Team" if p_b else "Team B"
+
+        cur_a = getattr(room, "team_a_name", "")
+        cur_b = getattr(room, "team_b_name", "")
+
+        final_team_a = cur_a if cur_a and cur_a not in ("Team A", "Host's Team") else default_a
+        final_team_b = cur_b if cur_b and cur_b not in ("Team B", "Guest's Team", "Opponent's Team", "Challenger's Team") else default_b
+
+        room.team_a_name = final_team_a
+        room.team_b_name = final_team_b
+        repo.save_room(room)
+
+        match = Match(
+            room_id=room.id,
+            overs=room.overs,
+            wickets=getattr(room, "wickets", 1 if room.mode == GameMode.SOLO else 5),
+            team_a_extra_wickets=extra_a,
+            team_b_extra_wickets=extra_b,
+            batting_team=batting_team,
+            first_batting_team=batting_team,
+            phase=InningsPhase.FIRST,
+            team_a_name=final_team_a,
+            team_b_name=final_team_b,
+        )
+        match._team_a_size = len(team_a)
+        match._team_b_size = len(team_b)
+
+        batting_mems = team_a if batting_team == "A" else team_b
+        bowling_mems = team_b if batting_team == "A" else team_a
+        match.active_batter_id = batting_mems[0].player_id if batting_mems else None
+
+        # In SOLO mode or 1v1, auto-assign the lone bowler so players never get stuck
+        if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
+            match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
+
+        for m in members:
+            if m.team == batting_team and m.player_id == match.active_batter_id:
+                m.role = PlayerRole.BATTER
+            elif m.team == match.bowling_team and m.player_id == match.active_bowler_id:
+                m.role = PlayerRole.BOWLER
+            else:
+                m.role = PlayerRole.SPECTATOR
+            # Everyone must explicitly confirm they are ready for the first ball
+            # once they are inside the arena.
+            m.readiness = ReadinessState.NOT_READY
+            repo.save_membership(m)
+
+        # Match setup is complete, but the clock does not start until every
+        # connected member confirms they are ready for the first ball.
+        room.status = RoomStatus.AWAITING_FIRST_BALL
+        repo.save_room(room)
+        repo.save_match(match)
+        return match
+
+
+def confirm_first_ball_ready(room: Room, player: Player) -> tuple[Room, Optional[Match], bool]:
+    """
+    Arena entry gate. A player confirms they are ready for the first ball.
+
+    The innings (and the first delivery timer) only starts once every member
+    is currently connected and has confirmed readiness. Returns
+    (room, match, activated).
+    """
+    with _match_lock:
+        room = repo.get_room(room.id) or room
+        if room.status != RoomStatus.AWAITING_FIRST_BALL:
+            raise ValueError("not_awaiting_first_ball")
+
+        mem = repo.get_membership(room.id, player.id)
+        if not mem:
+            raise PermissionError("not_in_room")
+
+        current = repo.get_player(player.id) or player
+        if current.connection_state != ConnectionState.CONNECTED:
+            raise ValueError("player_not_connected")
+
+        mem.readiness = ReadinessState.READY
+        repo.save_membership(mem)
+
+        match = repo.get_match_by_room(room.id)
+        if not match:
+            raise ValueError("no_active_match")
+
+        members = repo.get_room_members(room.id)
+        everyone_connected = True
+        everyone_ready = True
+        for m in members:
+            member_player = repo.get_player(m.player_id)
+            if not member_player or member_player.connection_state != ConnectionState.CONNECTED:
+                everyone_connected = False
+            if m.readiness != ReadinessState.READY:
+                everyone_ready = False
+
+        if not (everyone_connected and everyone_ready):
+            return room, match, False
+
+        room.status = RoomStatus.INNINGS_ACTIVE
+        # In team matches the bowling captain still has to pick a bowler; the
+        # clock starts when that selection happens (see select_bowler).
+        if match.active_bowler_id:
+            match.delivery_deadline = datetime.utcnow() + timedelta(
+                seconds=get_delivery_timeout_seconds(match)
+            )
+        else:
+            match.delivery_deadline = None
+        match.version += 1
+        repo.save_room(room)
+        repo.save_match(match)
+        return room, match, True
 
 
 def start_match(room: Room, host: Player) -> Match:
@@ -516,24 +619,28 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
     # 1. Did a wicket fall? Record dismissed batter and check ALL OUT / Captain batter selection
     if outcome.delivery.result == DeliveryResult.OUT:
         dismissed_id = outcome.delivery.batter_id or match.active_batter_id
-        if match.batting_team == "A":
-            if dismissed_id and dismissed_id not in match.dismissed_batters_a:
-                match.dismissed_batters_a.append(dismissed_id)
-        else:
-            if dismissed_id and dismissed_id not in match.dismissed_batters_b:
-                match.dismissed_batters_b.append(dismissed_id)
-
         batting_mems = team_a if match.batting_team == "A" else team_b
-        dismissed = (
-            match.dismissed_batters_a
-            if match.batting_team == "A"
-            else match.dismissed_batters_b
-        )
-        eligible = [m for m in batting_mems if m.player_id not in dismissed]
+        is_team_multiplayer = len(batting_mems) > 1 and room.mode == GameMode.TEAM
+
+        if is_team_multiplayer:
+            if match.batting_team == "A":
+                if dismissed_id and dismissed_id not in match.dismissed_batters_a:
+                    match.dismissed_batters_a.append(dismissed_id)
+                # If all team members have batted but team still has wickets remaining, recycle
+                if len(match.dismissed_batters_a) >= len(batting_mems):
+                    match.dismissed_batters_a.clear()
+            else:
+                if dismissed_id and dismissed_id not in match.dismissed_batters_b:
+                    match.dismissed_batters_b.append(dismissed_id)
+                # If all team members have batted but team still has wickets remaining, recycle
+                if len(match.dismissed_batters_b) >= len(batting_mems):
+                    match.dismissed_batters_b.clear()
+
         wlimit = match.wicket_limit(match.batting_team)
         wickets = match.batting_wickets
 
-        if wickets >= wlimit or len(eligible) == 0:
+        # All out strictly occurs when total wickets lost reaches configured wlimit
+        if wickets >= wlimit:
             outcome.is_all_out = True
             outcome.all_out_team = match.batting_team
             outcome.all_out_runs = match.team_a_runs if match.batting_team == "A" else match.team_b_runs
@@ -565,11 +672,13 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
                     repo.save_match(match)
                     return match, outcome.delivery
         else:
-            if len(batting_mems) > 1 and room.mode == GameMode.TEAM:
+            # Wickets remain: continue innings with the next wicket
+            if is_team_multiplayer:
                 # In team matches, captain selects the next batter
                 match.active_batter_id = None
                 match.delivery_deadline = None
             elif batting_mems:
+                # In 1v1 / solo matches, same batter continues for their remaining wickets
                 match.active_batter_id = batting_mems[0].player_id
 
     # 2. Did the over complete?
@@ -860,6 +969,7 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
         recent_deliveries = []
 
     return {
+        "server_time": datetime.utcnow().isoformat() + "Z",
         "room": room.to_public_dict(),
         "members": [
             {

@@ -66,20 +66,16 @@ class GameRules:
         bwp = delivery.bowler_pick
 
         # --- Timeout handling ---
+        # A timed-out delivery is dead: 0 runs, no wicket, regardless of whose
+        # pick was missing.
         if bp is None or bwp is None:
-            # Apply timeout policy: the non-responsive side forfeits the delivery
+            delivery.result = DeliveryResult.TIMEOUT
+            delivery.runs_scored = 0
             if bp is None and bwp is None:
-                delivery.result = DeliveryResult.TIMEOUT
-                delivery.runs_scored = 0
                 delivery.timeout_reason = "both_timeout"
             elif bp is None:
-                delivery.result = DeliveryResult.OUT
-                delivery.runs_scored = 0
                 delivery.timeout_reason = "batter_timeout"
-            else:  # bowler timeout
-                # Bowler timeout: batter scores their pick
-                delivery.result = DeliveryResult.RUNS
-                delivery.runs_scored = bp
+            else:
                 delivery.timeout_reason = "bowler_timeout"
         elif bp == bwp:
             delivery.result = DeliveryResult.OUT
@@ -226,6 +222,8 @@ class GameRules:
                 match.dismissed_batters_b = []
                 match.is_all_out = False
                 match.all_out_team = None
+                match.all_out_announced_a = False
+                match.all_out_announced_b = False
                 match.winner = None
                 match.result_summary = None
                 return False

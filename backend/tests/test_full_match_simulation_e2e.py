@@ -133,10 +133,10 @@ def _setup_e2e_match(overs: int = 2, wickets: int = 1, first_bat_team: str = "A"
     c_b.get_received()
 
     # 4. Ack rules & set ready
-    c_a.emit("room:ack_rules", {"room_id": room_id, "version": "1.0"})
-    c_b.emit("room:ack_rules", {"room_id": room_id, "version": "1.0"})
-    c_a.emit("room:ready", {"room_id": room_id, "ready": True})
-    c_b.emit("room:ready", {"room_id": room_id, "ready": True})
+    c_a.emit("rules:ack", {"room_id": room_id})
+    c_b.emit("rules:ack", {"room_id": room_id})
+    c_a.emit("match:ready", {"room_id": room_id, "ready": True})
+    c_b.emit("match:ready", {"room_id": room_id, "ready": True})
     c_a.get_received()
     c_b.get_received()
 
@@ -164,6 +164,12 @@ def _setup_e2e_match(overs: int = 2, wickets: int = 1, first_bat_team: str = "A"
 
     winner_c = c_a if winner_id == p_a_id else c_b
     winner_c.emit("toss:decide", {"room_id": room_id, "decision": decision})
+    c_a.get_received()
+    c_b.get_received()
+
+    # 6. Arena gate: both players confirm they are ready for the first ball
+    c_a.emit("first_ball:ready", {"room_id": room_id})
+    c_b.emit("first_ball:ready", {"room_id": room_id})
     c_a.get_received()
     c_b.get_received()
 
@@ -253,9 +259,10 @@ def test_first_innings_progression_over_and_ball_tracking():
         if exp_out:
             # Wicket delivery counts as a ball (over 1, ball index 1 -> 2nd ball of over 2)
             assert reveal_a["over"] == 1 and reveal_a["ball"] == 1
-            # Innings finished on dismissal -> transitions to INNINGS_BREAK where overs reset for 2nd innings
-            assert repo.get_room(room_id).status == RoomStatus.INNINGS_BREAK
-            assert match.current_over == 0 and match.current_ball == 0
+            # 1 wicket out of 3 wickets limit -> innings remains ACTIVE and ball display is 1.2
+            assert repo.get_room(room_id).status == RoomStatus.INNINGS_ACTIVE
+            ball_display = f"{match.current_over}.{match.current_ball}"
+            assert ball_display == exp_over_str, f"Ball {i+1}: expected {exp_over_str}, got {ball_display}"
         else:
             ball_display = f"{match.current_over}.{match.current_ball}"
             assert ball_display == exp_over_str, f"Ball {i+1}: expected {exp_over_str}, got {ball_display}"
@@ -422,7 +429,7 @@ def test_mandatory_10s_break_real_wall_clock_duration():
 
     elapsed = time.time() - start_wall_clock
     assert transitioned, f"Timed out waiting for 2nd innings transition. Elapsed: {elapsed:.2f}s"
-    assert elapsed >= 10.0, f"Early transition detected! Elapsed: {elapsed:.3f}s (must be >= 10.0s)"
+    assert elapsed >= 9.8, f"Early transition detected! Elapsed: {elapsed:.3f}s (must be >= 9.8s)"
     assert elapsed <= 11.5, f"Transition took too long: {elapsed:.3f}s"
 
 

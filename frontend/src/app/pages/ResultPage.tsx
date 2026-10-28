@@ -19,7 +19,7 @@ export default function ResultPage() {
   const navigate = useNavigate()
   const sessionToken = localStorage.getItem('hcl_session') || undefined
   const myPlayerId = localStorage.getItem('hcl_player_id') || ''
-  const { snapshot, syncRoom } = useSocket(sessionToken)
+  const { snapshot, syncRoom, rematchRoom } = useSocket(sessionToken)
 
   const [countdown, setCountdown] = useState(25)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
@@ -199,7 +199,11 @@ export default function ResultPage() {
           </button>
           <button
             className="btn btn-secondary"
-            onClick={() => navigate(`/room/${roomId}`)}
+            onClick={() => {
+              sound.playClick()
+              if (roomId) rematchRoom(roomId)
+              navigate(`/room/${roomId}`)
+            }}
           >
             🔄 Rematch in Lobby
           </button>

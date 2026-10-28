@@ -82,26 +82,40 @@ class TestBasicScoring:
 # ---------------------------------------------------------------------------
 
 class TestTimeoutPolicy:
-    def test_batter_timeout_means_out(self):
+    def test_batter_timeout_scores_nothing(self):
         match = make_match()
         delivery = make_delivery(match, batter_pick=None, bowler_pick=4)
         outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
-        assert outcome.delivery.result == DeliveryResult.OUT
+        assert outcome.delivery.result == DeliveryResult.TIMEOUT
+        assert outcome.delivery.runs_scored == 0
         assert outcome.delivery.timeout_reason == "batter_timeout"
+        assert match.team_a_wickets == 0
 
-    def test_bowler_timeout_batter_scores(self):
+    def test_bowler_timeout_scores_nothing(self):
         match = make_match()
         delivery = make_delivery(match, batter_pick=6, bowler_pick=None)
         outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
-        assert outcome.delivery.result == DeliveryResult.RUNS
-        assert outcome.delivery.runs_scored == 6
+        assert outcome.delivery.result == DeliveryResult.TIMEOUT
+        assert outcome.delivery.runs_scored == 0
+        assert outcome.delivery.timeout_reason == "bowler_timeout"
+        assert match.team_a_runs == 0
+        assert match.team_a_wickets == 0
 
     def test_both_timeout_is_timeout(self):
         match = make_match()
         delivery = make_delivery(match, batter_pick=None, bowler_pick=None)
         outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
         assert outcome.delivery.result == DeliveryResult.TIMEOUT
+        assert outcome.delivery.runs_scored == 0
         assert outcome.delivery.timeout_reason == "both_timeout"
+        assert match.team_a_runs == 0
+        assert match.team_a_wickets == 0
+
+    def test_timeout_still_advances_ball(self):
+        match = make_match()
+        delivery = make_delivery(match, batter_pick=None, bowler_pick=4)
+        GameRules.resolve_delivery(match, copy.copy(delivery))
+        assert match.current_ball == 1
 
 
 # ---------------------------------------------------------------------------

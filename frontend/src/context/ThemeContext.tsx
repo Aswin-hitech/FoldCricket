@@ -65,8 +65,9 @@ export const ThemeToggle: React.FC<{ className?: string }> = ({ className = '' }
       style={{
         display: 'inline-flex',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: '6px',
-        padding: '6px 12px',
+        padding: '6px 14px',
         borderRadius: '999px',
         border: '1px solid var(--color-border)',
         background: 'var(--color-surface-2)',
@@ -74,6 +75,12 @@ export const ThemeToggle: React.FC<{ className?: string }> = ({ className = '' }
         cursor: 'pointer',
         fontSize: '0.82rem',
         fontWeight: 600,
+        height: '36px',
+        minHeight: '36px',
+        maxHeight: '36px',
+        boxSizing: 'border-box',
+        verticalAlign: 'middle',
+        whiteSpace: 'nowrap',
         transition: 'all var(--transition)',
       }}
     >

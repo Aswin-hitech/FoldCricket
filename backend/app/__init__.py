@@ -1,5 +1,5 @@
 import os
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, send_from_directory
 
 from .config import Config
 from .extensions import cors, socketio
@@ -11,11 +11,9 @@ def create_app(config: type = Config) -> Flask:
     )
     has_frontend_build = os.path.exists(frontend_dist)
 
-    app = Flask(
-        __name__,
-        static_folder=frontend_dist if has_frontend_build else None,
-        static_url_path="",
-    )
+    # Flask's built-in static route would shadow the SPA catch-all below and 404
+    # every deep link (e.g. /room/<id>/arena) on refresh, so it is disabled.
+    app = Flask(__name__, static_folder=None)
     app.config.from_object(config)
 
     # Extensions
@@ -47,11 +45,24 @@ def create_app(config: type = Config) -> Flask:
     # Socket handlers
     from .sockets import events  # noqa: F401 – registers handlers as a side effect
 
+    # Set strict no-cache headers on all responses to prevent residual activity/caching after 1 hour
+    @app.after_request
+    def add_no_cache_headers(response):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
     # Serve React SPA if dist exists
     if has_frontend_build:
         @app.route("/", defaults={"path": ""})
         @app.route("/<path:path>")
         def serve_frontend(path: str):
+            if path.startswith("api/"):
+                return jsonify({"error": "not_found"}), 404
+            if path.startswith("assets/"):
+                # Hashed bundles must 404 rather than fall back to index.html
+                return send_from_directory(frontend_dist, path)
             if path and os.path.exists(os.path.join(frontend_dist, path)):
                 return send_from_directory(frontend_dist, path)
             return send_from_directory(frontend_dist, "index.html")

@@ -41,6 +41,10 @@ def test_sqlite_persistence_and_process_restart_recovery():
     toss = room_service.call_toss(room, p2, "HEADS")
     winner = p1 if toss["winner_id"] == p1.id else p2
     match = room_service.decide_toss(room, winner, "BAT")
+    for m in repo.get_room_members(room.id):
+        room, match, _ = room_service.confirm_first_ball_ready(
+            room, repo.get_player(m.player_id)
+        )
 
     # 3. Submit a delivery
     batting_p = p1 if match.batting_team == "A" else p2
@@ -88,6 +92,24 @@ def test_sqlite_persistence_and_process_restart_recovery():
     assert reloaded_deliveries[0].runs_scored == 4
     assert reloaded_deliveries[0].batter_pick == 4
     assert reloaded_deliveries[0].bowler_pick == 2
+
+
+def test_get_match_by_room_returns_newest_match():
+    """A rematch creates a second match row; reads must never return the finished one."""
+    from datetime import datetime, timedelta
+
+    from app.domain.models import Match
+
+    p1, _ = room_service.create_or_restore_player("RematchHost", None)
+    room, _ = room_service.create_room(p1, "SOLO", 2)
+
+    older = Match(room_id=room.id, created_at=datetime.utcnow() - timedelta(hours=1))
+    newer = Match(room_id=room.id, created_at=datetime.utcnow())
+    sqlite_repo.save_match(older)
+    sqlite_repo.save_match(newer)
+
+    assert sqlite_repo.get_match_by_room(room.id).id == newer.id
+    assert sqlite_repo.get_match_for_room(room.id).id == newer.id
 
 
 def test_sqlite_unique_delivery_constraint():

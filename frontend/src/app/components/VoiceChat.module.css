@@ -8,6 +8,7 @@
 .micBtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 5px 12px;
   border-radius: 999px;
@@ -20,6 +21,12 @@
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  box-sizing: border-box;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .micBtn:hover {
@@ -86,6 +93,7 @@
 .speakerPill {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   background: rgba(59, 130, 246, 0.15);
   border: 1px solid rgba(59, 130, 246, 0.4);
@@ -95,6 +103,11 @@
   font-size: 0.76rem;
   font-weight: 600;
   animation: fadeIn 2s ease;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .speakerPulse {
@@ -133,6 +146,7 @@
 .voiceListBtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 5px 11px;
   border-radius: 999px;
@@ -143,6 +157,12 @@
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  box-sizing: border-box;
+  vertical-align: middle;
+  white-space: nowrap;
   transition: all 0.2s ease;
   user-select: none;
 }

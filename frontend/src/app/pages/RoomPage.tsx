@@ -38,7 +38,7 @@ export default function RoomPage() {
     updateSettings,
     updateTeams,
     updateVoiceState,
-    incomingVoiceSignal,
+    voiceSignals,
     sendVoiceSignal,
     setVoiceMode,
     crossTeamRequests,
@@ -56,6 +56,27 @@ export default function RoomPage() {
   const [copiedLink, setCopiedLink] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
   const [tossCountdown, setTossCountdown] = useState<number | null>(null)
+  const [isSoundMuted, setIsSoundMuted] = useState(() => sound.isMuted())
+
+  // Keep sound mute state in sync
+  useEffect(() => {
+    const onSoundChange = (e: Event) => {
+      const custom = e as CustomEvent<{ muted: boolean }>
+      if (custom.detail) {
+        setIsSoundMuted(custom.detail.muted)
+      }
+    }
+    window.addEventListener('hcl:sound_mute_changed', onSoundChange)
+    return () => window.removeEventListener('hcl:sound_mute_changed', onSoundChange)
+  }, [])
+
+  function handleToggleSound() {
+    const next = sound.toggleMute()
+    setIsSoundMuted(next)
+    if (!next) {
+      sound.playClick()
+    }
+  }
 
   const room: RoomInfo | null = snapshot?.room ?? null
   const members: MemberInfo[] = snapshot?.members ?? []
@@ -78,6 +99,17 @@ export default function RoomPage() {
   // 10-Second Toss Conclusion Display:
   // When toss winner makes choice, hold for exactly 10s showing the decision before moving to Arena
   useEffect(() => {
+    const roomStatus = snapshot?.room?.status
+    if (
+      roomStatus === 'INNINGS_ACTIVE' ||
+      roomStatus === 'INNINGS_BREAK' ||
+      roomStatus === 'PAUSED'
+    ) {
+      // Rejoining a match already in progress: go straight to the arena
+      navigate(`/room/${roomId}/arena`, { replace: true })
+      return
+    }
+
     if (room?.toss?.elected_choice) {
       if (tossCountdown === null) {
         setTossCountdown(10)
@@ -87,11 +119,9 @@ export default function RoomPage() {
         }, 1000)
         return () => clearTimeout(timer)
       } else if (tossCountdown === 0) {
+        // Arena shows the "Are you ready for the first ball?" gate
         navigate(`/room/${roomId}/arena`, { replace: true })
       }
-    } else if (snapshot?.room?.status === 'INNINGS_ACTIVE' && !room?.toss) {
-      // Direct navigate if rejoining an active game
-      navigate(`/room/${roomId}/arena`, { replace: true })
     }
   }, [room?.toss?.elected_choice, tossCountdown, snapshot?.room?.status, roomId, navigate])
 
@@ -218,7 +248,7 @@ export default function RoomPage() {
             voiceStates={voiceStates}
             onVoiceStateChange={updateVoiceState}
             members={members}
-            incomingVoiceSignal={incomingVoiceSignal}
+            incomingVoiceSignals={voiceSignals}
             onSendSignal={sendVoiceSignal}
             onSetVoiceMode={setVoiceMode}
             isTeamMatch={room?.mode === 'TEAM'}
@@ -227,7 +257,31 @@ export default function RoomPage() {
             onRespondCrossTeam={respondCrossTeamVoice}
             onRevokeCrossTeam={revokeCrossTeamVoice}
             voicePermissions={snapshot?.voice_permissions || []}
+            isSoundMuted={isSoundMuted}
           />
+
+          {/* Sound Toggle (Speaker output for voice chat & sounds) */}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleToggleSound}
+            title={isSoundMuted ? 'Sound is OFF: Click to turn Sound ON and hear other players' : 'Sound is ON: Hearing other players & game. Click to Mute'}
+            style={{
+              height: '36px',
+              padding: '6px 14px',
+              borderRadius: '999px',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: isSoundMuted ? 'var(--color-surface-2)' : 'rgba(34, 197, 94, 0.15)',
+              borderColor: isSoundMuted ? 'var(--color-border)' : 'rgba(34, 197, 94, 0.5)',
+              color: isSoundMuted ? 'var(--color-text)' : '#22c55e',
+            }}
+          >
+            {isSoundMuted ? '🔇 Sound Off' : '🔊 Sound On'}
+          </button>
 
           {/* Real-time Internet Speed Indicator with signal bars */}
           <NetworkIndicator status={status} latency={pingLatency} />
@@ -380,7 +434,7 @@ export default function RoomPage() {
                 </div>
                 <div className={styles.guestSummaryItem}>
                   <span className={styles.summaryLabel}>Delivery Timeout</span>
-                  <span className={styles.summaryValue}>25 Seconds</span>
+                  <span className={styles.summaryValue}>15 Seconds</span>
                 </div>
               </div>
             )}
@@ -545,10 +599,12 @@ export default function RoomPage() {
               <p>1. Each player picks a number from <strong>1, 2, 3, 4, 5, or 6</strong> per delivery.</p>
               <p>2. If both picks match exactly → the batter is <strong>OUT</strong>.</p>
               <p>3. If picks differ → the batter scores <strong>their chosen number</strong>.</p>
-              <p>4. Each delivery has a <strong>25-second</strong> server-enforced deadline.</p>
-              <p>5. An innings ends when the <strong>overs limit or wickets limit</strong> is reached.</p>
-              <p>6. Second innings target = first innings runs + 1.</p>
-              <p>7. Toss is called by the visiting opponent; winner elects Bat or Bowl.</p>
+              <p>4. The first ball of each innings has a <strong>30-second</strong> deadline; every other ball <strong>15 seconds</strong>.</p>
+              <p>5. If a player runs out of time, the delivery is dead: <strong>0 runs and no wicket</strong>.</p>
+              <p>6. An innings ends when the <strong>overs limit or wickets limit</strong> is reached.</p>
+              <p>7. Second innings target = first innings runs + 1.</p>
+              <p>8. Play begins only after every player confirms they are ready for the first ball.</p>
+              <p>9. Toss is called by the visiting opponent; winner elects Bat or Bowl.</p>
             </div>
             <button
               type="button"

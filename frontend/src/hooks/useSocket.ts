@@ -32,8 +32,12 @@ interface UseSocketReturn {
   pingLatency: number | null
   voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
   pausedInfo: PausedInfo | null
-  incomingVoiceSignal: { from_player_id: string; signal: unknown; timestamp: number } | null
+  voiceSignals: Array<{ id: number; from_player_id: string; signal: unknown; timestamp: number }>
   crossTeamRequests: CrossTeamVoiceRequest[]
+  deliveryAck: { success: boolean; error?: string } | null
+  firstBallAck: { success: boolean; error?: string; activated?: boolean } | null
+  /** Current server time in ms (accounts for device clock skew). */
+  serverNow: () => number
 
   register: (displayName: string, sessionToken?: string) => void
   createRoom: (mode: string, overs: number) => void
@@ -42,6 +46,7 @@ interface UseSocketReturn {
   startMatch: (roomId: string) => void
   callToss: (roomId: string, choice: 'HEADS' | 'TAILS') => void
   decideToss: (roomId: string, decision: 'BAT' | 'BOWL') => void
+  firstBallReady: (roomId: string) => void
   selectBowler: (roomId: string, bowlerId: string) => void
   selectBatter: (roomId: string, batterId: string) => void
   submitPick: (roomId: string, pick: number) => void
@@ -50,6 +55,7 @@ interface UseSocketReturn {
   sendChat: (roomId: string, text: string) => void
   setReady: (roomId: string, ready: boolean) => void
   ackRules: (roomId: string) => void
+  rematchRoom: (roomId: string) => void
   assignTeam: (roomId: string, playerId: string, team: string) => void
   updateSettings: (roomId: string, overs: number, wickets?: number) => void
   updateTeams: (roomId: string, teamAName: string, teamBName: string) => void
@@ -77,13 +83,16 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [pingLatency, setPingLatency] = useState<number | null>(null)
   const [voiceStates, setVoiceStates] = useState<Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>>({})
   const [pausedInfo, setPausedInfo] = useState<PausedInfo | null>(null)
-  const [incomingVoiceSignal, setIncomingVoiceSignal] = useState<{
-    from_player_id: string
-    signal: unknown
-    timestamp: number
-  } | null>(null)
+  const [voiceSignals, setVoiceSignals] = useState<
+    Array<{ id: number; from_player_id: string; signal: unknown; timestamp: number }>
+  >([])
   const [crossTeamRequests, setCrossTeamRequests] = useState<CrossTeamVoiceRequest[]>([])
+  const [deliveryAck, setDeliveryAck] = useState<{ success: boolean; error?: string } | null>(null)
+  const [firstBallAck, setFirstBallAck] = useState<{ success: boolean; error?: string; activated?: boolean } | null>(null)
   const lastSnapshotVersionRef = useRef<number>(-1)
+  const lastSnapshotMatchIdRef = useRef<string | null>(null)
+  const serverOffsetRef = useRef<number>(0)
+  const voiceSignalSeqRef = useRef(0)
 
   useEffect(() => {
     const s = socketRef.current
@@ -110,7 +119,21 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setPingLatency(null)
     }
     const onSnapshot = (data: RoomSnapshot) => {
-      // Prevent stale snapshots from overwriting newer committed state
+      // Clock sync: derive offset from the server timestamp shipped with every snapshot
+      if (data?.server_time) {
+        const parsed = Date.parse(data.server_time)
+        if (!Number.isNaN(parsed)) {
+          serverOffsetRef.current = parsed - Date.now()
+        }
+      }
+
+      // Prevent stale snapshots from overwriting newer committed state.
+      // The version counter resets for a new match, so track match id as well.
+      const matchId = data?.match?.id ?? null
+      if (matchId !== lastSnapshotMatchIdRef.current) {
+        lastSnapshotMatchIdRef.current = matchId
+        lastSnapshotVersionRef.current = -1
+      }
       if (data?.match?.version !== undefined) {
         if (data.match.version < lastSnapshotVersionRef.current) {
           return // stale snapshot ignored
@@ -121,7 +144,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setSnapshot(data)
       if (data?.room?.status === 'PAUSED' || data?.room?.is_paused) {
         setPausedInfo(prev => prev || { paused: true, reason: 'Game Paused' })
-      } else if (data?.room?.status === 'INNINGS_ACTIVE') {
+      } else if (data?.room?.status === 'INNINGS_ACTIVE' || data?.room?.status === 'AWAITING_FIRST_BALL') {
         setPausedInfo(null)
       }
     }
@@ -163,7 +186,26 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     }
 
     const onVoiceSignal = (data: { from_player_id: string; signal: unknown }) => {
-      setIncomingVoiceSignal({ ...data, timestamp: Date.now() })
+      // Queue every signal: React batches state updates, so a single state slot
+      // silently drops signals when offer/answer/candidate arrive together.
+      voiceSignalSeqRef.current += 1
+      const entry = {
+        id: voiceSignalSeqRef.current,
+        from_player_id: data.from_player_id,
+        signal: data.signal,
+        timestamp: Date.now(),
+      }
+      setVoiceSignals((prev) => [...prev.slice(-99), entry])
+    }
+
+    const onDeliveryAck = (data: { success: boolean; error?: string }) => {
+      setDeliveryAck(data)
+      if (!data?.success && data?.error) setLastError(data.error)
+    }
+
+    const onFirstBallAck = (data: { success: boolean; error?: string; activated?: boolean }) => {
+      setFirstBallAck(data)
+      if (!data?.success && data?.error) setLastError(data.error)
     }
 
     const onCrossTeamRequested = (req: CrossTeamVoiceRequest) => {
@@ -206,6 +248,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('voice:cross_team_revoked', onCrossTeamRevoked)
     s.on('match:paused', onMatchPaused)
     s.on('match:resumed', onMatchResumed)
+    s.on('delivery:ack', onDeliveryAck)
+    s.on('first_ball:ack', onFirstBallAck)
 
     // Regular ping heartbeats every 3.5s
     const pingInterval = setInterval(() => {
@@ -236,6 +280,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('voice:cross_team_revoked', onCrossTeamRevoked)
       s.off('match:paused', onMatchPaused)
       s.off('match:resumed', onMatchResumed)
+      s.off('delivery:ack', onDeliveryAck)
+      s.off('first_ball:ack', onFirstBallAck)
     }
   }, [])
 
@@ -271,6 +317,12 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('toss:decide', { room_id: roomId, decision })
   }, [])
 
+  const firstBallReady = useCallback((roomId: string) => {
+    socketRef.current.emit('first_ball:ready', { room_id: roomId })
+  }, [])
+
+  const serverNow = useCallback(() => Date.now() + serverOffsetRef.current, [])
+
   const selectBowler = useCallback((roomId: string, bowlerId: string) => {
     socketRef.current.emit('over:bowler-select', { room_id: roomId, bowler_id: bowlerId })
   }, [])
@@ -293,6 +345,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
 
   const ackRules = useCallback((roomId: string) => {
     socketRef.current.emit('rules:ack', { room_id: roomId })
+  }, [])
+
+  const rematchRoom = useCallback((roomId: string) => {
+    socketRef.current.emit('room:rematch', { room_id: roomId })
   }, [])
 
   const assignTeam = useCallback((roomId: string, playerId: string, team: string) => {
@@ -353,8 +409,11 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     pingLatency,
     voiceStates,
     pausedInfo,
-    incomingVoiceSignal,
+    voiceSignals,
     crossTeamRequests,
+    deliveryAck,
+    firstBallAck,
+    serverNow,
     register,
     createRoom,
     joinRoom,
@@ -362,6 +421,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     startMatch,
     callToss,
     decideToss,
+    firstBallReady,
     selectBowler,
     selectBatter,
     submitPick,
@@ -370,6 +430,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     sendChat,
     setReady,
     ackRules,
+    rematchRoom,
     assignTeam,
     updateSettings,
     updateTeams,

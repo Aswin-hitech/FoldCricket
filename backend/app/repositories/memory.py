@@ -31,6 +31,7 @@ from .sqlite import (
     get_room_voice_permissions,
     get_voice_permission,
     init_db,
+    purge_stale_data,
     remove_membership,
     save_delivery,
     save_match,
@@ -108,4 +109,5 @@ __all__ = [
     "get_room_voice_permissions",
     "delete_voice_permission",
     "cleanup_player_voice_permissions",
+    "purge_stale_data",
 ]

@@ -167,6 +167,14 @@ body {
   to { opacity: 0; }
 }
 
+.fadeIn {
+  animation: fadeIn 2s ease forwards;
+}
+
+.fadeOut {
+  animation: fadeOut 2s ease forwards;
+}
+
 @keyframes bounceIn {
   0% { transform: scale(0.3); opacity: 0; }
   50% { transform: scale(1.05); opacity: 0.8; }
@@ -303,7 +311,7 @@ body {
 
 /* Page Entry Transition */
 .page {
-  animation: pageSlideFadeIn 5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: pageSlideFadeIn 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes pageSlideFadeIn {

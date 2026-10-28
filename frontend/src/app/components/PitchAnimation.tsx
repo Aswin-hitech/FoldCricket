@@ -262,7 +262,7 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
         {/* Particle Canvas */}
         <canvas ref={canvasRef} className={styles.particleCanvas} />
 
-        {/* Delivery Result Popup: WICKET or +Runs with 4-second smooth fade in and fade out */}
+        {/* Delivery Result Popup: WICKET or +Runs with 2-second smooth fade in and fade out */}
         {reveal && (
           <div
             className={`${styles.deliveryResultPopup} ${

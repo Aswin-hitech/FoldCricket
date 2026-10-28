@@ -36,8 +36,24 @@ from ..security.utils import (
 )
 
 DELIVERY_TIMEOUT_SECONDS = Config.DELIVERY_TIMEOUT_SECONDS
+FIRST_BALL_TIMEOUT_SECONDS = 30
 INNINGS_BREAK_SECONDS = getattr(Config, "INNINGS_BREAK_SECONDS", 10)
 RECONNECT_GRACE_SECONDS = Config.RECONNECT_GRACE_SECONDS
+
+
+def get_delivery_timeout_seconds(match: Match) -> int:
+    """
+    Authoritative delivery timer rule:
+    First ball of the first innings and second innings is 30 seconds;
+    all other balls are 15 seconds.
+    """
+    if (
+        match.current_over == 0
+        and match.current_ball == 0
+        and match.phase in (InningsPhase.FIRST, InningsPhase.SECOND)
+    ):
+        return FIRST_BALL_TIMEOUT_SECONDS
+    return DELIVERY_TIMEOUT_SECONDS
 
 _match_lock = threading.RLock()
 
@@ -346,7 +362,7 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
     # In SOLO mode or 1v1, auto-assign the lone bowler so players never get stuck
     if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
         match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
-        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
 
     for m in members:
         if m.team == batting_team and m.player_id == match.active_batter_id:
@@ -412,7 +428,7 @@ def select_batter(room: Room, captain: Player, batter_player_id: str) -> Match:
     match.active_batter_id = batter_player_id
     # If bowler is also active, start delivery countdown!
     if match.active_bowler_id:
-        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
     repo.save_match(match)
     return match
 
@@ -449,7 +465,7 @@ def select_bowler(room: Room, captain: Player, bowler_player_id: str) -> Match:
             repo.save_membership(m)
 
     match.active_bowler_id = bowler_player_id
-    match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+    match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
     repo.save_match(match)
     return match
 
@@ -562,14 +578,14 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
         bowling_mems = team_b if match.batting_team == "A" else team_a
         if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
             match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
-            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
         else:
             # Captain needs to choose new bowler for next over
             match.active_bowler_id = None
             match.delivery_deadline = None
     else:
-        # Continuing over with same bowler -> start fresh 25-second countdown
-        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+        # Continuing over with same bowler
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
 
     # Sync player roles
     for m in members:
@@ -620,7 +636,7 @@ def start_second_innings(room_id: str | Any) -> tuple[Room, Match]:
 
         if room.mode == GameMode.SOLO or len(bowling_mems) == 1:
             match.active_bowler_id = bowling_mems[0].player_id if bowling_mems else None
-            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=DELIVERY_TIMEOUT_SECONDS)
+            match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
         else:
             match.active_bowler_id = None
             match.delivery_deadline = None

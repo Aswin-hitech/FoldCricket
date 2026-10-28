@@ -723,7 +723,7 @@
   justify-content: center;
   z-index: 100;
   padding: 16px;
-  animation: fadeIn 5s ease;
+  animation: fadeIn 2s ease;
   backdrop-filter: blur(6px);
 }
 

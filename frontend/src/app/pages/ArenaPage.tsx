@@ -41,6 +41,7 @@ export default function ArenaPage() {
     matchFinished,
     allOutInfo,
     superOverInfo,
+    clearSuperOverInfo,
     pingLatency,
     voiceStates,
     pausedInfo,
@@ -142,14 +143,27 @@ export default function ArenaPage() {
     battingMembers.length > 1
   )
 
+  // Innings Break state & server-authoritative countdown synchronization
+  const isInningsBreak =
+    snapshot?.room?.status === 'INNINGS_BREAK' ||
+    Boolean(
+      inningsBreak &&
+        !match?.winner &&
+        match?.phase === 'SECOND' &&
+        match?.current_over === 0 &&
+        match?.current_ball === 0 &&
+        snapshot?.room?.status !== 'INNINGS_ACTIVE'
+    )
+
   // Detect over complete state
   const isOverComplete = Boolean(
     match &&
     !match.active_bowler_id &&
     !match.winner &&
     !isAllOut &&
+    !isInningsBreak &&
     ((match.current_ball === 0 && match.current_over > 0) ||
-     (match.phase === 'SECOND' && match.current_over === 0 && match.current_ball === 0))
+     (match.phase === 'SECOND' && match.current_over === 0 && match.current_ball === 0 && !isInningsBreak))
   )
 
   const needsBowlerSelect = Boolean(
@@ -206,13 +220,22 @@ export default function ArenaPage() {
     }
   }, [allOutInfo, match?.is_all_out, match?.all_out_team, match?.phase])
 
-  // Handle MATCH TIED: ENTERING SUPER OVER - exact 5 second payload display
+  // Reset Super Over guard when starting a normal match
   useEffect(() => {
-    if (
-      superOverInfo ||
-      (match?.is_super_over && match?.phase === 'SUPER_OVER_FIRST' && !hasShownSuperOverRef.current)
-    ) {
+    if (match && !match.is_super_over && match.phase === 'FIRST') {
+      hasShownSuperOverRef.current = false
+    }
+  }, [match?.phase, match?.is_super_over])
+
+  // Handle MATCH TIED: ENTERING SUPER OVER - exact 5 second payload display (strictly once)
+  useEffect(() => {
+    const isSuperOverStarting =
+      Boolean(superOverInfo) ||
+      Boolean(match?.is_super_over && match?.phase === 'SUPER_OVER_FIRST')
+
+    if (!hasShownSuperOverRef.current && isSuperOverStarting) {
       hasShownSuperOverRef.current = true
+      clearSuperOverInfo()
       setSuperOverAnnouncement({
         message: 'MATCH TIED: ENTERING SUPER OVER',
       })
@@ -226,7 +249,7 @@ export default function ArenaPage() {
 
       return () => clearTimeout(timer)
     }
-  }, [superOverInfo, match?.is_super_over, match?.phase])
+  }, [superOverInfo, match?.is_super_over, match?.phase, clearSuperOverInfo])
 
   // "Are you sure you want to quit?" warning on browser navigation / tab close
   useEffect(() => {
@@ -248,14 +271,14 @@ export default function ArenaPage() {
     }
   }, [roomId, syncRoom, status])
 
-  // Handle match finished redirect - 5 second transition
+  // Handle match finished redirect - 2 second transition
   useEffect(() => {
     if (matchFinished) {
       sound.playWin()
       vibration.win()
       setCelebrationTrigger('WIN')
       const popperTimer = setTimeout(() => setCelebrationTrigger(null), 2000)
-      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 5000)
+      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 2000)
       return () => {
         clearTimeout(popperTimer)
         clearTimeout(timer)
@@ -263,7 +286,7 @@ export default function ArenaPage() {
     }
   }, [matchFinished, navigate, roomId])
 
-  // Handle delivery reveal sound & vibration - 5s popup animation & 2s party popper
+  // Handle delivery reveal sound & vibration - 2s popup animation & 2s party popper
   useEffect(() => {
     if (lastReveal) {
       setRevealAnimation(lastReveal)
@@ -288,8 +311,8 @@ export default function ArenaPage() {
 
       // Party popper effect strictly for 2 seconds
       const popperTimer = setTimeout(() => setCelebrationTrigger(null), 2000)
-      // Reveal popup outcome animation holds for 5 seconds
-      const timer = setTimeout(() => setRevealAnimation(null), 5000)
+      // Reveal popup outcome animation holds for 2 seconds
+      const timer = setTimeout(() => setRevealAnimation(null), 2000)
       return () => {
         clearTimeout(popperTimer)
         clearTimeout(timer)
@@ -345,18 +368,6 @@ export default function ArenaPage() {
       return () => clearTimeout(timer)
     }
   }, [showMicPrompt, roomId])
-
-  // Innings Break state & server-authoritative countdown synchronization
-  const isInningsBreak =
-    snapshot?.room?.status === 'INNINGS_BREAK' ||
-    Boolean(
-      inningsBreak &&
-        !match?.winner &&
-        match?.phase === 'SECOND' &&
-        match?.current_over === 0 &&
-        match?.current_ball === 0 &&
-        snapshot?.room?.status !== 'INNINGS_ACTIVE'
-    )
 
   useEffect(() => {
     const deadlineStr = match?.innings_break_deadline || inningsBreak?.break_deadline

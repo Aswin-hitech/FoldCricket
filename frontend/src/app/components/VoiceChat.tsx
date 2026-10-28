@@ -187,6 +187,11 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       const pc = new RTCPeerConnection(getRtcConfiguration())
       peerConnectionsRef.current.set(peerId, pc)
 
+      // Ensure audio transceiver exists so receiving audio over speaker works immediately
+      if (pc.getTransceivers().length === 0) {
+        pc.addTransceiver('audio', { direction: 'sendrecv' })
+      }
+
       // Send local ICE candidates to the remote peer
       pc.onicecandidate = (event) => {
         if (event.candidate && onSendSignal) {
@@ -197,13 +202,16 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         }
       }
 
-      // Play incoming audio track through an HTMLAudioElement
+      // Play incoming audio track through an attached HTMLAudioElement in the DOM
       pc.ontrack = (event) => {
         let audio = audioElementsRef.current.get(peerId)
         if (!audio) {
-          audio = new Audio()
+          audio = document.createElement('audio')
           audio.autoplay = true
           audio.setAttribute('playsinline', 'true')
+          audio.setAttribute('data-peer-id', peerId)
+          audio.style.display = 'none'
+          document.body.appendChild(audio)
           audioElementsRef.current.set(peerId, audio)
         }
         const stream = event.streams[0] || new MediaStream([event.track])
@@ -211,10 +219,13 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         // Apply local incoming listening mute preference if set
         const isLocallyMuted = Boolean(incomingMutes[peerId])
         audio.muted = isLocallyMuted
-        audio.volume = isLocallyMuted ? 0 : 1
-        audio.play().catch((err) => {
-          console.warn('Audio auto-play prevented (will resume on user interaction):', err)
-        })
+        audio.volume = isLocallyMuted ? 0 : 1.0
+        const playPromise = audio.play()
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('Audio auto-play prevented by browser policy (will resume on click):', err)
+          })
+        }
       }
 
       // Attach local audio track if we already have mic stream
@@ -222,18 +233,29 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         const mem = members.find((m) => m.player.id === peerId)
         const isTeammate = Boolean(myTeam && mem?.team === myTeam)
         const isMutual = isMutualConsentActive(peerId)
-        const isBlocked = isTeamMatch ? (isTeammate && Boolean(blockedRecipients[peerId])) || (!isTeammate && !isMutual) : false
+        const isBlocked = isTeamMatch
+          ? (isTeammate && Boolean(blockedRecipients[peerId])) || (!isTeammate && !isMutual)
+          : false
 
-        mediaStreamRef.current.getAudioTracks().forEach((track) => {
-          try {
-            const sender = pc.addTrack(track, mediaStreamRef.current!)
-            if (isBlocked || isMuted) {
-              sender.replaceTrack(null).catch(() => {})
+        const track = mediaStreamRef.current.getAudioTracks()[0]
+        if (track) {
+          const transceiver = pc.getTransceivers().find(
+            (t) => t.sender.track?.kind === 'audio' || t.receiver.track?.kind === 'audio'
+          )
+          if (transceiver && transceiver.sender) {
+            transceiver.sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
+            transceiver.direction = 'sendrecv'
+          } else {
+            try {
+              const sender = pc.addTrack(track, mediaStreamRef.current)
+              if (isBlocked || isMuted) {
+                sender.replaceTrack(null).catch(() => {})
+              }
+            } catch {
+              // ignore duplicate track
             }
-          } catch {
-            // ignore duplicate track
           }
-        })
+        }
       }
 
       return pc
@@ -248,24 +270,29 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         const mem = members.find((m) => m.player.id === peerId)
         const isTeammate = Boolean(myTeam && mem?.team === myTeam)
         const isMutual = isMutualConsentActive(peerId)
-        const isBlocked = isTeamMatch ? (isTeammate && Boolean(blockedRecipients[peerId])) || (!isTeammate && !isMutual) : false
+        const isBlocked = isTeamMatch
+          ? (isTeammate && Boolean(blockedRecipients[peerId])) || (!isTeammate && !isMutual)
+          : false
 
-        const senders = pc.getSenders()
-        stream.getAudioTracks().forEach((track) => {
-          const existingSender = senders.find((s) => !s.track || s.track.kind === 'audio')
-          if (existingSender) {
-            existingSender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
-          } else {
-            try {
-              const sender = pc.addTrack(track, stream)
-              if (isBlocked || isMuted) {
-                sender.replaceTrack(null).catch(() => {})
-              }
-            } catch {
-              // ignore
+        const track = stream.getAudioTracks()[0]
+        if (!track) return
+
+        const transceiver = pc.getTransceivers().find(
+          (t) => t.sender.track?.kind === 'audio' || t.receiver.track?.kind === 'audio'
+        )
+        if (transceiver && transceiver.sender) {
+          transceiver.sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
+          transceiver.direction = 'sendrecv'
+        } else {
+          try {
+            const sender = pc.addTrack(track, stream)
+            if (isBlocked || isMuted) {
+              sender.replaceTrack(null).catch(() => {})
             }
+          } catch {
+            // ignore duplicate track
           }
-        })
+        }
       })
     },
     [isTeamMatch, blockedRecipients, isMuted, members, myTeam, isMutualConsentActive]
@@ -349,7 +376,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           onSendSignal?.(roomId, m.player.id, { type: 'ready' })
 
           if (myPlayerId > m.player.id) {
-            pc.createOffer()
+            pc.createOffer({ offerToReceiveAudio: true })
               .then((offer) => pc.setLocalDescription(offer).then(() => offer))
               .then((offer) => {
                 onSendSignal?.(roomId, m.player.id, { type: 'offer', sdp: offer })
@@ -385,7 +412,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       if (data.type === 'ready') {
         if (myPlayerId > from_player_id) {
           try {
-            const offer = await pc.createOffer()
+            const offer = await pc.createOffer({ offerToReceiveAudio: true })
             await pc.setLocalDescription(offer)
             onSendSignal?.(roomId, from_player_id, { type: 'offer', sdp: offer })
           } catch (err) {
@@ -520,11 +547,38 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       const audio = audioElementsRef.current.get(peerId)
       if (audio) {
         audio.muted = nextMuted
-        audio.volume = nextMuted ? 0 : 1
+        audio.volume = nextMuted ? 0 : 1.0
+        if (!nextMuted && audio.paused && audio.srcObject) {
+          audio.play().catch(() => {})
+        }
       }
       return { ...prev, [peerId]: nextMuted }
     })
   }
+
+  // Document interaction audio unlocker (resumes any browser-blocked audio outputs)
+  useEffect(() => {
+    const resumeAllAudio = () => {
+      audioElementsRef.current.forEach((audio) => {
+        if (audio.paused && audio.srcObject && !audio.muted) {
+          audio.play().catch(() => {})
+        }
+      })
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {})
+      }
+    }
+
+    window.addEventListener('click', resumeAllAudio, { passive: true })
+    window.addEventListener('touchstart', resumeAllAudio, { passive: true })
+    window.addEventListener('keydown', resumeAllAudio, { passive: true })
+
+    return () => {
+      window.removeEventListener('click', resumeAllAudio)
+      window.removeEventListener('touchstart', resumeAllAudio)
+      window.removeEventListener('keydown', resumeAllAudio)
+    }
+  }, [])
 
   // Quick preset: Talk to Everyone (unblock all teammates)
   const setTalkToEveryone = () => {
@@ -580,6 +634,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       audioElementsRef.current.forEach((audio) => {
         audio.pause()
         audio.srcObject = null
+        if (audio.parentNode) {
+          audio.parentNode.removeChild(audio)
+        }
       })
       audioElementsRef.current.clear()
     }

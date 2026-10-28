@@ -625,24 +625,26 @@ def on_delivery_submit(data):
             )
         else:
             if getattr(match, "is_super_over", False) and match.phase.value == "SUPER_OVER_FIRST" and match.current_over == 0 and match.current_ball == 0 and match.target is None:
-                socketio.emit(
-                    "match:super_over",
-                    {
-                        "message": "MATCH TIED: ENTERING SUPER OVER",
-                        "batting_team": match.batting_team,
-                        "overs": 1,
-                        "wickets": 2,
-                    },
-                    room=room_id,
-                )
-                sys_msg = {
-                    "id": str(uuid.uuid4()),
-                    "sender_id": "system",
-                    "sender_name": "FoldCricket Umpire",
-                    "text": "⚔️ MATCH TIED: ENTERING SUPER OVER! 1 Over • Max 2 Wickets per side.",
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                }
-                socketio.emit("chat:message", sys_msg, room=room_id)
+                if match.id not in _super_over_announced_matches:
+                    _super_over_announced_matches.add(match.id)
+                    socketio.emit(
+                        "match:super_over",
+                        {
+                            "message": "MATCH TIED: ENTERING SUPER OVER",
+                            "batting_team": match.batting_team,
+                            "overs": 1,
+                            "wickets": 2,
+                        },
+                        room=room_id,
+                    )
+                    sys_msg = {
+                        "id": str(uuid.uuid4()),
+                        "sender_id": "system",
+                        "sender_name": "FoldCricket Umpire",
+                        "text": "⚔️ MATCH TIED: ENTERING SUPER OVER! 1 Over • Max 2 Wickets per side.",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    }
+                    socketio.emit("chat:message", sys_msg, room=room_id)
 
             if room.status == RoomStatus.INNINGS_BREAK:
                 _cancel_delivery_timer(room_id)
@@ -975,7 +977,7 @@ def on_ping_check(data):
 
 
 # ---------------------------------------------------------------------------
-# Server delivery & innings timers
+_super_over_announced_matches: set[str] = set()
 # ---------------------------------------------------------------------------
 
 _delivery_timers: dict[str, threading.Timer] = {}
@@ -1048,16 +1050,18 @@ def _schedule_delivery_timer(room_id: str, match_id: str) -> None:
                 )
             else:
                 if getattr(match, "is_super_over", False) and match.phase.value == "SUPER_OVER_FIRST" and match.current_over == 0 and match.current_ball == 0 and match.target is None:
-                    socketio.emit(
-                        "match:super_over",
-                        {
-                            "message": "MATCH TIED: ENTERING SUPER OVER",
-                            "batting_team": match.batting_team,
-                            "overs": 1,
-                            "wickets": 2,
-                        },
-                        room=room_id,
-                    )
+                    if match.id not in _super_over_announced_matches:
+                        _super_over_announced_matches.add(match.id)
+                        socketio.emit(
+                            "match:super_over",
+                            {
+                                "message": "MATCH TIED: ENTERING SUPER OVER",
+                                "batting_team": match.batting_team,
+                                "overs": 1,
+                                "wickets": 2,
+                            },
+                            room=room_id,
+                        )
                 if room and room.status == RoomStatus.INNINGS_BREAK:
                     _cancel_delivery_timer(room_id)
                     first_runs = match.team_a_runs if match.batting_team == "B" else match.team_b_runs
@@ -1088,8 +1092,17 @@ def _schedule_delivery_timer(room_id: str, match_id: str) -> None:
                 elif room and room.status == RoomStatus.INNINGS_ACTIVE and match.active_bowler_id:
                     _schedule_delivery_timer(room_id, match.id)
 
-    from ..services.room_service import DELIVERY_TIMEOUT_SECONDS
-    timer = threading.Timer(DELIVERY_TIMEOUT_SECONDS + 1, timeout_check)
+    from ..services.room_service import DELIVERY_TIMEOUT_SECONDS, get_delivery_timeout_seconds
+    match = repo.get_match_by_room(room_id)
+    if match and match.delivery_deadline:
+        remaining = (match.delivery_deadline - datetime.utcnow()).total_seconds()
+        delay = max(1.0, remaining + 0.5)
+    elif match:
+        delay = float(get_delivery_timeout_seconds(match) + 1)
+    else:
+        delay = float(DELIVERY_TIMEOUT_SECONDS + 1)
+
+    timer = threading.Timer(delay, timeout_check)
     timer.daemon = True
     timer.start()
     _delivery_timers[key] = timer
@@ -1151,7 +1164,7 @@ def on_match_resume(data):
 
     match = repo.get_match_by_room(room_id)
     if match and match.active_bowler_id and not match.winner:
-        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=room_service.DELIVERY_TIMEOUT_SECONDS)
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=room_service.get_delivery_timeout_seconds(match))
         repo.save_match(match)
         _schedule_delivery_timer(room_id, match.id)
 

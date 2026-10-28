@@ -27,6 +27,7 @@ interface UseSocketReturn {
   matchFinished: { winner: string; result_summary: string } | null
   allOutInfo: AllOutInfo | null
   superOverInfo: SuperOverInfo | null
+  clearSuperOverInfo: () => void
   lastError: string | null
   pingLatency: number | null
   voiceStates: Record<string, { is_speaking: boolean; is_muted: boolean; player_name: string }>
@@ -347,6 +348,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     matchFinished,
     allOutInfo,
     superOverInfo,
+    clearSuperOverInfo: useCallback(() => setSuperOverInfo(null), []),
     lastError,
     pingLatency,
     voiceStates,

@@ -134,7 +134,7 @@
   color: var(--color-team-a);
   font-size: 0.88rem;
   margin: 14px 16px 0;
-  animation: fadeIn 5s ease;
+  animation: fadeIn 2s ease;
 }
 
 .tabs {

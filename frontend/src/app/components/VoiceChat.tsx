@@ -11,8 +11,19 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import type { CrossTeamVoiceRequest, VoicePermissionEntry } from '../../services/types'
+import type {
+  CrossTeamVoiceRequest,
+  VideoCallInvite,
+  VideoCallSession,
+  VoicePermissionEntry,
+} from '../../services/types'
+import { VideoCallPanel } from './VideoCallPanel'
 import styles from './VoiceChat.module.css'
+
+// Beta video calling is parked for now: the whole video surface (camera
+// broadcast, private calls, video panel) stays implemented but hidden.
+// Set this to true to bring the video modules back into the app.
+const VIDEO_CALLS_ENABLED = false
 
 interface VoiceChatProps {
   roomId: string
@@ -37,6 +48,15 @@ interface VoiceChatProps {
   onRevokeCrossTeam?: (roomId: string, targetId: string) => void
   voicePermissions?: VoicePermissionEntry[]
   isSoundMuted?: boolean
+  /** Beta video call: network suitability, call session state and controls. */
+  videoNetwork?: { allowed: boolean; reason: string; latency: number | null }
+  videoCallPeer?: VideoCallSession | null
+  incomingVideoCall?: VideoCallInvite | null
+  onRequestVideoCall?: (roomId: string, targetId: string, targetName?: string) => void
+  onRespondVideoCall?: (roomId: string, callerId: string, accept: boolean) => void
+  onEndVideoCall?: (roomId: string, peerId: string) => void
+  videoCallError?: string | null
+  onClearVideoCallError?: () => void
 }
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -70,9 +90,17 @@ function getRtcConfiguration(): RTCConfiguration {
   return { iceServers: servers }
 }
 
+function getSenderForKind(
+  pc: RTCPeerConnection,
+  kind: 'audio' | 'video'
+): RTCRtpSender | undefined {
+  return pc.getTransceivers().find((t) => t.receiver.track?.kind === kind)?.sender
+}
+
 export const VoiceChat: React.FC<VoiceChatProps> = ({
   roomId,
   myPlayerId,
+  myDisplayName,
   voiceStates,
   onVoiceStateChange,
   members = [],
@@ -88,11 +116,26 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   onRevokeCrossTeam,
   voicePermissions = [],
   isSoundMuted = false,
+  videoNetwork,
+  videoCallPeer = null,
+  incomingVideoCall = null,
+  onRequestVideoCall,
+  onRespondVideoCall,
+  onEndVideoCall,
+  videoCallError,
+  onClearVideoCallError,
 }) => {
   const [micEnabled, setMicEnabled] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [isSpeakingLocal, setIsSpeakingLocal] = useState(false)
+
+  // Beta video call state: 'off' | broadcast to authorized peers | private 1:1
+  const [videoMode, setVideoMode] = useState<'off' | 'broadcast' | 'call'>('off')
+  const [cameraOn, setCameraOn] = useState(false)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [remoteVideoStreams, setRemoteVideoStreams] = useState<Record<string, MediaStream>>({})
+  const videoStreamRef = useRef<MediaStream | null>(null)
 
   // Team Match Voice Control: tracks which teammates have outgoing voice blocked
   const [showVoiceListModal, setShowVoiceListModal] = useState(false)
@@ -153,31 +196,46 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     [voicePermissions, myPlayerId]
   )
 
+  // Can this peer be reached at all (teammate, SOLO opponent, or consented
+  // opponent in a team match)? The server rejects signalling otherwise.
+  const isMediaAuthorized = useCallback(
+    (peerId: string): boolean => {
+      if (!isTeamMatch) return true
+      const mem = members.find((m) => m.player.id === peerId)
+      return mem?.team === myTeam || isMutualConsentActive(peerId)
+    },
+    [isTeamMatch, members, myTeam, isMutualConsentActive]
+  )
+
+  // Whether my outgoing voice is blocked for this peer. Teammates (and the
+  // SOLO opponent) use the local block list; opponents additionally need
+  // mutual cross-team consent.
+  const isVoiceBlockedFor = useCallback(
+    (peerId: string, blockedMap: Record<string, boolean>): boolean => {
+      const mem = members.find((m) => m.player.id === peerId)
+      const isOpponent = isTeamMatch && mem?.team !== myTeam
+      if (isOpponent) return !isMutualConsentActive(peerId)
+      return Boolean(blockedMap[peerId])
+    },
+    [isTeamMatch, members, myTeam, isMutualConsentActive]
+  )
+
   // Apply real-time transport permissions to WebRTC senders
   const applyVoicePermissions = useCallback(
     (blockedMap: Record<string, boolean>) => {
       const localTrack = mediaStreamRef.current?.getAudioTracks()[0]
       peerConnectionsRef.current.forEach((pc, peerId) => {
-        const mem = members.find((m) => m.player.id === peerId)
-        const isTeammate = Boolean(myTeam && mem?.team === myTeam)
-        const isMutual = isMutualConsentActive(peerId)
-
-        // Block if explicitly blocked, or if opponent without mutual consent
-        const shouldBlock = isTeamMatch
-          ? (isTeammate && Boolean(blockedMap[peerId])) || (!isTeammate && !isMutual)
-          : false
-
-        const senders = pc.getSenders().filter((s) => !s.track || s.track.kind === 'audio')
-        senders.forEach((s) => {
-          if (!shouldBlock && localTrack && localTrack.enabled && !isMuted) {
-            s.replaceTrack(localTrack).catch(() => {})
-          } else {
-            s.replaceTrack(null).catch(() => {})
-          }
-        })
+        const shouldBlock = isVoiceBlockedFor(peerId, blockedMap)
+        const sender = getSenderForKind(pc, 'audio')
+        if (!sender) return
+        if (!shouldBlock && localTrack && localTrack.enabled && !isMuted) {
+          sender.replaceTrack(localTrack).catch(() => {})
+        } else {
+          sender.replaceTrack(null).catch(() => {})
+        }
       })
     },
-    [isTeamMatch, isMuted, members, myTeam, isMutualConsentActive]
+    [isMuted, isVoiceBlockedFor]
   )
 
   // Helper to create or get an RTCPeerConnection for a given peer ID
@@ -191,9 +249,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       const pc = new RTCPeerConnection(getRtcConfiguration())
       peerConnectionsRef.current.set(peerId, pc)
 
-      // Ensure audio transceiver exists so receiving audio over speaker works immediately
-      if (pc.getTransceivers().length === 0) {
+      // Ensure audio + video transceivers exist so receiving works immediately.
+      // The video sender stays trackless until a call starts, which avoids any
+      // renegotiation later: replaceTrack(null <-> camera) needs no new SDP.
+      if (!getSenderForKind(pc, 'audio')) {
         pc.addTransceiver('audio', { direction: 'sendrecv' })
+      }
+      if (!getSenderForKind(pc, 'video')) {
+        pc.addTransceiver('video', { direction: 'sendrecv' })
       }
 
       // Self-heal broken transports: drop the connection so a later snapshot
@@ -221,8 +284,25 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         }
       }
 
-      // Play incoming audio track through an attached HTMLAudioElement in the DOM
+      // Incoming video: publish the remote stream while the sender is actually
+      // transmitting (track unmuted) and drop the tile when they stop.
       pc.ontrack = (event) => {
+        if (event.track.kind === 'video') {
+          const publish = () =>
+            setRemoteVideoStreams((prev) => ({ ...prev, [peerId]: new MediaStream([event.track]) }))
+          const retract = () =>
+            setRemoteVideoStreams((prev) => {
+              if (!(peerId in prev)) return prev
+              const next = { ...prev }
+              delete next[peerId]
+              return next
+            })
+          event.track.onunmute = publish
+          event.track.onmute = retract
+          if (!event.track.muted) publish()
+          return
+        }
+
         let audio = audioElementsRef.current.get(peerId)
         if (!audio) {
           audio = document.createElement('audio')
@@ -249,72 +329,45 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       // Attach local audio track if we already have mic stream
       if (mediaStreamRef.current) {
-        const mem = members.find((m) => m.player.id === peerId)
-        const isTeammate = Boolean(myTeam && mem?.team === myTeam)
-        const isMutual = isMutualConsentActive(peerId)
-        const isBlocked = isTeamMatch
-          ? (isTeammate && Boolean(blockedRecipients[peerId])) || (!isTeammate && !isMutual)
-          : false
-
+        const isBlocked = isVoiceBlockedFor(peerId, blockedRecipients)
         const track = mediaStreamRef.current.getAudioTracks()[0]
-        if (track) {
-          const transceiver = pc.getTransceivers().find(
-            (t) => t.sender.track?.kind === 'audio' || t.receiver.track?.kind === 'audio'
-          )
-          if (transceiver && transceiver.sender) {
-            transceiver.sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
-            transceiver.direction = 'sendrecv'
-          } else {
-            try {
-              const sender = pc.addTrack(track, mediaStreamRef.current)
-              if (isBlocked || isMuted) {
-                sender.replaceTrack(null).catch(() => {})
-              }
-            } catch {
-              // ignore duplicate track
-            }
-          }
+        const sender = getSenderForKind(pc, 'audio')
+        if (track && sender) {
+          sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
         }
+      }
+
+      // Re-attach an in-progress camera to a freshly created transport
+      // (e.g. after a cross-team pair becomes authorized).
+      const videoTrack = videoStreamRef.current?.getVideoTracks()[0]
+      if (videoTrack && videoMode !== 'off') {
+        const shouldSend =
+          videoMode === 'call'
+            ? videoCallPeer?.state === 'active' && videoCallPeer.peerId === peerId
+            : !isVoiceBlockedFor(peerId, blockedRecipients)
+        getSenderForKind(pc, 'video')
+          ?.replaceTrack(shouldSend ? videoTrack : null)
+          .catch(() => {})
       }
 
       return pc
     },
-    [roomId, onSendSignal, isTeamMatch, blockedRecipients, isMuted, incomingMutes, isSoundMuted, members, myTeam, isMutualConsentActive]
+    [roomId, onSendSignal, blockedRecipients, isMuted, incomingMutes, isSoundMuted, members, isVoiceBlockedFor, videoMode, videoCallPeer]
   )
 
   // Attach local tracks to all existing peer connections respecting blocked state
   const addLocalTracksToAllPeers = useCallback(
     (stream: MediaStream) => {
       peerConnectionsRef.current.forEach((pc, peerId) => {
-        const mem = members.find((m) => m.player.id === peerId)
-        const isTeammate = Boolean(myTeam && mem?.team === myTeam)
-        const isMutual = isMutualConsentActive(peerId)
-        const isBlocked = isTeamMatch
-          ? (isTeammate && Boolean(blockedRecipients[peerId])) || (!isTeammate && !isMutual)
-          : false
-
+        const isBlocked = isVoiceBlockedFor(peerId, blockedRecipients)
         const track = stream.getAudioTracks()[0]
-        if (!track) return
-
-        const transceiver = pc.getTransceivers().find(
-          (t) => t.sender.track?.kind === 'audio' || t.receiver.track?.kind === 'audio'
-        )
-        if (transceiver && transceiver.sender) {
-          transceiver.sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
-          transceiver.direction = 'sendrecv'
-        } else {
-          try {
-            const sender = pc.addTrack(track, stream)
-            if (isBlocked || isMuted) {
-              sender.replaceTrack(null).catch(() => {})
-            }
-          } catch {
-            // ignore duplicate track
-          }
+        const sender = getSenderForKind(pc, 'audio')
+        if (track && sender) {
+          sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
         }
       })
     },
-    [isTeamMatch, blockedRecipients, isMuted, members, myTeam, isMutualConsentActive]
+    [blockedRecipients, isMuted, isVoiceBlockedFor]
   )
 
   // Initialize Microphone Media Stream and start signaling
@@ -481,10 +534,42 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     void run()
   }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId])
 
-  // Establish WebRTC connections once per peer (not once per snapshot).
+  const destroyPeer = useCallback((peerId: string) => {
+    const pc = peerConnectionsRef.current.get(peerId)
+    peerConnectionsRef.current.delete(peerId)
+    offeredPeersRef.current.delete(peerId)
+    readySentRef.current.delete(peerId)
+    iceQueuesRef.current.delete(peerId)
+    if (pc) {
+      try {
+        pc.close()
+      } catch {
+        // already closed
+      }
+    }
+    const audio = audioElementsRef.current.get(peerId)
+    if (audio) {
+      audio.pause()
+      audio.srcObject = null
+      audio.remove()
+      audioElementsRef.current.delete(peerId)
+    }
+    setRemoteVideoStreams((prev) => {
+      if (!(peerId in prev)) return prev
+      const next = { ...prev }
+      delete next[peerId]
+      return next
+    })
+  }, [])
+
+  // Establish WebRTC connections once per authorized peer (not once per
+  // snapshot). Cross-team pairs are skipped until mutual consent is granted:
+  // the server rejects their signalling, so negotiating earlier would leave a
+  // dead transport behind and silence the pair after approval.
   useEffect(() => {
     if (!roomId) return
-    const peerIds = new Set(members.filter((m) => m.player.id !== myPlayerId).map((m) => m.player.id))
+    const others = members.filter((m) => m.player.id !== myPlayerId)
+    const peerIds = new Set(others.map((m) => m.player.id))
     Array.from(offeredPeersRef.current).forEach((id) => {
       if (!peerIds.has(id)) offeredPeersRef.current.delete(id)
     })
@@ -492,37 +577,42 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       if (!peerIds.has(id)) readySentRef.current.delete(id)
     })
 
-    members
-      .filter((m) => m.player.id !== myPlayerId)
-      .forEach((m) => {
-        const pc = getOrCreatePeerConnection(m.player.id)
+    others.forEach((m) => {
+      if (!isMediaAuthorized(m.player.id)) {
+        // Consent revoked (or not granted yet): tear the transport down so no
+        // media keeps flowing and a later grant starts from a clean state.
+        destroyPeer(m.player.id)
+        return
+      }
 
-        if (!readySentRef.current.has(m.player.id)) {
-          readySentRef.current.add(m.player.id)
-          onSendSignal?.(roomId, m.player.id, { type: 'ready' })
-        }
+      const pc = getOrCreatePeerConnection(m.player.id)
 
-        // Higher player id is the sole offerer for this pair.
-        if (myPlayerId <= m.player.id) return
-        if (offeredPeersRef.current.has(m.player.id)) return
-        if (pc.signalingState !== 'stable') return
-        if (pc.connectionState === 'connected') {
-          offeredPeersRef.current.add(m.player.id)
-          return
-        }
+      if (!readySentRef.current.has(m.player.id)) {
+        readySentRef.current.add(m.player.id)
+        onSendSignal?.(roomId, m.player.id, { type: 'ready' })
+      }
 
+      // Higher player id is the sole offerer for this pair.
+      if (myPlayerId <= m.player.id) return
+      if (offeredPeersRef.current.has(m.player.id)) return
+      if (pc.signalingState !== 'stable') return
+      if (pc.connectionState === 'connected') {
         offeredPeersRef.current.add(m.player.id)
-        pc.createOffer({ offerToReceiveAudio: true })
-          .then((offer) => pc.setLocalDescription(offer).then(() => offer))
-          .then((offer) => {
-            onSendSignal?.(roomId, m.player.id, { type: 'offer', sdp: offer })
-          })
-          .catch((err) => {
-            offeredPeersRef.current.delete(m.player.id)
-            console.warn('Error creating auto-receive offer:', err)
-          })
-      })
-  }, [members, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection])
+        return
+      }
+
+      offeredPeersRef.current.add(m.player.id)
+      pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+        .then((offer) => pc.setLocalDescription(offer).then(() => offer))
+        .then((offer) => {
+          onSendSignal?.(roomId, m.player.id, { type: 'offer', sdp: offer })
+        })
+        .catch((err) => {
+          offeredPeersRef.current.delete(m.player.id)
+          console.warn('Error creating auto-receive offer:', err)
+        })
+    })
+  }, [members, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection, isMediaAuthorized, destroyPeer])
 
   // Synchronize master Sound On / Off setting to physical audio playback elements
   useEffect(() => {
@@ -567,22 +657,138 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     }
     onVoiceStateChange(roomId, false, nextMuted)
 
-    // Update WebRTC senders immediately
+    // Update WebRTC audio senders immediately
     peerConnectionsRef.current.forEach((pc, peerId) => {
-      const mem = members.find((m) => m.player.id === peerId)
-      const isTeammate = Boolean(myTeam && mem?.team === myTeam)
-      const isMutual = isMutualConsentActive(peerId)
-      const isBlocked = isTeamMatch ? (isTeammate && Boolean(blockedRecipients[peerId])) || (!isTeammate && !isMutual) : false
+      const sender = getSenderForKind(pc, 'audio')
+      if (!sender) return
       const localTrack = mediaStreamRef.current?.getAudioTracks()[0]
-      const senders = pc.getSenders().filter((s) => !s.track || s.track.kind === 'audio')
-      senders.forEach((s) => {
-        if (!nextMuted && !isBlocked && localTrack) {
-          s.replaceTrack(localTrack).catch(() => {})
-        } else {
-          s.replaceTrack(null).catch(() => {})
-        }
-      })
+      const isBlocked = isVoiceBlockedFor(peerId, blockedRecipients)
+      if (!nextMuted && !isBlocked && localTrack) {
+        sender.replaceTrack(localTrack).catch(() => {})
+      } else {
+        sender.replaceTrack(null).catch(() => {})
+      }
     })
+  }
+
+  // ---------------------------------------------------------------------
+  // Beta video call: camera capture, broadcast mode and private 1:1 calls
+  // ---------------------------------------------------------------------
+
+  const stopCameraStream = useCallback(() => {
+    videoStreamRef.current?.getTracks().forEach((track) => track.stop())
+    videoStreamRef.current = null
+    setCameraOn(false)
+  }, [])
+
+  const ensureCamera = useCallback(async (): Promise<boolean> => {
+    if (videoStreamRef.current) return true
+    if (!videoNetwork?.allowed) {
+      setCameraError(videoNetwork?.reason || 'Network is not good enough for video right now.')
+      return false
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 15, max: 24 },
+          facingMode: 'user',
+        },
+        audio: false,
+      })
+      videoStreamRef.current = stream
+      setCameraError(null)
+      setCameraOn(true)
+      return true
+    } catch (err) {
+      console.warn('Camera access denied or unavailable:', err)
+      setCameraError('Camera permission denied or the camera is in use by another app.')
+      return false
+    }
+  }, [videoNetwork?.allowed, videoNetwork?.reason])
+
+  // Keep every authorized peer's video sender in sync with the current mode:
+  // broadcast = everyone who may hear me, call = only the call partner.
+  useEffect(() => {
+    const track = videoStreamRef.current?.getVideoTracks()[0] ?? null
+    const callPeerId = videoCallPeer?.state === 'active' ? videoCallPeer.peerId : null
+    peerConnectionsRef.current.forEach((pc, peerId) => {
+      const shouldSend =
+        Boolean(track) &&
+        (videoMode === 'call'
+          ? callPeerId === peerId
+          : videoMode === 'broadcast'
+            ? isMediaAuthorized(peerId) && !isVoiceBlockedFor(peerId, blockedRecipients)
+            : false)
+      getSenderForKind(pc, 'video')
+        ?.replaceTrack(shouldSend ? track : null)
+        .catch(() => {})
+    })
+  }, [videoMode, cameraOn, videoCallPeer, isMediaAuthorized, isVoiceBlockedFor, blockedRecipients, members])
+
+  // A private call that ends (or is declined) always releases the camera.
+  useEffect(() => {
+    if (videoMode === 'call' && !videoCallPeer) {
+      stopCameraStream()
+      setVideoMode('off')
+    }
+  }, [videoMode, videoCallPeer, stopCameraStream])
+
+  // Drop video immediately if the connection degrades below the beta bar.
+  const networkAllowed = videoNetwork?.allowed ?? false
+  useEffect(() => {
+    if (!networkAllowed && videoMode !== 'off') {
+      stopCameraStream()
+      setVideoMode('off')
+      setCameraError(videoNetwork?.reason || 'Video stopped: network quality dropped.')
+    }
+  }, [networkAllowed, videoMode, stopCameraStream, videoNetwork?.reason])
+
+  const toggleBroadcastCamera = async () => {
+    if (videoMode === 'broadcast') {
+      stopCameraStream()
+      setVideoMode('off')
+      return
+    }
+    if (videoMode === 'call') {
+      // Inside a private call this only stops sending video, audio stays live.
+      if (cameraOn) stopCameraStream()
+      else await ensureCamera()
+      return
+    }
+    const started = await ensureCamera()
+    if (started) setVideoMode('broadcast')
+  }
+
+  const startPrivateVideoCall = async (peerId: string) => {
+    if (!onRequestVideoCall) return
+    if (videoCallPeer) return
+    const started = await ensureCamera()
+    if (!started) return
+    setVideoMode('call')
+    const targetName = members.find((m) => m.player.id === peerId)?.player.display_name
+    onRequestVideoCall(roomId, peerId, targetName)
+    setShowVoiceListModal(false)
+    onCloseVoiceList?.()
+  }
+
+  const acceptIncomingVideoCall = async () => {
+    if (!incomingVideoCall || !onRespondVideoCall) return
+    const started = await ensureCamera()
+    if (started) setVideoMode('call')
+    onRespondVideoCall(roomId, incomingVideoCall.from_player_id, true)
+  }
+
+  const declineIncomingVideoCall = () => {
+    if (!incomingVideoCall || !onRespondVideoCall) return
+    onRespondVideoCall(roomId, incomingVideoCall.from_player_id, false)
+  }
+
+  const endPrivateVideoCall = () => {
+    if (videoCallPeer) onEndVideoCall?.(roomId, videoCallPeer.peerId)
+    stopCameraStream()
+    setVideoMode('off')
   }
 
   // Toggle outgoing voice for teammates: talk (blocked=false) or block your voice (blocked=true)
@@ -686,6 +892,10 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((t) => t.stop())
       }
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach((t) => t.stop())
+        videoStreamRef.current = null
+      }
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(() => {})
       }
@@ -712,10 +922,40 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const opponents = otherMembers.filter((m) => m.team !== myTeam)
 
   const blockedCount = otherMembers.filter((m) => {
-    const isTeammate = Boolean(myTeam && m.team === myTeam)
-    if (isTeammate) return Boolean(blockedRecipients[m.player.id])
-    return !isMutualConsentActive(m.player.id)
+    const isOpponent = isTeamMatch && m.team !== myTeam
+    if (isOpponent) return !isMutualConsentActive(m.player.id)
+    return Boolean(blockedRecipients[m.player.id])
   }).length
+
+  // A private call can be requested from any authorized peer; broadcast mode
+  // and private calls share one camera.
+  const videoBusy = Boolean(videoCallPeer)
+  const canStartVideo = Boolean(videoNetwork?.allowed) && !videoBusy
+  const videoUnavailableReason =
+    videoNetwork?.reason || 'Checking whether this connection can handle video…'
+  const videoErrorMessages: Record<string, string> = {
+    rate_limited: 'Too many video call attempts. Please wait a moment.',
+    no_pending_call: 'That call is no longer available.',
+    player_not_in_room: 'That player is no longer in the room.',
+    invalid_target: 'You cannot call that player.',
+    not_authenticated: 'Your session expired. Please reconnect.',
+    declined: 'The video call was declined.',
+    no_answer: 'No answer. The video call timed out.',
+    call_failed: 'The video call could not be started.',
+    target_offline: 'That player is not online right now.',
+  }
+  const videoErrorText = videoCallError
+    ? videoErrorMessages[videoCallError] || 'The video call could not be completed.'
+    : null
+
+  const closeVideoPanel = () => {
+    if (videoMode === 'call' || videoCallPeer) {
+      endPrivateVideoCall()
+      return
+    }
+    stopCameraStream()
+    setVideoMode('off')
+  }
 
   return (
     <div className={styles.voiceContainer}>
@@ -744,23 +984,93 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         )}
       </button>
 
-      {/* Voice List Button (Shown only in team matches) */}
-      {isTeamMatch && (
-        <button
-          type="button"
-          className={`${styles.voiceListBtn} ${blockedCount > 0 ? styles.voiceListBtnBlocked : ''}`}
-          onClick={() => setShowVoiceListModal(true)}
-          title="Team Voice Control (Player List)"
-          aria-label="Open Team Voice Control"
-        >
-          <span className={styles.voiceListIcon}>👥</span>
-          <span className={styles.voiceListLabel}>
-            {blockedCount > 0 ? `Voice (${blockedCount} Blocked)` : 'Voice List'}
+      {/* Beta camera / video call toggle (hidden while VIDEO_CALLS_ENABLED is false) */}
+      {VIDEO_CALLS_ENABLED && (
+      <button
+        type="button"
+        className={`${styles.micBtn} ${videoMode !== 'off' ? styles.videoBtnActive : ''}`}
+        onClick={toggleBroadcastCamera}
+        disabled={videoMode === 'off' && !videoNetwork?.allowed}
+        title={
+          videoMode === 'call'
+            ? cameraOn
+              ? 'Stop sending video (audio stays live)'
+              : 'Resume sending video'
+            : videoNetwork?.allowed
+              ? videoMode === 'broadcast'
+                ? 'Stop camera broadcast'
+                : `Start camera (broadcast to everyone who can hear you) — ${videoNetwork.reason}`
+              : `Video unavailable: ${videoUnavailableReason}`
+        }
+        aria-label="Toggle Camera"
+      >
+        <span className={styles.micIcon}>
+          {cameraOn ? '🎥' : videoMode === 'call' ? '🟢' : '📷'}
+        </span>
+        <span className={styles.micLabel}>
+          {videoMode === 'call' ? (cameraOn ? 'In Video Call' : 'Camera Off') : videoMode === 'broadcast' ? 'Camera On' : 'Video'}
+          <span className={styles.betaTag}>BETA</span>
+        </span>
+      </button>
+      )}
+
+      {/* Voice control list (available in SOLO and TEAM matches) */}
+      <button
+        type="button"
+        className={`${styles.voiceListBtn} ${blockedCount > 0 ? styles.voiceListBtnBlocked : ''}`}
+        onClick={() => setShowVoiceListModal(true)}
+        title="Voice Control (who hears you, who you hear)"
+        aria-label="Open Voice Control"
+      >
+        <span className={styles.voiceListIcon}>👥</span>
+        <span className={styles.voiceListLabel}>
+          {blockedCount > 0 ? `Voice (${blockedCount} Blocked)` : 'Voice List'}
+        </span>
+        {crossTeamRequests.length > 0 && (
+          <span className={styles.incomingBadge}>{crossTeamRequests.length}</span>
+        )}
+      </button>
+
+      {/* Incoming private video call (hidden while VIDEO_CALLS_ENABLED is false) */}
+      {VIDEO_CALLS_ENABLED && incomingVideoCall && !videoCallPeer && (
+        <div className={styles.videoCallBanner} role="dialog" aria-label="Incoming video call">
+          <span className={styles.videoCallText}>
+            📹 <strong>{incomingVideoCall.from_player_name}</strong> invites you to a video call
           </span>
-          {crossTeamRequests.length > 0 && (
-            <span className={styles.incomingBadge}>{crossTeamRequests.length}</span>
-          )}
-        </button>
+          <div className={styles.videoCallActions}>
+            <button type="button" className={styles.videoCallAccept} onClick={acceptIncomingVideoCall}>
+              ✅ Accept
+            </button>
+            <button type="button" className={styles.videoCallDecline} onClick={declineIncomingVideoCall}>
+              ❌ Decline
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Outgoing private video call ringing */}
+      {VIDEO_CALLS_ENABLED && videoCallPeer?.state === 'ringing' && videoCallPeer.direction === 'outgoing' && (
+        <div className={styles.videoCallBanner} role="status">
+          <span className={styles.videoCallText}>
+            📹 Calling <strong>{videoCallPeer.peerName}</strong>…
+          </span>
+          <button type="button" className={styles.videoCallDecline} onClick={endPrivateVideoCall}>
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {VIDEO_CALLS_ENABLED && videoErrorText && (
+        <div className={styles.permError} onClick={() => onClearVideoCallError?.()}>
+          ⚠️ {videoErrorText}
+        </div>
+      )}
+
+      {/* Camera failure outside the video panel (e.g. permission denied when calling) */}
+      {VIDEO_CALLS_ENABLED && cameraError && videoMode === 'off' && !videoCallPeer && (
+        <div className={styles.permError} onClick={() => setCameraError(null)}>
+          ⚠️ {cameraError}
+        </div>
       )}
 
       {/* Active speaker pill */}
@@ -783,8 +1093,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         </div>
       )}
 
-      {/* Player List Voice Permissions Modal (Only in team matches) */}
-      {isTeamMatch && showVoiceListModal && (
+      {/* Player List Voice Permissions Modal (SOLO + TEAM) */}
+      {showVoiceListModal && (
         <div
           className={styles.modalOverlay}
           onClick={() => {
@@ -797,8 +1107,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
               <div className={styles.modalTitleGroup}>
                 <span style={{ fontSize: '1.4rem' }}>🎙️</span>
                 <div>
-                  <h3 className={styles.modalTitle}>Voice Control (Team Match)</h3>
-                  <span className={styles.modalSub}>Manage who can hear your voice and who you listen to</span>
+                  <h3 className={styles.modalTitle}>
+                    {VIDEO_CALLS_ENABLED ? 'Voice & Video Control' : 'Voice Control'}
+                  </h3>
+                  <span className={styles.modalSub}>
+                    {VIDEO_CALLS_ENABLED
+                      ? 'Manage who can hear you, who you hear, and start private video calls'
+                      : 'Manage who can hear you and who you hear'}
+                  </span>
                 </div>
               </div>
               <button
@@ -814,6 +1130,13 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
               </button>
             </div>
 
+            {/* Camera failure is surfaced here because the panel may be closed */}
+            {VIDEO_CALLS_ENABLED && cameraError && (
+              <div className={styles.permError} onClick={() => setCameraError(null)}>
+                ⚠️ {cameraError}
+              </div>
+            )}
+
             {/* Quick Presets */}
             <div className={styles.presetSection}>
               <span className={styles.sectionTitle}>Quick Presets</span>
@@ -823,14 +1146,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                   className={styles.presetBtn}
                   onClick={setTalkToEveryone}
                 >
-                  🗣️ Talk to All Teammates
+                  {isTeamMatch ? '🗣️ Talk to All Teammates' : '🗣️ Let Opponent Hear Me'}
                 </button>
                 <button
                   type="button"
                   className={styles.presetBtn}
                   onClick={setTeamOnly}
                 >
-                  🛡️ Team Only (Block Opponents)
+                  {isTeamMatch ? '🛡️ Team Only (Block Opponents)' : '🚫 Block My Voice'}
                 </button>
               </div>
             </div>
@@ -923,6 +1246,23 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                           >
                             {isListeningMuted ? '🔇' : '🔊'}
                           </button>
+                          {VIDEO_CALLS_ENABLED && (
+                            <button
+                              type="button"
+                              className={styles.videoCallBtn}
+                              disabled={!canStartVideo}
+                              onClick={() => startPrivateVideoCall(peerId)}
+                              title={
+                                videoNetwork?.allowed
+                                  ? videoBusy
+                                    ? 'Finish the current video call first'
+                                    : `Start a private video call with ${m.player.display_name}`
+                                  : `Video unavailable: ${videoUnavailableReason}`
+                              }
+                            >
+                              📹 Video
+                            </button>
+                          )}
                         </div>
                       </div>
                     )
@@ -942,6 +1282,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                     const peerId = m.player.id
                     const isMutual = isMutualConsentActive(peerId)
                     const isPending = isRequestPending(peerId)
+                    const isBlocked = Boolean(blockedRecipients[peerId])
                     const isListeningMuted = Boolean(incomingMutes[peerId])
                     const isSpeaking = voiceStates[peerId]?.is_speaking || false
 
@@ -961,9 +1302,28 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                           </div>
                         </div>
 
-                        {/* Cross-team mutual consent actions */}
+                        {/* SOLO: direct talk/block. TEAM: cross-team mutual consent. */}
                         <div className={styles.playerVoiceActions}>
-                          {isMutual ? (
+                          {!isTeamMatch ? (
+                            <>
+                              <button
+                                type="button"
+                                className={`${styles.voiceBtn} ${styles.voiceBtnTalk} ${!isBlocked ? styles.voiceBtnActive : ''}`}
+                                onClick={() => setPlayerVoice(peerId, false)}
+                                title={`Allow ${m.player.display_name} to hear you`}
+                              >
+                                🗣️ Talk
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.voiceBtn} ${styles.voiceBtnBlock} ${isBlocked ? styles.voiceBtnActiveBlock : ''}`}
+                                onClick={() => setPlayerVoice(peerId, true)}
+                                title={`Block your voice from ${m.player.display_name}`}
+                              >
+                                🚫 Block your voice
+                              </button>
+                            </>
+                          ) : isMutual ? (
                             <>
                               <button
                                 type="button"
@@ -1008,6 +1368,23 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                           >
                             {isListeningMuted ? '🔇' : '🔊'}
                           </button>
+                          {VIDEO_CALLS_ENABLED && (
+                            <button
+                              type="button"
+                              className={styles.videoCallBtn}
+                              disabled={!canStartVideo}
+                              onClick={() => startPrivateVideoCall(peerId)}
+                              title={
+                                videoNetwork?.allowed
+                                  ? videoBusy
+                                    ? 'Finish the current video call first'
+                                    : `Start a private video call with ${m.player.display_name} (accepting also opens voice)`
+                                  : `Video unavailable: ${videoUnavailableReason}`
+                              }
+                            >
+                              📹 Video
+                            </button>
+                          )}
                         </div>
                       </div>
                     )
@@ -1018,7 +1395,16 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
             <div className={styles.modalFooter}>
               <div className={styles.modalFooterHint}>
-                💡 <strong>Mutual Privacy Policy:</strong> Teammate talk is private by default. Cross-team voice requires mutual consent (Request & Accept) and can be revoked at any time.
+                {isTeamMatch ? (
+                  <>
+                    💡 <strong>Mutual Privacy Policy:</strong> Teammate talk is private by default. Cross-team voice requires mutual consent (Request & Accept) and can be revoked at any time.
+                  </>
+                ) : (
+                  <>
+                    💡 <strong>Privacy:</strong> Teammates and your opponent can only hear you while you allow it.
+                    {VIDEO_CALLS_ENABLED ? ' Video requires a good connection and mutual consent.' : ''}
+                  </>
+                )}
               </div>
               <button
                 type="button"
@@ -1034,6 +1420,31 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Beta video surface (broadcast or private 1:1), hidden while VIDEO_CALLS_ENABLED is false */}
+      {VIDEO_CALLS_ENABLED && (
+        <VideoCallPanel
+          isOpen={videoMode !== 'off' || Boolean(videoCallPeer)}
+          onClose={closeVideoPanel}
+          members={members}
+          myPlayerId={myPlayerId}
+          myDisplayName={myDisplayName}
+          isMuted={isMuted || !micEnabled}
+          onToggleMute={toggleMute}
+          localStream={videoStreamRef.current}
+          remoteStreams={remoteVideoStreams}
+          cameraOn={cameraOn}
+          cameraError={cameraError}
+          network={{
+            allowed: Boolean(videoNetwork?.allowed),
+            reason: videoNetwork?.reason || 'Checking whether this connection can handle video…',
+            latency: videoNetwork?.latency ?? null,
+          }}
+          callPeer={videoCallPeer}
+          onToggleCamera={toggleBroadcastCamera}
+          canToggleCamera={Boolean(videoNetwork?.allowed)}
+        />
       )}
     </div>
   )

@@ -532,6 +532,128 @@
   opacity: 0.9;
 }
 
+/* ---------------------------------------------------------------------
+   Beta video: camera toggle accent, per-player call button, call banners
+   --------------------------------------------------------------------- */
+
+.videoBtnActive {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #3b82f6;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.35);
+}
+
+.betaTag {
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.videoCallBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.videoCallBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.videoCallBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.videoCallBanner {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  animation: callBannerIn 0.2s ease-out;
+}
+
+@keyframes callBannerIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.videoCallText {
+  color: var(--color-text);
+}
+
+.videoCallActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.videoCallAccept,
+.videoCallDecline {
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.videoCallAccept {
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  color: #22c55e;
+}
+
+.videoCallAccept:hover {
+  background: rgba(34, 197, 94, 0.28);
+}
+
+.videoCallDecline {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+.videoCallDecline:hover {
+  background: rgba(239, 68, 68, 0.24);
+}
+
+@media (max-width: 600px) {
+  .videoCallBanner {
+    right: auto;
+    left: 0;
+    white-space: normal;
+    max-width: calc(100vw - 24px);
+  }
+}
+
 .incomingSection {
   background: rgba(234, 179, 8, 0.08);
   border: 1px solid rgba(234, 179, 8, 0.3);

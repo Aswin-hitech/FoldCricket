@@ -1117,3 +1117,113 @@ def cleanup_player_voice(room_id: str | Any, player_id: str) -> None:
     if hasattr(room_id, "id"):
         room_id = room_id.id
     repo.cleanup_player_voice_permissions(room_id, player_id)
+
+
+# ---------------------------------------------------------------------------
+# 1:1 Video call signalling (beta)
+#
+# Video media itself never touches the server: it is carried by the same
+# WebRTC peer connection used for voice (and therefore inherits the exact
+# same authorization rules). These functions only track call intent so the
+# callee can be asked before any camera frames are sent.
+# ---------------------------------------------------------------------------
+
+VIDEO_CALL_PENDING_TTL_SECONDS = 45
+_pending_video_calls: dict[tuple[str, str, str], datetime] = {}
+
+
+def _prune_pending_video_calls(now: Optional[datetime] = None) -> None:
+    now = now or datetime.utcnow()
+    for key, created in list(_pending_video_calls.items()):
+        if (now - created).total_seconds() > VIDEO_CALL_PENDING_TTL_SECONDS:
+            _pending_video_calls.pop(key, None)
+
+
+def request_video_call(room_id: str | Any, caller: Player, target_id: str) -> tuple[dict, str]:
+    """Record a pending 1:1 video call and return (payload for callee, callee socket)."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+
+    room = repo.get_room(room_id)
+    if not room:
+        raise ValueError("room_not_found")
+    if not target_id or target_id == caller.id:
+        raise ValueError("invalid_target")
+
+    caller_mem = repo.get_membership(room_id, caller.id)
+    target_mem = repo.get_membership(room_id, target_id)
+    target_player = repo.get_player(target_id)
+    if not caller_mem or not target_mem or not target_player:
+        raise ValueError("player_not_in_room")
+
+    _prune_pending_video_calls()
+    # One outstanding call per direction; a retry simply refreshes the request.
+    _pending_video_calls[(room_id, caller.id, target_id)] = datetime.utcnow()
+
+    payload = {
+        "room_id": room_id,
+        "from_player_id": caller.id,
+        "from_player_name": caller.display_name,
+        "from_team": caller_mem.team,
+        "to_player_id": target_id,
+    }
+    return payload, target_player.socket_id or ""
+
+
+def respond_video_call(
+    room_id: str | Any, responder: Player, caller_id: str, accept: bool
+) -> tuple[bool, str]:
+    """Accept/decline a pending call. Accepting a cross-team call also grants the
+    mutual media consent that the WebRTC signalling layer requires."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+
+    _prune_pending_video_calls()
+    key = (room_id, caller_id, responder.id)
+    if key not in _pending_video_calls:
+        raise ValueError("no_pending_call")
+    _pending_video_calls.pop(key, None)
+
+    caller_player = repo.get_player(caller_id)
+    responder_mem = repo.get_membership(room_id, responder.id)
+    caller_mem = repo.get_membership(room_id, caller_id)
+    if not caller_player or not responder_mem or not caller_mem:
+        raise ValueError("player_not_in_room")
+
+    if accept and responder_mem.team != caller_mem.team:
+        repo.set_voice_permission(room_id, caller_id, responder.id, "MUTUAL_ACCEPTED")
+        repo.set_voice_permission(room_id, responder.id, caller_id, "MUTUAL_ACCEPTED")
+
+    return bool(accept), caller_player.socket_id or ""
+
+
+def end_video_call(room_id: str | Any, player: Player, peer_id: str) -> Optional[str]:
+    """Clear any pending/active call with peer_id and return the peer's socket."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+    _pending_video_calls.pop((room_id, player.id, peer_id), None)
+    _pending_video_calls.pop((room_id, peer_id, player.id), None)
+    peer = repo.get_player(peer_id)
+    return peer.socket_id if peer else None
+
+
+def has_pending_video_call(room_id: str | Any, caller_id: str, target_id: str) -> bool:
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+    _prune_pending_video_calls()
+    return (room_id, caller_id, target_id) in _pending_video_calls
+
+
+def cleanup_player_video_calls(room_id: str | Any, player_id: str) -> list[str]:
+    """Drop calls involving player_id; return the peers that must be notified."""
+    if hasattr(room_id, "id"):
+        room_id = room_id.id
+    _prune_pending_video_calls()
+    peers: set[str] = set()
+    for key in list(_pending_video_calls):
+        if key[0] != room_id:
+            continue
+        if player_id in (key[1], key[2]):
+            _pending_video_calls.pop(key, None)
+            peers.add(key[1] if key[1] != player_id else key[2])
+    return [peer_id for peer_id in peers if peer_id]

@@ -26,6 +26,7 @@ from ..security.utils import (
     join_rate_limiter,
     validate_chat_message,
     validate_display_name,
+    video_call_rate_limiter,
 )
 from ..services import room_service
 from ..services.supabase_logger import get_client_ip, log_ip_event_async, log_feedback_to_supabase_async
@@ -384,6 +385,7 @@ def on_disconnect():
             )
             _start_grace_timer(player.id, mem.room_id)
             room_service.cleanup_player_voice(mem.room_id, player.id)
+            _notify_video_call_peers(mem.room_id, player.id)
             _broadcast_snapshot(mem.room_id)
         elif room and room.status == RoomStatus.AWAITING_FIRST_BALL:
             # No clock is running yet, so there is nothing to pause/forfeit.
@@ -400,7 +402,20 @@ def on_disconnect():
                 room=mem.room_id,
             )
             room_service.cleanup_player_voice(mem.room_id, player.id)
+            _notify_video_call_peers(mem.room_id, player.id)
             _broadcast_snapshot(mem.room_id)
+
+
+def _notify_video_call_peers(room_id: str, player_id: str) -> None:
+    """A dropped player can no longer honour a pending video call."""
+    for peer_id in room_service.cleanup_player_video_calls(room_id, player_id):
+        peer = repo.get_player(peer_id)
+        if peer and peer.socket_id:
+            socketio.emit(
+                "video:call_ended",
+                {"room_id": room_id, "peer_id": player_id},
+                to=peer.socket_id,
+            )
 
 
 _grace_timers: dict[str, threading.Timer] = {}
@@ -1047,6 +1062,90 @@ def on_voice_cross_team_revoke(data):
     emit("voice:cross_team_revoked", {"room_id": room_id, "peer_id": target_id})
     emit("voice:cross_team_revoke_ack", _ok({"target_id": target_id}))
     _broadcast_snapshot(room_id)
+
+
+# ---------------------------------------------------------------------------
+# 1:1 Video call signalling (beta)
+# ---------------------------------------------------------------------------
+
+@socketio.on("video:call_request")
+def on_video_call_request(data):
+    player = _require_player()
+    if not player:
+        return emit("video:call_ack", _err("not_authenticated"))
+    if not video_call_rate_limiter.allow(player.id):
+        return emit("video:call_ack", _err("rate_limited"))
+
+    room_id = (data or {}).get("room_id", "")
+    target_id = (data or {}).get("target_id", "")
+    try:
+        payload, target_socket = room_service.request_video_call(room_id, player, target_id)
+    except (ValueError, PermissionError) as e:
+        return emit("video:call_ack", _err(str(e)))
+
+    if target_socket:
+        socketio.emit("video:call_incoming", payload, to=target_socket)
+    emit("video:call_ack", _ok({"target_id": target_id}))
+
+
+@socketio.on("video:call_response")
+def on_video_call_response(data):
+    player = _require_player()
+    if not player:
+        return emit("video:call_response_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    caller_id = (data or {}).get("caller_id", "")
+    accept = bool((data or {}).get("accept", False))
+
+    try:
+        accepted, caller_socket = room_service.respond_video_call(
+            room_id, player, caller_id, accept
+        )
+    except (ValueError, PermissionError) as e:
+        return emit("video:call_response_ack", _err(str(e)))
+
+    event = "video:call_accepted" if accepted else "video:call_declined"
+    caller_payload = {
+        "room_id": room_id,
+        "peer_id": player.id,
+        "peer_name": player.display_name,
+    }
+    if caller_socket:
+        socketio.emit(event, caller_payload, to=caller_socket)
+
+    caller_p = repo.get_player(caller_id)
+    emit(
+        event,
+        {
+            "room_id": room_id,
+            "peer_id": caller_id,
+            "peer_name": caller_p.display_name if caller_p else "Opponent",
+        },
+    )
+    emit("video:call_response_ack", _ok({"accepted": accepted}))
+    if accepted:
+        # Cross-team accepts create media consent, which snapshot consumers use
+        # to re-negotiate the WebRTC transport without a page reload.
+        _broadcast_snapshot(room_id)
+
+
+@socketio.on("video:call_end")
+def on_video_call_end(data):
+    player = _require_player()
+    if not player:
+        return
+
+    room_id = (data or {}).get("room_id", "")
+    peer_id = (data or {}).get("peer_id", "")
+    peer_socket = room_service.end_video_call(room_id, player, peer_id)
+    if peer_socket:
+        socketio.emit(
+            "video:call_ended",
+            {"room_id": room_id, "peer_id": player.id},
+            to=peer_socket,
+        )
+    emit("video:call_ended", {"room_id": room_id, "peer_id": peer_id})
 
 
 # ---------------------------------------------------------------------------

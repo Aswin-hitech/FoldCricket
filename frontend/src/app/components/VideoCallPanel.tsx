@@ -1,23 +1,65 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { MemberInfo } from '../../services/types'
+import type { VideoCallSession } from '../../services/types'
 import styles from './VideoCallPanel.module.css'
+
+interface PanelMember {
+  player: { id: string; display_name: string; connection_state?: string }
+  team?: 'A' | 'B' | string | null
+  is_captain?: boolean
+}
 
 interface VideoCallPanelProps {
   isOpen: boolean
+  /** Ends a private call, or stops the camera in broadcast mode. */
   onClose: () => void
-  members: MemberInfo[]
+  members: PanelMember[]
   myPlayerId: string
   myDisplayName: string
   isMuted: boolean
   onToggleMute: () => void
+  localStream: MediaStream | null
+  remoteStreams: Record<string, MediaStream>
+  cameraOn: boolean
+  cameraError: string | null
+  network: { allowed: boolean; reason: string; latency: number | null }
+  callPeer: VideoCallSession | null
+  onToggleCamera: () => void
+  canToggleCamera: boolean
+}
+
+/** Mirrors a live MediaStream into a muted <video> element. */
+const StreamVideo: React.FC<{ stream: MediaStream | null; mirrored?: boolean }> = ({
+  stream,
+  mirrored = false,
+}) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el) return
+    if (el.srcObject !== stream) el.srcObject = stream
+    if (stream) el.play().catch(() => {})
+    return () => {
+      if (el.srcObject === stream) el.srcObject = null
+    }
+  }, [stream])
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted
+      className={styles.videoStream}
+      style={mirrored ? undefined : { transform: 'none' }}
+    />
+  )
 }
 
 /**
- * Premium Video Call Panel:
- * - Real local camera stream preview with permissions handling
- * - Remote participant video tiles with connection state and speaking indicator
- * - Camera toggle, Mic toggle, Fullscreen, and Minimize/Expand controls
- * - Docked & Floating responsive layout without obscuring gameplay controls
+ * Beta video panel: shows the live local camera plus incoming peer video.
+ * Media is owned by VoiceChat (one camera, one WebRTC mesh); this panel only
+ * renders and exposes the camera/mic/call controls.
  */
 export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
   isOpen,
@@ -27,66 +69,18 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
   myDisplayName,
   isMuted,
   onToggleMute,
+  localStream,
+  remoteStreams,
+  cameraOn,
+  cameraError,
+  network,
+  callPeer,
+  onToggleCamera,
+  canToggleCamera,
 }) => {
-  const [cameraActive, setCameraActive] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
-  const [permissionError, setPermissionError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
-
-  const localVideoRef = useRef<HTMLVideoElement | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
-
-  // Start / stop local camera stream
-  const toggleCamera = async () => {
-    if (cameraActive) {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-        streamRef.current = null
-      }
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = null
-      }
-      setCameraActive(false)
-      setPermissionError(null)
-    } else {
-      try {
-        setPermissionError(null)
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-          audio: false,
-        })
-        streamRef.current = stream
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream
-          localVideoRef.current.play().catch(() => {})
-        }
-        setCameraActive(true)
-      } catch (err: unknown) {
-        console.warn('Camera access denied or unavailable:', err)
-        setPermissionError('Camera permission denied or camera in use by another app.')
-        setCameraActive(false)
-      }
-    }
-  }
-
-  // Clean up media tracks when closed or unmounted
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-        streamRef.current = null
-      }
-    }
-  }, [])
-
-  // Auto attach stream if ref becomes available
-  useEffect(() => {
-    if (cameraActive && streamRef.current && localVideoRef.current) {
-      localVideoRef.current.srcObject = streamRef.current
-      localVideoRef.current.play().catch(() => {})
-    }
-  }, [cameraActive, isMinimized])
 
   const toggleFullscreen = () => {
     if (!panelRef.current) return
@@ -99,10 +93,19 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
     }
   }
 
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+
   if (!isOpen) return null
 
-  // Other participants in the room
-  const otherMembers = members.filter((m) => m.player.id !== myPlayerId)
+  const inCall = Boolean(callPeer)
+  const peerMembers = inCall
+    ? members.filter((m) => m.player.id === callPeer?.peerId)
+    : members.filter((m) => m.player.id !== myPlayerId)
+  const callConnected = callPeer?.state === 'active'
 
   return (
     <div
@@ -111,21 +114,31 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
         isFullscreen ? styles.fullscreen : ''
       }`}
       role="region"
-      aria-label="Match Video Call"
+      aria-label={inCall ? 'Private video call' : 'Camera broadcast'}
     >
-      {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerTitle}>
           <span className={styles.liveDot} />
-          <span>Team Video Call ({members.length} Players)</span>
+          <span>
+            {inCall
+              ? callConnected
+                ? `📹 ${callPeer?.peerName || 'Video call'}`
+                : `⏳ Calling ${callPeer?.peerName || '…'}`
+              : `📷 Camera broadcast${
+                  Object.keys(remoteStreams).length ? ` (${Object.keys(remoteStreams).length} live)` : ''
+                }`}
+          </span>
+          {network.latency !== null && (
+            <span className={styles.networkTag}>{network.latency} ms</span>
+          )}
         </div>
         <div className={styles.headerActions}>
           <button
             type="button"
             className={styles.iconBtn}
             onClick={() => setIsMinimized((prev) => !prev)}
-            title={isMinimized ? 'Expand Call' : 'Minimize Call'}
-            aria-label={isMinimized ? 'Expand Call' : 'Minimize Call'}
+            title={isMinimized ? 'Expand' : 'Minimize'}
+            aria-label={isMinimized ? 'Expand' : 'Minimize'}
           >
             {isMinimized ? '🗖' : '🗕'}
           </button>
@@ -133,8 +146,8 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
             type="button"
             className={styles.iconBtn}
             onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             ⛶
           </button>
@@ -142,8 +155,8 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
             type="button"
             className={`${styles.iconBtn} ${styles.closeBtn}`}
             onClick={onClose}
-            title="Leave Call"
-            aria-label="Leave Call"
+            title={inCall ? 'Leave video call' : 'Stop camera'}
+            aria-label={inCall ? 'Leave video call' : 'Stop camera'}
           >
             ✕
           </button>
@@ -152,86 +165,97 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
 
       {!isMinimized && (
         <>
-          {permissionError && (
+          {(cameraError || !network.allowed) && (
             <div className={styles.errorBanner}>
-              <span>⚠️ {permissionError}</span>
+              <span>⚠️ {cameraError || network.reason}</span>
             </div>
           )}
 
-          {/* Grid of video / participant tiles */}
           <div className={styles.videoGrid}>
-            {/* Local Video Tile */}
             <div className={styles.videoTile}>
-              {cameraActive ? (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={styles.videoStream}
-                />
+              {localStream && cameraOn ? (
+                <StreamVideo stream={localStream} mirrored />
               ) : (
                 <div className={styles.avatarPlaceholder}>
                   <div className={styles.avatarCircle}>
                     {myDisplayName.charAt(0).toUpperCase()}
                   </div>
-                  <span className={styles.camOffNotice}>Camera Off</span>
+                  <span className={styles.camOffNotice}>
+                    {inCall && callConnected ? 'Sending audio only' : 'Camera off'}
+                  </span>
                 </div>
               )}
               <div className={styles.tileFooter}>
                 <span className={styles.playerName}>{myDisplayName} (You)</span>
                 <span className={styles.statusIcons}>
                   {isMuted ? '🔇' : '🎙️'}
-                  {cameraActive ? '📹' : '🚫'}
+                  {localStream && cameraOn ? '📹' : '🚫'}
                 </span>
               </div>
             </div>
 
-            {/* Remote Participant Tiles */}
-            {otherMembers.map((m) => (
-              <div key={m.player.id} className={styles.videoTile}>
-                <div className={styles.avatarPlaceholder}>
-                  <div
-                    className={styles.avatarCircle}
-                    style={{
-                      background: m.team === 'A' ? 'var(--color-team-a)' : 'var(--color-team-b)',
-                    }}
-                  >
-                    {m.player.display_name.charAt(0).toUpperCase()}
+            {peerMembers.map((m) => {
+              const stream = remoteStreams[m.player.id] || null
+              return (
+                <div key={m.player.id} className={styles.videoTile}>
+                  {stream ? (
+                    <StreamVideo stream={stream} />
+                  ) : (
+                    <div className={styles.avatarPlaceholder}>
+                      <div
+                        className={styles.avatarCircle}
+                        style={{
+                          background:
+                            m.team === 'A' ? 'var(--color-team-a)' : 'var(--color-team-b)',
+                        }}
+                      >
+                        {m.player.display_name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className={styles.waitingNotice}>
+                        {inCall && !callConnected
+                          ? 'Connecting…'
+                          : m.player.connection_state === 'CONNECTED'
+                            ? 'Camera off'
+                            : 'Offline'}
+                      </span>
+                    </div>
+                  )}
+                  <div className={styles.tileFooter}>
+                    <span className={styles.playerName}>
+                      {m.player.display_name} {m.is_captain ? '(C)' : ''}
+                    </span>
+                    <span
+                      className={styles.connIndicator}
+                      data-status={m.player.connection_state}
+                    />
                   </div>
-                  <span className={styles.waitingNotice}>
-                    {m.player.connection_state === 'CONNECTED' ? 'Listening' : 'Offline'}
-                  </span>
                 </div>
-                <div className={styles.tileFooter}>
-                  <span className={styles.playerName}>
-                    {m.player.display_name} {m.is_captain ? '(C)' : ''}
-                  </span>
-                  <span
-                    className={styles.connIndicator}
-                    data-status={m.player.connection_state}
-                  />
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          {/* Controls bar */}
           <div className={styles.controlsBar}>
             <button
               type="button"
-              className={`${styles.ctrlBtn} ${cameraActive ? styles.activeCtrl : ''}`}
-              onClick={toggleCamera}
-              title={cameraActive ? 'Turn Off Camera' : 'Turn On Camera'}
+              className={`${styles.ctrlBtn} ${cameraOn ? styles.activeCtrl : ''}`}
+              onClick={onToggleCamera}
+              disabled={!canToggleCamera}
+              title={
+                network.allowed
+                  ? cameraOn
+                    ? 'Stop sending video (audio stays live)'
+                    : 'Resume camera'
+                  : `Video unavailable: ${network.reason}`
+              }
             >
-              {cameraActive ? '📹 Stop Video' : '📷 Start Video'}
+              {cameraOn ? '📹 Camera On' : '📷 Camera Off'}
             </button>
 
             <button
               type="button"
               className={`${styles.ctrlBtn} ${!isMuted ? styles.activeCtrl : styles.mutedCtrl}`}
               onClick={onToggleMute}
-              title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+              title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
             >
               {isMuted ? '🔇 Unmute' : '🎙️ Mute'}
             </button>
@@ -240,9 +264,9 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
               type="button"
               className={`${styles.ctrlBtn} ${styles.endBtn}`}
               onClick={onClose}
-              title="Close Call Panel"
+              title={inCall ? 'End video call' : 'Stop camera'}
             >
-              🔴 End Call
+              {inCall ? '🔴 End Call' : '⏹ Stop Video'}
             </button>
           </div>
         </>

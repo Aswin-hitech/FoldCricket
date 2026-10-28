@@ -6,6 +6,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
+import { useNetworkQuality } from '../../hooks/useNetworkQuality'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { CoinTossModal } from '../components/CoinTossModal'
 import { Footer } from '../components/Footer'
@@ -45,8 +46,17 @@ export default function RoomPage() {
     requestCrossTeamVoice,
     respondCrossTeamVoice,
     revokeCrossTeamVoice,
+    incomingVideoCall,
+    videoCallPeer,
+    videoCallError,
+    clearVideoCallError,
+    requestVideoCall,
+    respondVideoCall,
+    endVideoCall,
     sendChat,
   } = useSocket(sessionToken)
+
+  const videoNetwork = useNetworkQuality(pingLatency)
 
   const [chatInput, setChatInput] = useState('')
   const [rulesAcked, setRulesAcked] = useState(false)
@@ -258,6 +268,14 @@ export default function RoomPage() {
             onRevokeCrossTeam={revokeCrossTeamVoice}
             voicePermissions={snapshot?.voice_permissions || []}
             isSoundMuted={isSoundMuted}
+            videoNetwork={videoNetwork}
+            videoCallPeer={videoCallPeer}
+            incomingVideoCall={incomingVideoCall}
+            onRequestVideoCall={requestVideoCall}
+            onRespondVideoCall={respondVideoCall}
+            onEndVideoCall={endVideoCall}
+            videoCallError={videoCallError}
+            onClearVideoCallError={clearVideoCallError}
           />
 
           {/* Sound Toggle (Speaker output for voice chat & sounds) */}

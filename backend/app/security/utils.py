@@ -104,3 +104,4 @@ class SimpleRateLimiter:
 chat_rate_limiter = SimpleRateLimiter(max_tokens=10, refill_per_second=2.0)
 join_rate_limiter = SimpleRateLimiter(max_tokens=5, refill_per_second=0.2)
 create_rate_limiter = SimpleRateLimiter(max_tokens=3, refill_per_second=0.1)
+video_call_rate_limiter = SimpleRateLimiter(max_tokens=6, refill_per_second=0.5)

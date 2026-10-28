@@ -163,6 +163,21 @@ export interface CrossTeamVoiceRequest {
   to_player_id: string
 }
 
+export interface VideoCallInvite {
+  room_id: string
+  from_player_id: string
+  from_player_name: string
+  from_team?: string | null
+  to_player_id: string
+}
+
+export interface VideoCallSession {
+  peerId: string
+  peerName: string
+  state: 'ringing' | 'active'
+  direction: 'outgoing' | 'incoming'
+}
+
 export interface RoomSnapshot {
   server_time?: string
   room: RoomInfo

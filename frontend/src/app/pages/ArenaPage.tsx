@@ -13,6 +13,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
+import { useNetworkQuality } from '../../hooks/useNetworkQuality'
 import { ThemeToggle } from '../../context/ThemeContext'
 import { sound } from '../../services/sound'
 import { vibration } from '../../services/vibration'
@@ -20,7 +21,6 @@ import { HandGesture } from '../components/HandGesture'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { VoiceChat } from '../components/VoiceChat'
 import { PitchAnimation } from '../components/PitchAnimation'
-// Video module abstracted (unlock when requested): import { VideoCallPanel } from '../components/VideoCallPanel'
 import { CelebrationEffects } from '../components/CelebrationEffects'
 import { formatPlayerWithTeam, getTeamRoleLabel } from '../../utils/teamLabels'
 import type { DeliveryReveal, MatchInfo, MemberInfo, ResolvedDelivery } from '../../services/types'
@@ -60,11 +60,20 @@ export default function ArenaPage() {
     requestCrossTeamVoice,
     respondCrossTeamVoice,
     revokeCrossTeamVoice,
+    incomingVideoCall,
+    videoCallPeer,
+    videoCallError,
+    clearVideoCallError,
+    requestVideoCall,
+    respondVideoCall,
+    endVideoCall,
     firstBallReady,
     firstBallAck,
     deliveryAck,
     serverNow,
   } = useSocket(sessionToken)
+
+  const videoNetwork = useNetworkQuality(pingLatency)
 
   const [chatInput, setChatInput] = useState('')
   const [selectedPick, setSelectedPick] = useState<number | null>(null)
@@ -778,6 +787,14 @@ export default function ArenaPage() {
               onRevokeCrossTeam={revokeCrossTeamVoice}
               voicePermissions={snapshot?.voice_permissions || []}
               isSoundMuted={isMuted}
+              videoNetwork={videoNetwork}
+              videoCallPeer={videoCallPeer}
+              incomingVideoCall={incomingVideoCall}
+              onRequestVideoCall={requestVideoCall}
+              onRespondVideoCall={respondVideoCall}
+              onEndVideoCall={endVideoCall}
+              videoCallError={videoCallError}
+              onClearVideoCallError={clearVideoCallError}
             />
           </div>
 

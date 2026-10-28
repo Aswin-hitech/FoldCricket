@@ -14,6 +14,8 @@ import type {
   PausedInfo,
   RoomSnapshot,
   SuperOverInfo,
+  VideoCallInvite,
+  VideoCallSession,
 } from '../services/types'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -34,6 +36,10 @@ interface UseSocketReturn {
   pausedInfo: PausedInfo | null
   voiceSignals: Array<{ id: number; from_player_id: string; signal: unknown; timestamp: number }>
   crossTeamRequests: CrossTeamVoiceRequest[]
+  incomingVideoCall: VideoCallInvite | null
+  videoCallPeer: VideoCallSession | null
+  videoCallError: string | null
+  clearVideoCallError: () => void
   deliveryAck: { success: boolean; error?: string } | null
   firstBallAck: { success: boolean; error?: string; activated?: boolean } | null
   /** Current server time in ms (accounts for device clock skew). */
@@ -65,6 +71,9 @@ interface UseSocketReturn {
   requestCrossTeamVoice: (roomId: string, targetId: string) => void
   respondCrossTeamVoice: (roomId: string, senderId: string, accept: boolean) => void
   revokeCrossTeamVoice: (roomId: string, targetId: string) => void
+  requestVideoCall: (roomId: string, targetId: string, targetName?: string) => void
+  respondVideoCall: (roomId: string, callerId: string, accept: boolean) => void
+  endVideoCall: (roomId: string, peerId: string) => void
 }
 
 export function useSocket(sessionToken?: string): UseSocketReturn {
@@ -87,12 +96,18 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     Array<{ id: number; from_player_id: string; signal: unknown; timestamp: number }>
   >([])
   const [crossTeamRequests, setCrossTeamRequests] = useState<CrossTeamVoiceRequest[]>([])
+  const [incomingVideoCall, setIncomingVideoCall] = useState<VideoCallInvite | null>(null)
+  const [videoCallPeer, setVideoCallPeer] = useState<VideoCallSession | null>(null)
+  const [videoCallError, setVideoCallError] = useState<string | null>(null)
   const [deliveryAck, setDeliveryAck] = useState<{ success: boolean; error?: string } | null>(null)
   const [firstBallAck, setFirstBallAck] = useState<{ success: boolean; error?: string; activated?: boolean } | null>(null)
   const lastSnapshotVersionRef = useRef<number>(-1)
   const lastSnapshotMatchIdRef = useRef<string | null>(null)
   const serverOffsetRef = useRef<number>(0)
   const voiceSignalSeqRef = useRef(0)
+  // Video call bookkeeping: who we are calling and the ring timeout handle.
+  const outgoingVideoCallRef = useRef<string | null>(null)
+  const videoRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const s = socketRef.current
@@ -227,6 +242,82 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setCrossTeamRequests((prev) => prev.filter((r) => r.from_player_id !== data.peer_id))
     }
 
+    // ---------- 1:1 video call (beta) ----------
+    const clearRingTimer = () => {
+      if (videoRingTimerRef.current) {
+        clearTimeout(videoRingTimerRef.current)
+        videoRingTimerRef.current = null
+      }
+    }
+
+    const onVideoCallIncoming = (invite: VideoCallInvite) => {
+      setIncomingVideoCall(invite)
+      setVideoCallError(null)
+    }
+
+    const onVideoCallAck = (data: { success: boolean; error?: string; target_id?: string }) => {
+      if (data?.success) {
+        // Stop ringing after the server-side pending-call TTL (45s).
+        clearRingTimer()
+        videoRingTimerRef.current = setTimeout(() => {
+          videoRingTimerRef.current = null
+          const target = outgoingVideoCallRef.current
+          outgoingVideoCallRef.current = null
+          if (target) {
+            setVideoCallPeer((prev) =>
+              prev && prev.peerId === target && prev.state === 'ringing' ? null : prev
+            )
+            setVideoCallError('no_answer')
+          }
+        }, 45000)
+        return
+      }
+      outgoingVideoCallRef.current = null
+      clearRingTimer()
+      setVideoCallPeer(null)
+      setVideoCallError(data?.error || 'call_failed')
+    }
+
+    const onVideoCallAccepted = (data: { room_id: string; peer_id: string; peer_name: string }) => {
+      const direction = outgoingVideoCallRef.current === data.peer_id ? 'outgoing' : 'incoming'
+      outgoingVideoCallRef.current = null
+      clearRingTimer()
+      setIncomingVideoCall(null)
+      setVideoCallError(null)
+      setVideoCallPeer({
+        peerId: data.peer_id,
+        peerName: data.peer_name,
+        state: 'active',
+        direction,
+      })
+    }
+
+    const onVideoCallDeclined = (data: { room_id: string; peer_id: string; peer_name: string }) => {
+      const wasCaller = outgoingVideoCallRef.current === data.peer_id
+      outgoingVideoCallRef.current = null
+      clearRingTimer()
+      setVideoCallPeer((prev) => (prev && prev.peerId === data.peer_id ? null : prev))
+      setIncomingVideoCall((prev) =>
+        prev && prev.from_player_id === data.peer_id ? null : prev
+      )
+      if (wasCaller) setVideoCallError('declined')
+    }
+
+    const onVideoCallEnded = (data: { room_id: string; peer_id: string }) => {
+      if (outgoingVideoCallRef.current === data.peer_id) {
+        outgoingVideoCallRef.current = null
+        clearRingTimer()
+      }
+      setVideoCallPeer((prev) => (prev && prev.peerId === data.peer_id ? null : prev))
+      setIncomingVideoCall((prev) =>
+        prev && prev.from_player_id === data.peer_id ? null : prev
+      )
+    }
+
+    const onVideoCallResponseAck = (data: { success: boolean; error?: string }) => {
+      if (!data?.success) setVideoCallError(data?.error || 'call_failed')
+    }
+
     s.on('connect', onConnect)
     s.on('disconnect', onDisconnect)
     s.on('connect_error', onConnectError)
@@ -246,6 +337,12 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('voice:cross_team_approved', onCrossTeamApproved)
     s.on('voice:cross_team_declined', onCrossTeamDeclined)
     s.on('voice:cross_team_revoked', onCrossTeamRevoked)
+    s.on('video:call_incoming', onVideoCallIncoming)
+    s.on('video:call_ack', onVideoCallAck)
+    s.on('video:call_accepted', onVideoCallAccepted)
+    s.on('video:call_declined', onVideoCallDeclined)
+    s.on('video:call_ended', onVideoCallEnded)
+    s.on('video:call_response_ack', onVideoCallResponseAck)
     s.on('match:paused', onMatchPaused)
     s.on('match:resumed', onMatchResumed)
     s.on('delivery:ack', onDeliveryAck)
@@ -278,6 +375,13 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('voice:cross_team_approved', onCrossTeamApproved)
       s.off('voice:cross_team_declined', onCrossTeamDeclined)
       s.off('voice:cross_team_revoked', onCrossTeamRevoked)
+      s.off('video:call_incoming', onVideoCallIncoming)
+      s.off('video:call_ack', onVideoCallAck)
+      s.off('video:call_accepted', onVideoCallAccepted)
+      s.off('video:call_declined', onVideoCallDeclined)
+      s.off('video:call_ended', onVideoCallEnded)
+      s.off('video:call_response_ack', onVideoCallResponseAck)
+      clearRingTimer()
       s.off('match:paused', onMatchPaused)
       s.off('match:resumed', onMatchResumed)
       s.off('delivery:ack', onDeliveryAck)
@@ -387,6 +491,39 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('voice:cross_team_revoke', { room_id: roomId, target_id: targetId })
   }, [])
 
+  const requestVideoCall = useCallback((roomId: string, targetId: string, targetName?: string) => {
+    outgoingVideoCallRef.current = targetId
+    setVideoCallError(null)
+    setVideoCallPeer({
+      peerId: targetId,
+      peerName: targetName || 'Player',
+      state: 'ringing',
+      direction: 'outgoing',
+    })
+    socketRef.current.emit('video:call_request', { room_id: roomId, target_id: targetId })
+  }, [])
+
+  const respondVideoCall = useCallback((roomId: string, callerId: string, accept: boolean) => {
+    if (!accept) {
+      setIncomingVideoCall((prev) =>
+        prev && prev.from_player_id === callerId ? null : prev
+      )
+    }
+    socketRef.current.emit('video:call_response', {
+      room_id: roomId,
+      caller_id: callerId,
+      accept,
+    })
+  }, [])
+
+  const endVideoCall = useCallback((roomId: string, peerId: string) => {
+    outgoingVideoCallRef.current = null
+    setVideoCallPeer((prev) => (prev && prev.peerId === peerId ? null : prev))
+    socketRef.current.emit('video:call_end', { room_id: roomId, peer_id: peerId })
+  }, [])
+
+  const clearVideoCallError = useCallback(() => setVideoCallError(null), [])
+
   const pauseMatch = useCallback((roomId: string) => {
     socketRef.current.emit('match:pause', { room_id: roomId })
   }, [])
@@ -411,6 +548,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     pausedInfo,
     voiceSignals,
     crossTeamRequests,
+    incomingVideoCall,
+    videoCallPeer,
+    videoCallError,
+    clearVideoCallError,
     deliveryAck,
     firstBallAck,
     serverNow,
@@ -440,5 +581,8 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     requestCrossTeamVoice,
     respondCrossTeamVoice,
     revokeCrossTeamVoice,
+    requestVideoCall,
+    respondVideoCall,
+    endVideoCall,
   }
 }

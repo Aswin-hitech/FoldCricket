@@ -1028,7 +1028,7 @@ export default function ArenaPage() {
           </div>
 
           {/* CENTER: 3D Stadium Perspective Pitch */}
-          <div className={pitchCardClass} style={{ minHeight: '400px' }}>
+          <div className={pitchCardClass}>
             <PitchAnimation
               reveal={revealAnimation}
               countdown={countdown}

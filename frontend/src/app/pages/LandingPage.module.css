@@ -339,4 +339,13 @@
     flex: 1 1 calc(20% - 4px);
     font-size: 0.8rem;
   }
+
+  .featurePill {
+    font-size: 0.72rem;
+    padding: 3px 9px;
+  }
+
+  .tagline {
+    font-size: 0.98rem;
+  }
 }

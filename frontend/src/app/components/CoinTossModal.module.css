@@ -286,3 +286,30 @@
   from { width: 0%; }
   to { width: 100%; }
 }
+
+@media (max-width: 600px) {
+  .overlay {
+    padding: 12px;
+  }
+
+  .card {
+    padding: 20px 16px;
+    gap: 16px;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+
+  .title {
+    font-size: 1.35rem;
+  }
+
+  .coinStage {
+    width: 92px;
+    height: 92px;
+    margin: 4px 0;
+  }
+
+  .prompt {
+    font-size: 0.88rem;
+  }
+}

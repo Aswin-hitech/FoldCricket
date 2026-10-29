@@ -358,6 +358,10 @@
   position: relative;
 }
 
+.centerPitchCard {
+  min-height: 400px;
+}
+
 /* ============================================================
    D. Team A (Blue) & Team B (Orange) Scorecard Cards
    ============================================================ */
@@ -1400,10 +1404,85 @@
 @media (max-width: 768px) {
   .topNav {
     padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .navCenter {
+    flex: 1;
+    min-width: 0;
+    gap: 1px;
+  }
+
+  .matchStatusText {
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  .matchSubtitle {
+    font-size: 0.7rem;
+    text-align: center;
+  }
+
+  .centerPitchCard {
+    min-height: 0;
   }
 
   .brandGroup span {
     display: none;
+  }
+
+  /* Mobile menus keep the essentials; secondary controls live in the menu. */
+  .navRight {
+    gap: 6px;
+  }
+
+  .liveBadge {
+    font-size: 0.6rem;
+    padding: 1px 6px;
+  }
+
+  /* The voice prompt is a fixed banner: give it the full phone width and let
+     the action buttons drop to their own row instead of crushing the text. */
+  .micPromptBanner {
+    top: 64px;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 10px;
+    padding: 10px 12px;
+  }
+
+  .micPromptIcon {
+    font-size: 1.3rem;
+  }
+
+  .micPromptText {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .micPromptText strong {
+    font-size: 0.95rem;
+  }
+
+  .micPromptText span {
+    font-size: 0.78rem;
+    line-height: 1.3;
+  }
+
+  .micPromptActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .bowlerFiguresRight {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    white-space: nowrap;
   }
 
   .navDesktopItems {

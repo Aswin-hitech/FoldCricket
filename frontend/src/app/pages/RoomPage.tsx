@@ -281,7 +281,7 @@ export default function RoomPage() {
           {/* Sound Toggle (Speaker output for voice chat & sounds) */}
           <button
             type="button"
-            className="btn btn-secondary"
+            className={`btn btn-secondary ${styles.soundBtn}`}
             onClick={handleToggleSound}
             title={isSoundMuted ? 'Sound is OFF: Click to turn Sound ON and hear other players' : 'Sound is ON: Hearing other players & game. Click to Mute'}
             style={{
@@ -297,8 +297,10 @@ export default function RoomPage() {
               borderColor: isSoundMuted ? 'var(--color-border)' : 'rgba(34, 197, 94, 0.5)',
               color: isSoundMuted ? 'var(--color-text)' : '#22c55e',
             }}
+            aria-label={isSoundMuted ? 'Turn sound on' : 'Mute sound'}
           >
-            {isSoundMuted ? '🔇 Sound Off' : '🔊 Sound On'}
+            <span aria-hidden="true">{isSoundMuted ? '🔇' : '🔊'}</span>
+            <span className={styles.controlLabel}>{isSoundMuted ? 'Sound Off' : 'Sound On'}</span>
           </button>
 
           {/* Real-time Internet Speed Indicator with signal bars */}
@@ -647,7 +649,9 @@ export default function RoomPage() {
         />
       )}
 
-      <Footer />
+      <div className={styles.pageFooter}>
+        <Footer />
+      </div>
     </div>
   )
 }

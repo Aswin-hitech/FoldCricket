@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import type {
   CrossTeamVoiceRequest,
   VideoCallInvite,
@@ -24,6 +25,12 @@ import styles from './VoiceChat.module.css'
 // broadcast, private calls, video panel) stays implemented but hidden.
 // Set this to true to bring the video modules back into the app.
 const VIDEO_CALLS_ENABLED = false
+
+// The trigger lives inside the room header, which uses backdrop-filter. That
+// makes the header a containing block for position:fixed descendants, so a
+// modal rendered in place would be sized to the header instead of the screen.
+const ModalPortal: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+  createPortal(children, document.body)
 
 interface VoiceChatProps {
   roomId: string
@@ -95,6 +102,33 @@ function getSenderForKind(
   kind: 'audio' | 'video'
 ): RTCRtpSender | undefined {
   return pc.getTransceivers().find((t) => t.receiver.track?.kind === kind)?.sender
+}
+
+// Only the offerer creates transceivers. Pre-creating them on the answering
+// side makes Chrome answer with freshly created transceivers and strand ours
+// (sender.track is set but never wired to an m-line), which produces a silent
+// one-way call.
+function ensureMediaTransceivers(pc: RTCPeerConnection, withVideo: boolean): void {
+  if (!getSenderForKind(pc, 'audio')) pc.addTransceiver('audio', { direction: 'sendrecv' })
+  if (withVideo && !getSenderForKind(pc, 'video')) {
+    pc.addTransceiver('video', { direction: 'sendrecv' })
+  }
+}
+
+// Transceivers created by a remote offer default to "recvonly". Unless we
+// upgrade them before answering, the answer negotiates a receive-only m-line
+// and the local track never leaves the machine — silent, one-way audio.
+function ensureTransceiversSendRecv(pc: RTCPeerConnection): void {
+  pc.getTransceivers().forEach((t) => {
+    const kind = t.receiver.track?.kind
+    if ((kind === 'audio' || kind === 'video') && t.direction !== 'sendrecv') {
+      try {
+        t.direction = 'sendrecv'
+      } catch {
+        // Transceiver already stopped/negotiating elsewhere — leave it.
+      }
+    }
+  })
 }
 
 export const VoiceChat: React.FC<VoiceChatProps> = ({
@@ -238,6 +272,13 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     [isMuted, isVoiceBlockedFor]
   )
 
+  // Keep audio routing in sync with mute/block state. Enabling the mic runs
+  // once with the pre-unmute state, so without this every sender would stay
+  // trackless (silent call) until the user toggled mute a second time.
+  useEffect(() => {
+    applyVoicePermissions(blockedRecipients)
+  }, [applyVoicePermissions, blockedRecipients])
+
   // Helper to create or get an RTCPeerConnection for a given peer ID
   const getOrCreatePeerConnection = useCallback(
     (peerId: string): RTCPeerConnection => {
@@ -248,16 +289,6 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       const pc = new RTCPeerConnection(getRtcConfiguration())
       peerConnectionsRef.current.set(peerId, pc)
-
-      // Ensure audio + video transceivers exist so receiving works immediately.
-      // The video sender stays trackless until a call starts, which avoids any
-      // renegotiation later: replaceTrack(null <-> camera) needs no new SDP.
-      if (!getSenderForKind(pc, 'audio')) {
-        pc.addTransceiver('audio', { direction: 'sendrecv' })
-      }
-      if (!getSenderForKind(pc, 'video')) {
-        pc.addTransceiver('video', { direction: 'sendrecv' })
-      }
 
       // Self-heal broken transports: drop the connection so a later snapshot
       // rebuilds it instead of leaving the player silently deaf.
@@ -308,8 +339,12 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           audio = document.createElement('audio')
           audio.autoplay = true
           audio.setAttribute('playsinline', 'true')
+          audio.setAttribute('webkit-playsinline', 'true')
           audio.setAttribute('data-peer-id', peerId)
-          audio.style.display = 'none'
+          // Kept in the layout (not display:none) — some mobile browsers refuse
+          // to start playback for fully hidden elements.
+          audio.style.cssText =
+            'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;'
           document.body.appendChild(audio)
           audioElementsRef.current.set(peerId, audio)
         }
@@ -324,16 +359,6 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           playPromise.catch((err) => {
             console.warn('Audio auto-play prevented by browser policy (will resume on click):', err)
           })
-        }
-      }
-
-      // Attach local audio track if we already have mic stream
-      if (mediaStreamRef.current) {
-        const isBlocked = isVoiceBlockedFor(peerId, blockedRecipients)
-        const track = mediaStreamRef.current.getAudioTracks()[0]
-        const sender = getSenderForKind(pc, 'audio')
-        if (track && sender) {
-          sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
         }
       }
 
@@ -352,18 +377,19 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       return pc
     },
-    [roomId, onSendSignal, blockedRecipients, isMuted, incomingMutes, isSoundMuted, members, isVoiceBlockedFor, videoMode, videoCallPeer]
+    [roomId, onSendSignal, blockedRecipients, incomingMutes, isSoundMuted, isVoiceBlockedFor, videoMode, videoCallPeer]
   )
 
   // Attach local tracks to all existing peer connections respecting blocked state
   const addLocalTracksToAllPeers = useCallback(
-    (stream: MediaStream) => {
+    (stream: MediaStream, forceUnmuted = false) => {
+      const muted = forceUnmuted ? false : isMuted
       peerConnectionsRef.current.forEach((pc, peerId) => {
         const isBlocked = isVoiceBlockedFor(peerId, blockedRecipients)
         const track = stream.getAudioTracks()[0]
         const sender = getSenderForKind(pc, 'audio')
         if (track && sender) {
-          sender.replaceTrack(isBlocked || isMuted ? null : track).catch(() => {})
+          sender.replaceTrack(isBlocked || muted ? null : track).catch(() => {})
         }
       })
     },
@@ -374,6 +400,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const initMicrophone = useCallback(async () => {
     try {
       setPermissionError(null)
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setPermissionError(
+          window.isSecureContext
+            ? 'This browser does not expose microphone access.'
+            : 'Microphone needs a secure connection. Open the app over HTTPS (or localhost) to talk.'
+        )
+        return
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -437,8 +471,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       setMicEnabled(true)
       onVoiceStateChange(roomId, false, false)
 
-      // Attach tracks to all existing peer connections
-      addLocalTracksToAllPeers(stream)
+      // Attach tracks to all existing peer connections. The mic is live from
+      // this point, so ignore the stale (pre-unmute) isMuted value.
+      addLocalTracksToAllPeers(stream, true)
     } catch (err) {
       console.error('Microphone access denied:', err)
       setPermissionError('Microphone permission denied. Allow mic access in your browser to talk.')
@@ -483,8 +518,12 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           ) {
             offeredPeersRef.current.add(fromPlayerId)
             try {
-              const offer = await pc.createOffer({ offerToReceiveAudio: true })
+              ensureMediaTransceivers(pc, VIDEO_CALLS_ENABLED && videoMode !== 'off')
+              const offer = await pc.createOffer()
               await pc.setLocalDescription(offer)
+              // A live mic must be bound to the m-line we just created; the
+              // transceiver does not exist before this point.
+              applyVoicePermissions(blockedRecipients)
               onSendSignal?.(roomId, fromPlayerId, { type: 'offer', sdp: offer })
             } catch (err) {
               console.warn('Error creating offer on ready:', err)
@@ -500,8 +539,11 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
             await flushCandidates(pc, fromPlayerId)
 
+            ensureTransceiversSendRecv(pc)
             const answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
+            // Bind our mic to the m-line the remote offer created.
+            applyVoicePermissions(blockedRecipients)
             onSendSignal?.(roomId, fromPlayerId, { type: 'answer', sdp: answer })
           } catch (err) {
             console.warn('Error handling offer:', err)
@@ -511,6 +553,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             if (pc.signalingState === 'have-local-offer') {
               await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
               await flushCandidates(pc, fromPlayerId)
+              applyVoicePermissions(blockedRecipients)
             }
           } catch (err) {
             console.warn('Error handling answer:', err)
@@ -532,7 +575,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     }
 
     void run()
-  }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId])
+  }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId, applyVoicePermissions, blockedRecipients, videoMode])
 
   const destroyPeer = useCallback((peerId: string) => {
     const pc = peerConnectionsRef.current.get(peerId)
@@ -602,9 +645,11 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       }
 
       offeredPeersRef.current.add(m.player.id)
-      pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+      ensureMediaTransceivers(pc, VIDEO_CALLS_ENABLED && videoMode !== 'off')
+      pc.createOffer()
         .then((offer) => pc.setLocalDescription(offer).then(() => offer))
         .then((offer) => {
+          applyVoicePermissions(blockedRecipients)
           onSendSignal?.(roomId, m.player.id, { type: 'offer', sdp: offer })
         })
         .catch((err) => {
@@ -612,7 +657,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           console.warn('Error creating auto-receive offer:', err)
         })
     })
-  }, [members, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection, isMediaAuthorized, destroyPeer])
+  }, [members, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection, isMediaAuthorized, destroyPeer, applyVoicePermissions, blockedRecipients, videoMode])
 
   // Synchronize master Sound On / Off setting to physical audio playback elements
   useEffect(() => {
@@ -1095,6 +1140,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       {/* Player List Voice Permissions Modal (SOLO + TEAM) */}
       {showVoiceListModal && (
+        <ModalPortal>
         <div
           className={styles.modalOverlay}
           onClick={() => {
@@ -1420,6 +1466,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* Beta video surface (broadcast or private 1:1), hidden while VIDEO_CALLS_ENABLED is false */}

@@ -775,12 +775,76 @@
 
 @media (max-width: 768px) {
   .header {
-    padding: 10px 14px;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  /* The marketing footer is noise inside a live lobby on a phone; the
+     landing page still carries the full footer. */
+  .pageFooter {
+    display: none;
+  }
+
+  .headerLeft {
+    gap: 8px;
+  }
+
+  .logo {
+    font-size: 1.05rem;
+    gap: 8px;
+  }
+
+  .logoImg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .statusBadge {
+    font-size: 0.62rem;
+    padding: 3px 8px;
+  }
+
+  .headerRight {
+    width: 100%;
+    gap: 6px;
+    justify-content: flex-start;
+  }
+
+  .joinInfo {
+    width: 100%;
+    gap: 6px;
+    padding: 4px 8px;
+  }
+
+  .joinLabel {
+    display: none;
+  }
+
+  .joinCode {
+    font-size: 1.1rem;
   }
 
   .teamsPanel {
     padding: 14px;
     gap: 14px;
+  }
+
+  .teamsShowcaseCard {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .configCard {
+    padding: 14px;
+  }
+
+  .configHeader {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .configHeader > :last-child {
+    margin-left: auto;
   }
 
   .settingsGrid {
@@ -809,6 +873,68 @@
   .guestSummaryRow {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  /* Player rows: keep the full name readable instead of truncating it. */
+  .playerRow {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .playerInfoCol {
+    flex: 1 1 100%;
+  }
+
+  .playerName {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.3;
+  }
+
+  .playerStatusCol {
+    width: 100%;
+    justify-content: space-between;
+    padding-left: 36px;
+  }
+
+  /* Chat should follow its content instead of reserving a fixed half-screen. */
+  .chatPanel {
+    height: auto;
+    position: static;
+    padding: 14px;
+  }
+
+  .chatMessages {
+    max-height: 45vh;
+    min-height: 88px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Icon-only header controls: saves a full row on phones. */
+  .soundBtn {
+    padding: 6px 10px !important;
+    width: 36px;
+    justify-content: center;
+  }
+
+  .controlLabel {
+    display: none;
+  }
+
+  .headerRight :global(.theme-toggle-btn) {
+    padding: 0;
+    width: 36px;
+    gap: 0;
+  }
+
+  .headerRight :global(.theme-toggle-btn) > span:last-child {
+    display: none;
+  }
+
+  .sectionTitle {
+    font-size: 0.9rem;
   }
 }
 

@@ -12,6 +12,7 @@ import { CelebrationEffects } from '../components/CelebrationEffects'
 import { FirstGameFeedbackModal } from '../components/FirstGameFeedbackModal'
 import { sound } from '../../services/sound'
 import { vibration } from '../../services/vibration'
+import { stopVoiceSession } from '../../services/voiceSession'
 import styles from './ResultPage.module.css'
 
 export default function ResultPage() {
@@ -19,10 +20,17 @@ export default function ResultPage() {
   const navigate = useNavigate()
   const sessionToken = localStorage.getItem('hcl_session') || undefined
   const myPlayerId = localStorage.getItem('hcl_player_id') || ''
-  const { snapshot, syncRoom, rematchRoom } = useSocket(sessionToken)
+  const { snapshot, syncRoom, rematchRoom, updateVoiceState } = useSocket(sessionToken)
 
   const [countdown, setCountdown] = useState(25)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+
+  // The match is over: release the microphone and every voice transport, and
+  // let the room know we are no longer publishing.
+  useEffect(() => {
+    stopVoiceSession()
+    if (roomId) updateVoiceState(roomId, false, true)
+  }, [roomId, updateVoiceState])
 
   // First game check: prompt feedback modal for new players
   useEffect(() => {

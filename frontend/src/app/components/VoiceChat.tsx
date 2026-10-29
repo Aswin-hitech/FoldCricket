@@ -19,6 +19,7 @@ import type {
   VoicePermissionEntry,
 } from '../../services/types'
 import { VideoCallPanel } from './VideoCallPanel'
+import { stopVoiceSession, voiceSession } from '../../services/voiceSession'
 import styles from './VoiceChat.module.css'
 
 // Beta video calling is parked for now: the whole video surface (camera
@@ -159,8 +160,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   videoCallError,
   onClearVideoCallError,
 }) => {
-  const [micEnabled, setMicEnabled] = useState(false)
-  const [isMuted, setIsMuted] = useState(true)
+  // The voice session outlives this component: the lobby and the arena are
+  // separate routes, so it remounts when the match starts. Hydrate the UI from
+  // the session instead of asking the player to connect the mic twice.
+  const sessionOwnsRoom = voiceSession.roomId === roomId
+  const [micEnabled, setMicEnabled] = useState(
+    sessionOwnsRoom && Boolean(voiceSession.stream) && voiceSession.micEnabled
+  )
+  const [isMuted, setIsMuted] = useState(sessionOwnsRoom ? voiceSession.isMuted : true)
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [isSpeakingLocal, setIsSpeakingLocal] = useState(false)
 
@@ -173,24 +180,59 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
   // Team Match Voice Control: tracks which teammates have outgoing voice blocked
   const [showVoiceListModal, setShowVoiceListModal] = useState(false)
-  const [blockedRecipients, setBlockedRecipients] = useState<Record<string, boolean>>({})
+  const [blockedRecipients, setBlockedRecipients] = useState<Record<string, boolean>>(
+    sessionOwnsRoom ? voiceSession.blockedRecipients : {}
+  )
 
   // Separate incoming listening preference: mute incoming audio locally per player
-  const [incomingMutes, setIncomingMutes] = useState<Record<string, boolean>>({})
+  const [incomingMutes, setIncomingMutes] = useState<Record<string, boolean>>(
+    sessionOwnsRoom ? voiceSession.incomingMutes : {}
+  )
 
-  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(voiceSession.stream)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animFrameRef = useRef<number | null>(null)
   const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // WebRTC Peer Connections and Audio Output Elements
-  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
-  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
-  const iceQueuesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
+  // WebRTC Peer Connections and Audio Output Elements. These maps are the
+  // session's own maps, so transports and playback keep running while this
+  // component is unmounted between routes.
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(voiceSession.peerConnections)
+  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(voiceSession.audioElements)
+  const iceQueuesRef = useRef<Map<string, RTCIceCandidateInit[]>>(voiceSession.iceQueues)
   const processedSignalIdRef = useRef<number>(0)
-  const offeredPeersRef = useRef<Set<string>>(new Set())
-  const readySentRef = useRef<Set<string>>(new Set())
+  const offeredPeersRef = useRef<Set<string>>(voiceSession.offeredPeers)
+  const readySentRef = useRef<Set<string>>(voiceSession.readySent)
+
+  // Transport health bookkeeping for self-healing connections.
+  const disconnectedSinceRef = useRef<Map<string, number>>(new Map())
+  const lastRecoveryRef = useRef<Map<string, number>>(new Map())
+  const recoverRef = useRef<(peerId: string) => void>(() => {})
+  const reacquireRef = useRef<() => void>(() => {})
+  const onVoiceStateChangeRef = useRef(onVoiceStateChange)
+
+  useEffect(() => {
+    onVoiceStateChangeRef.current = onVoiceStateChange
+  }, [onVoiceStateChange])
+
+  // Claim the session for this room on first mount (but never steal it from a
+  // different room — that one is torn down by the adoption effect below).
+  useEffect(() => {
+    if (voiceSession.roomId === null || voiceSession.roomId === roomId) {
+      voiceSession.roomId = roomId
+    }
+  }, [roomId])
+
+  // Mirror the page state into the session so the next route and the recovery
+  // handlers see the same preferences.
+  useEffect(() => {
+    if (voiceSession.roomId !== roomId) return
+    voiceSession.micEnabled = micEnabled
+    voiceSession.isMuted = isMuted
+    voiceSession.blockedRecipients = blockedRecipients
+    voiceSession.incomingMutes = incomingMutes
+  }, [roomId, micEnabled, isMuted, blockedRecipients, incomingMutes])
 
   // Identify current player's team
   const myMem = members.find((m) => m.player.id === myPlayerId)
@@ -279,29 +321,18 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     applyVoicePermissions(blockedRecipients)
   }, [applyVoicePermissions, blockedRecipients])
 
-  // Helper to create or get an RTCPeerConnection for a given peer ID
-  const getOrCreatePeerConnection = useCallback(
-    (peerId: string): RTCPeerConnection => {
-      const existing = peerConnectionsRef.current.get(peerId)
-      if (existing && existing.connectionState !== 'closed') {
-        return existing
-      }
-
-      const pc = new RTCPeerConnection(getRtcConfiguration())
-      peerConnectionsRef.current.set(peerId, pc)
-
-      // Self-heal broken transports: drop the connection so a later snapshot
-      // rebuilds it instead of leaving the player silently deaf.
+  // Wire a transport to this page's callbacks. Rebinding on remount keeps the
+  // handlers pointed at the live page's socket helpers instead of the closures
+  // of the page that has already unmounted.
+  const bindPeerHandlers = useCallback(
+    (pc: RTCPeerConnection, peerId: string) => {
       pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          disconnectedSinceRef.current.delete(peerId)
+          return
+        }
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-          offeredPeersRef.current.delete(peerId)
-          readySentRef.current.delete(peerId)
-          if (peerConnectionsRef.current.get(peerId) === pc) {
-            peerConnectionsRef.current.delete(peerId)
-          }
-          try {
-            pc.close()
-          } catch {}
+          recoverRef.current(peerId)
         }
       }
 
@@ -361,6 +392,25 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           })
         }
       }
+    },
+    [roomId, onSendSignal, incomingMutes, isSoundMuted]
+  )
+  const bindPeerHandlersRef = useRef(bindPeerHandlers)
+  useEffect(() => {
+    bindPeerHandlersRef.current = bindPeerHandlers
+  }, [bindPeerHandlers])
+
+  // Helper to create or get an RTCPeerConnection for a given peer ID
+  const getOrCreatePeerConnection = useCallback(
+    (peerId: string): RTCPeerConnection => {
+      const existing = peerConnectionsRef.current.get(peerId)
+      if (existing && existing.connectionState !== 'closed') {
+        return existing
+      }
+
+      const pc = new RTCPeerConnection(getRtcConfiguration())
+      peerConnectionsRef.current.set(peerId, pc)
+      bindPeerHandlersRef.current(pc, peerId)
 
       // Re-attach an in-progress camera to a freshly created transport
       // (e.g. after a cross-team pair becomes authorized).
@@ -377,7 +427,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       return pc
     },
-    [roomId, onSendSignal, blockedRecipients, incomingMutes, isSoundMuted, isVoiceBlockedFor, videoMode, videoCallPeer]
+    [blockedRecipients, isVoiceBlockedFor, videoMode, videoCallPeer]
   )
 
   // Attach local tracks to all existing peer connections respecting blocked state
@@ -396,31 +446,23 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     [blockedRecipients, isMuted, isVoiceBlockedFor]
   )
 
-  // Initialize Microphone Media Stream and start signaling
-  const initMicrophone = useCallback(async () => {
-    try {
-      setPermissionError(null)
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setPermissionError(
-          window.isSecureContext
-            ? 'This browser does not expose microphone access.'
-            : 'Microphone needs a secure connection. Open the app over HTTPS (or localhost) to talk.'
-        )
-        return
+  // Speech metering is page-local (it only drives the speaking indicator), so
+  // it is rebuilt on every mount around the session's stream.
+  const startMetering = useCallback(
+    (stream: MediaStream) => {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current)
+        animFrameRef.current = null
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      })
-      mediaStreamRef.current = stream
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {})
+      }
 
       const AudioCtx =
         window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       const ctx = new AudioCtx()
       audioContextRef.current = ctx
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
 
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
@@ -434,8 +476,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       let wasSpeaking = false
 
       const checkVolume = () => {
-        if (!analyserRef.current) return
-        analyserRef.current.getByteFrequencyData(pcmData)
+        const current = analyserRef.current
+        if (!current) return
+        current.getByteFrequencyData(pcmData)
 
         let sum = 0
         for (let i = 0; i < pcmData.length; i++) {
@@ -463,12 +506,56 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
       animFrameRef.current = requestAnimationFrame(checkVolume)
 
+      // A device that disappears (headset unplugged, OS mic switch) ends the
+      // track; re-open the device instead of going silent for the rest of the
+      // match.
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => reacquireRef.current()
+      })
+    },
+    [roomId, onVoiceStateChange]
+  )
+
+  // Initialize Microphone Media Stream and start signaling
+  const initMicrophone = useCallback(async () => {
+    try {
+      setPermissionError(null)
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setPermissionError(
+          window.isSecureContext
+            ? 'This browser does not expose microphone access.'
+            : 'Microphone needs a secure connection. Open the app over HTTPS (or localhost) to talk.'
+        )
+        return
+      }
+
+      // Reuse the session stream when the previous route already opened the
+      // mic: the player must never have to grant it twice in one match.
+      const existing = voiceSession.stream
+      const stream =
+        existing && existing.getAudioTracks().some((track) => track.readyState === 'live')
+          ? existing
+          : await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+            })
+      mediaStreamRef.current = stream
+      voiceSession.stream = stream
+      voiceSession.roomId = roomId
+
+      startMetering(stream)
+
       // Unmute stream
       stream.getAudioTracks().forEach((t) => {
         t.enabled = true
       })
       setIsMuted(false)
       setMicEnabled(true)
+      voiceSession.micEnabled = true
+      voiceSession.isMuted = false
       onVoiceStateChange(roomId, false, false)
 
       // Attach tracks to all existing peer connections. The mic is live from
@@ -479,8 +566,181 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       setPermissionError('Microphone permission denied. Allow mic access in your browser to talk.')
       setMicEnabled(false)
       setIsMuted(true)
+      voiceSession.micEnabled = false
+      voiceSession.isMuted = true
     }
-  }, [roomId, onVoiceStateChange, addLocalTracksToAllPeers])
+  }, [roomId, onVoiceStateChange, addLocalTracksToAllPeers, startMetering])
+
+  // Re-open a microphone whose track died mid-match and route it into every
+  // live transport. Rate-limited so a revoked permission cannot spin.
+  const reacquireMicrophone = useCallback(async () => {
+    if (!voiceSession.stream && !voiceSession.micEnabled) return
+    const now = Date.now()
+    if (now - (lastRecoveryRef.current.get('__mic__') ?? 0) < 4000) return
+    lastRecoveryRef.current.set('__mic__', now)
+
+    const stream = voiceSession.stream
+    if (stream?.getAudioTracks().some((track) => track.readyState === 'live')) return
+    if (!navigator.mediaDevices?.getUserMedia) return
+
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      stream?.getTracks().forEach((track) => {
+        try {
+          track.stop()
+        } catch {
+          // already stopped
+        }
+      })
+      fresh.getAudioTracks().forEach((track) => {
+        track.enabled = !voiceSession.isMuted
+      })
+      voiceSession.stream = fresh
+      mediaStreamRef.current = fresh
+      startMetering(fresh)
+      addLocalTracksToAllPeers(fresh, !voiceSession.isMuted)
+    } catch (err) {
+      console.warn('Microphone re-acquisition failed:', err)
+    }
+  }, [startMetering, addLocalTracksToAllPeers])
+  useEffect(() => {
+    reacquireRef.current = () => {
+      void reacquireMicrophone()
+    }
+  }, [reacquireMicrophone])
+
+  // Adopt the session the previous route left behind. The lobby and the arena
+  // are distinct routes, so this component remounts when the match starts and
+  // again when it returns to the lobby; the microphone, transports and audio
+  // outputs must keep running through that transition.
+  const hasAdoptedRef = useRef(false)
+  useEffect(() => {
+    if (hasAdoptedRef.current) return
+    hasAdoptedRef.current = true
+
+    // A session belonging to another room is stale — do not carry it over.
+    if (voiceSession.roomId && voiceSession.roomId !== roomId) {
+      stopVoiceSession()
+      mediaStreamRef.current = null
+      setMicEnabled(false)
+      setIsMuted(true)
+      return
+    }
+
+    const stream = voiceSession.stream
+    if (!stream) return
+
+    mediaStreamRef.current = stream
+
+    // Point every surviving transport at this page's callbacks; the old
+    // closures reference an unmounted page's socket helpers.
+    peerConnectionsRef.current.forEach((pc, peerId) => {
+      bindPeerHandlersRef.current(pc, peerId)
+    })
+
+    // Outputs created on the previous route live in document.body and must
+    // keep playing, but the browser may have paused them on navigation.
+    audioElementsRef.current.forEach((audio) => {
+      if (audio.paused && audio.srcObject && !audio.muted) audio.play().catch(() => {})
+    })
+
+    // Mobile browsers end tracks after long backgrounding; re-open instead of
+    // leaving a dead publish behind.
+    if (stream.getAudioTracks().some((track) => track.readyState === 'live')) {
+      startMetering(stream)
+    } else {
+      reacquireRef.current()
+    }
+  }, [roomId, startMetering])
+
+  const destroyPeer = useCallback((peerId: string) => {
+    const pc = peerConnectionsRef.current.get(peerId)
+    peerConnectionsRef.current.delete(peerId)
+    offeredPeersRef.current.delete(peerId)
+    readySentRef.current.delete(peerId)
+    iceQueuesRef.current.delete(peerId)
+    disconnectedSinceRef.current.delete(peerId)
+    if (pc) {
+      // Detach first: a close we initiated must not look like a transport
+      // failure to the recovery path.
+      pc.onconnectionstatechange = null
+      pc.onicecandidate = null
+      pc.ontrack = null
+      try {
+        pc.close()
+      } catch {
+        // already closed
+      }
+    }
+    const audio = audioElementsRef.current.get(peerId)
+    if (audio) {
+      audio.pause()
+      audio.srcObject = null
+      audio.remove()
+      audioElementsRef.current.delete(peerId)
+    }
+    setRemoteVideoStreams((prev) => {
+      if (!(peerId in prev)) return prev
+      const next = { ...prev }
+      delete next[peerId]
+      return next
+    })
+  }, [])
+
+  // Start a negotiation on a transport we own (we are the offerer).
+  const sendOffer = useCallback(
+    async (pc: RTCPeerConnection, peerId: string) => {
+      if (pc.signalingState !== 'stable') return
+      try {
+        ensureMediaTransceivers(pc, VIDEO_CALLS_ENABLED && videoMode !== 'off')
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        // A live mic must be bound to the m-line we just created; the
+        // transceiver does not exist before this point.
+        applyVoicePermissions(blockedRecipients)
+        onSendSignal?.(roomId, peerId, { type: 'offer', sdp: offer })
+      } catch (err) {
+        offeredPeersRef.current.delete(peerId)
+        console.warn('Error creating offer:', err)
+      }
+    },
+    [roomId, onSendSignal, applyVoicePermissions, blockedRecipients, videoMode]
+  )
+
+  // Rebuild a transport that reported failure and renegotiate, so a network
+  // swap heals mid-match instead of leaving the pair silent. Rate-limited per
+  // peer: an unreachable network must not spin.
+  const recoverPeer = useCallback(
+    (peerId: string) => {
+      if (!roomId || !onSendSignal) return
+      const now = Date.now()
+      if (now - (lastRecoveryRef.current.get(peerId) ?? 0) < 3000) return
+      lastRecoveryRef.current.set(peerId, now)
+      disconnectedSinceRef.current.delete(peerId)
+
+      destroyPeer(peerId)
+      onSendSignal(roomId, peerId, { type: 'restart' })
+
+      const pc = getOrCreatePeerConnection(peerId)
+      if (myPlayerId > peerId) {
+        offeredPeersRef.current.add(peerId)
+        void sendOffer(pc, peerId)
+      } else {
+        readySentRef.current.add(peerId)
+        onSendSignal(roomId, peerId, { type: 'ready' })
+      }
+    },
+    [roomId, onSendSignal, myPlayerId, destroyPeer, getOrCreatePeerConnection, sendOffer]
+  )
+  useEffect(() => {
+    recoverRef.current = recoverPeer
+  }, [recoverPeer])
 
   // Handle incoming WebRTC signaling from peers. Signals are processed as an
   // ordered queue because React batches state updates: a single-value slot
@@ -508,29 +768,28 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         }
         if (!data || !data.type) continue
 
-        const pc = getOrCreatePeerConnection(fromPlayerId)
+        let pc = getOrCreatePeerConnection(fromPlayerId)
 
         if (data.type === 'ready') {
           if (
             myPlayerId > fromPlayerId &&
             !offeredPeersRef.current.has(fromPlayerId) &&
-            pc.signalingState === 'stable'
+            pc.signalingState === 'stable' &&
+            pc.connectionState !== 'connected' &&
+            pc.connectionState !== 'connecting'
           ) {
             offeredPeersRef.current.add(fromPlayerId)
-            try {
-              ensureMediaTransceivers(pc, VIDEO_CALLS_ENABLED && videoMode !== 'off')
-              const offer = await pc.createOffer()
-              await pc.setLocalDescription(offer)
-              // A live mic must be bound to the m-line we just created; the
-              // transceiver does not exist before this point.
-              applyVoicePermissions(blockedRecipients)
-              onSendSignal?.(roomId, fromPlayerId, { type: 'offer', sdp: offer })
-            } catch (err) {
-              console.warn('Error creating offer on ready:', err)
-            }
+            await sendOffer(pc, fromPlayerId)
           }
         } else if (data.type === 'offer' && data.sdp) {
           try {
+            // A transport that already reported failure cannot be revived by a
+            // renegotiation, and the offer carries the peer's fresh ICE
+            // credentials — start from a clean transport so they apply.
+            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+              destroyPeer(fromPlayerId)
+              pc = getOrCreatePeerConnection(fromPlayerId)
+            }
             // Deterministic roles prevent most glare; if it still happens the
             // lower id is the polite peer and rolls its own offer back.
             if (pc.signalingState === 'have-local-offer' && myPlayerId < fromPlayerId) {
@@ -558,6 +817,19 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           } catch (err) {
             console.warn('Error handling answer:', err)
           }
+        } else if (data.type === 'restart') {
+          // The peer rebuilt its transport, so ours is now part of a dead
+          // session. Rebuild ours too and renegotiate symmetrically from a
+          // clean state, whichever side detected the failure.
+          destroyPeer(fromPlayerId)
+          const fresh = getOrCreatePeerConnection(fromPlayerId)
+          if (myPlayerId > fromPlayerId) {
+            offeredPeersRef.current.add(fromPlayerId)
+            await sendOffer(fresh, fromPlayerId)
+          } else {
+            readySentRef.current.add(fromPlayerId)
+            onSendSignal?.(roomId, fromPlayerId, { type: 'ready' })
+          }
         } else if (data.type === 'candidate' && data.candidate) {
           try {
             if (pc.remoteDescription && pc.remoteDescription.type) {
@@ -575,34 +847,31 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     }
 
     void run()
-  }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId, applyVoicePermissions, blockedRecipients, videoMode])
+  }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId, applyVoicePermissions, blockedRecipients, sendOffer, destroyPeer])
 
-  const destroyPeer = useCallback((peerId: string) => {
-    const pc = peerConnectionsRef.current.get(peerId)
-    peerConnectionsRef.current.delete(peerId)
-    offeredPeersRef.current.delete(peerId)
-    readySentRef.current.delete(peerId)
-    iceQueuesRef.current.delete(peerId)
-    if (pc) {
-      try {
-        pc.close()
-      } catch {
-        // already closed
-      }
-    }
-    const audio = audioElementsRef.current.get(peerId)
-    if (audio) {
-      audio.pause()
-      audio.srcObject = null
-      audio.remove()
-      audioElementsRef.current.delete(peerId)
-    }
-    setRemoteVideoStreams((prev) => {
-      if (!(peerId in prev)) return prev
-      const next = { ...prev }
-      delete next[peerId]
-      return next
-    })
+  // Watchdog: browsers report ICE failure lazily and can leave a transport
+  // "disconnected" indefinitely after a network swap. Rebuild anything that
+  // stays down so the call heals without asking the player to reconnect.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now()
+      peerConnectionsRef.current.forEach((pc, peerId) => {
+        if (pc.connectionState === 'connected') {
+          disconnectedSinceRef.current.delete(peerId)
+          return
+        }
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          recoverRef.current(peerId)
+          return
+        }
+        if (pc.connectionState === 'disconnected') {
+          const since = disconnectedSinceRef.current.get(peerId) ?? now
+          disconnectedSinceRef.current.set(peerId, since)
+          if (now - since >= 6000) recoverRef.current(peerId)
+        }
+      })
+    }, 2000)
+    return () => clearInterval(timer)
   }, [])
 
   // Establish WebRTC connections once per authorized peer (not once per
@@ -618,6 +887,11 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     })
     Array.from(readySentRef.current).forEach((id) => {
       if (!peerIds.has(id)) readySentRef.current.delete(id)
+    })
+    // Release transports for players who left, so the recovery watchdog does
+    // not keep trying to heal a pair that no longer exists.
+    Array.from(peerConnectionsRef.current.keys()).forEach((id) => {
+      if (!peerIds.has(id)) destroyPeer(id)
     })
 
     others.forEach((m) => {
@@ -639,25 +913,17 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       if (myPlayerId <= m.player.id) return
       if (offeredPeersRef.current.has(m.player.id)) return
       if (pc.signalingState !== 'stable') return
-      if (pc.connectionState === 'connected') {
+      // A transport that survived the last route change is already negotiated;
+      // re-offering would only churn the live call.
+      if (pc.connectionState === 'connected' || pc.connectionState === 'connecting') {
         offeredPeersRef.current.add(m.player.id)
         return
       }
 
       offeredPeersRef.current.add(m.player.id)
-      ensureMediaTransceivers(pc, VIDEO_CALLS_ENABLED && videoMode !== 'off')
-      pc.createOffer()
-        .then((offer) => pc.setLocalDescription(offer).then(() => offer))
-        .then((offer) => {
-          applyVoicePermissions(blockedRecipients)
-          onSendSignal?.(roomId, m.player.id, { type: 'offer', sdp: offer })
-        })
-        .catch((err) => {
-          offeredPeersRef.current.delete(m.player.id)
-          console.warn('Error creating auto-receive offer:', err)
-        })
+      void sendOffer(pc, m.player.id)
     })
-  }, [members, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection, isMediaAuthorized, destroyPeer, applyVoicePermissions, blockedRecipients, videoMode])
+  }, [members, myPlayerId, roomId, onSendSignal, getOrCreatePeerConnection, isMediaAuthorized, destroyPeer, sendOffer])
 
   // Synchronize master Sound On / Off setting to physical audio playback elements
   useEffect(() => {
@@ -692,6 +958,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
     const nextMuted = !isMuted
     setIsMuted(nextMuted)
+    voiceSession.isMuted = nextMuted
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getAudioTracks().forEach((t) => {
         t.enabled = !nextMuted
@@ -891,6 +1158,36 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     }
   }, [])
 
+  // Mobile browsers suspend media while the page is backgrounded. When the
+  // player comes back, resume playback, re-open a dead mic and rebuild any
+  // transport that died in the meantime — without a manual reconnect.
+  useEffect(() => {
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return
+      audioElementsRef.current.forEach((audio) => {
+        if (audio.paused && audio.srcObject && !audio.muted) audio.play().catch(() => {})
+      })
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {})
+      }
+      peerConnectionsRef.current.forEach((pc, peerId) => {
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          recoverRef.current(peerId)
+        }
+      })
+      const stream = voiceSession.stream
+      if (stream && !stream.getAudioTracks().some((t) => t.readyState === 'live')) {
+        reacquireRef.current()
+      }
+    }
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('pageshow', onResume)
+    return () => {
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('pageshow', onResume)
+    }
+  }, [])
+
   // Quick preset: Talk to Everyone (unblock all teammates)
   const setTalkToEveryone = () => {
     setBlockedRecipients((prev) => {
@@ -929,14 +1226,15 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     })
   }
 
-  // Cleanup on unmount
+  // Cleanup on unmount. The voice session deliberately outlives this
+  // component — the lobby and the arena are separate routes and the match runs
+  // across both — so only page-local resources are released here. The session
+  // is stopped explicitly when the match ends (Result page) or the player
+  // leaves the room routes.
   useEffect(() => {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
       if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current)
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((t) => t.stop())
-      }
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach((t) => t.stop())
         videoStreamRef.current = null
@@ -944,18 +1242,11 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(() => {})
       }
-      peerConnectionsRef.current.forEach((pc) => pc.close())
-      peerConnectionsRef.current.clear()
-      audioElementsRef.current.forEach((audio) => {
-        audio.pause()
-        audio.srcObject = null
-        if (audio.parentNode) {
-          audio.parentNode.removeChild(audio)
-        }
-      })
-      audioElementsRef.current.clear()
+      // The next route re-asserts the live state; make sure the server is not
+      // left believing we are still talking.
+      onVoiceStateChangeRef.current?.(roomId, false, voiceSession.isMuted)
     }
-  }, [])
+  }, [roomId])
 
   // Find other players currently speaking in the room
   const activeSpeakers = Object.entries(voiceStates)

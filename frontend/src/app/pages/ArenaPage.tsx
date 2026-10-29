@@ -20,6 +20,7 @@ import { vibration } from '../../services/vibration'
 import { HandGesture } from '../components/HandGesture'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { VoiceChat } from '../components/VoiceChat'
+import { voiceSession } from '../../services/voiceSession'
 import { PitchAnimation } from '../components/PitchAnimation'
 import { CelebrationEffects } from '../components/CelebrationEffects'
 import { formatPlayerWithTeam, getTeamRoleLabel } from '../../utils/teamLabels'
@@ -107,8 +108,12 @@ export default function ArenaPage() {
   const [activeMobileTab, setActiveMobileTab] = useState<'game' | 'chat' | 'teams'>('game')
   const [isVoiceListOpen, setIsVoiceListOpen] = useState(false)
 
-  // Entry pop-up mic prompt
+  // Entry pop-up mic prompt. The voice session survives the lobby → arena
+  // transition, so the nudge is pointless (and confusing) once the mic is live.
   const [showMicPrompt, setShowMicPrompt] = useState(() => {
+    if (voiceSession.roomId === roomId && voiceSession.micEnabled && !voiceSession.isMuted) {
+      return false
+    }
     try {
       return !sessionStorage.getItem(`hcl_mic_prompt_${roomId}`)
     } catch {
@@ -387,6 +392,14 @@ export default function ArenaPage() {
       return () => clearTimeout(timer)
     }
   }, [showMicPrompt, roomId])
+
+  // Nothing to prompt for while the mic is already live.
+  useEffect(() => {
+    const micLive =
+      voiceStates[myPlayerId]?.is_muted === false ||
+      (voiceSession.roomId === roomId && voiceSession.micEnabled && !voiceSession.isMuted)
+    if (micLive) setShowMicPrompt(false)
+  }, [voiceStates, myPlayerId, roomId])
 
   useEffect(() => {
     const deadlineStr = match?.innings_break_deadline || inningsBreak?.break_deadline

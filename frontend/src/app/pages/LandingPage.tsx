@@ -11,6 +11,7 @@ import { sound } from '../../services/sound'
 import { Footer } from '../components/Footer'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { useSocket } from '../../hooks/useSocket'
+import { stopVoiceSession } from '../../services/voiceSession'
 import styles from './LandingPage.module.css'
 
 type Tab = 'create' | 'join'
@@ -43,6 +44,11 @@ export default function LandingPage() {
   useEffect(() => {
     const saved = localStorage.getItem('hcl_display_name')
     if (saved) setDisplayName(saved)
+  }, [])
+
+  // Leaving the room routes always releases the microphone.
+  useEffect(() => {
+    stopVoiceSession()
   }, [])
 
   function handleSubmit(e: React.FormEvent) {

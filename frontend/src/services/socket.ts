@@ -4,6 +4,7 @@
  */
 
 import { io, Socket } from 'socket.io-client'
+import { getAccountToken } from './accounts'
 
 const rawBackend = import.meta.env.VITE_BACKEND_URL || ''
 const BACKEND_URL = rawBackend.trim().replace(/\/+$/, '')
@@ -14,6 +15,21 @@ let lifecycleWake: (() => void) | null = null
 function getStoredToken(): string {
   if (typeof window === 'undefined') return ''
   return localStorage.getItem('hcl_session') || sessionStorage.getItem('hcl_session_token') || ''
+}
+
+/**
+ * The handshake carries both identities: the guest player token (what the game
+ * uses) and the account bearer token (what stats/achievements use). Either can
+ * be present on its own.
+ */
+function buildHandshake(token?: string): { token?: string; account_token?: string } | undefined {
+  const guest = (token || getStoredToken()).trim()
+  const account = getAccountToken()
+  if (!guest && !account) return undefined
+  return {
+    ...(guest ? { token: guest } : {}),
+    ...(account ? { account_token: account } : {}),
+  }
 }
 
 /**
@@ -57,7 +73,7 @@ function unbindLifecycleWake(): void {
 }
 
 export function getSocket(sessionToken?: string): Socket {
-  const token = sessionToken || getStoredToken()
+  const handshake = buildHandshake(sessionToken)
   if (!socket) {
     socket = io(BACKEND_URL, {
       autoConnect: false,
@@ -71,23 +87,23 @@ export function getSocket(sessionToken?: string): Socket {
       timeout: 20000,
       // If long-polling is blocked by a proxy, still try WebSocket (and vice versa).
       tryAllTransports: true,
-      auth: token ? { token } : undefined,
-      query: token ? { token } : undefined,
+      auth: handshake,
+      query: handshake,
     })
     bindLifecycleWake(socket)
-  } else if (token) {
-    socket.auth = { token }
-    socket.io.opts.query = { token }
+  } else {
+    socket.auth = handshake ?? {}
+    socket.io.opts.query = handshake ?? {}
   }
   return socket
 }
 
 export function connectSocket(sessionToken?: string): Socket {
   const s = getSocket(sessionToken)
-  const token = sessionToken || getStoredToken()
-  if (token) {
-    s.auth = { token }
-    s.io.opts.query = { token }
+  const handshake = buildHandshake(sessionToken)
+  if (handshake) {
+    s.auth = handshake
+    s.io.opts.query = handshake
   }
   if (!s.connected) {
     s.connect()

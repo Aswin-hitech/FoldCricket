@@ -123,6 +123,55 @@
   transition: border-color var(--transition);
 }
 
+.instant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(234, 88, 12, 0.07));
+}
+
+.instantText {
+  min-width: 0;
+}
+
+.instantTag {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-team-a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instantText strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.instantText p {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.instant :global(.btn) {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 .invitedBanner {
   display: flex;
   align-items: center;
@@ -136,7 +185,6 @@
   margin: 14px 16px 0;
   animation: fadeIn 2s ease;
 }
-
 .tabs {
   display: flex;
   border-bottom: 1px solid var(--color-border);

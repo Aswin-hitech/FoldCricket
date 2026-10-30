@@ -182,3 +182,26 @@
   font-size: 0.76rem;
   opacity: 0.85;
 }
+
+.bottomLinks {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.creatorLink {
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.creatorLink:hover {
+  opacity: 1;
+  color: var(--color-team-a);
+}

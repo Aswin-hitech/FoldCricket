@@ -29,6 +29,7 @@ from ..security.utils import (
     video_call_rate_limiter,
 )
 from ..services import room_service
+from ..services import accounts_service
 from ..services.supabase_logger import get_client_ip, log_ip_event_async, log_feedback_to_supabase_async
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,25 @@ def _get_authenticated_player():
     if not token:
         return None
     return repo.get_player_by_session(token)
+
+
+def _resolve_account(data: dict | None):
+    """Optional account session passed alongside the guest player token."""
+    token = ((data or {}).get("account_token") or "").strip()
+    if not token:
+        return None
+    return accounts_service.resolve_session(token)
+
+
+def _link_player_account(player, data: dict | None):
+    """Attach a registered account to the game identity, if one is signed in."""
+    if not player:
+        return player
+    account = _resolve_account(data)
+    if account and player.user_id != account["id"]:
+        player.user_id = account["id"]
+        repo.save_player(player)
+    return player
 
 
 def _broadcast_snapshot(room_id: str, requesting_player_id: str | None = None) -> None:
@@ -264,12 +284,16 @@ def on_connect(auth=None):
     log_ip_event_async(ip=client_ip, action="socket_connect", headers=headers)
 
     token = (auth or {}).get("token") or request.args.get("token", "")
+    account_token = (auth or {}).get("account_token") or request.args.get("account_token", "")
     if not token:
         # Allow connection; player must register/restore before acting
         return
 
     player = repo.get_player_by_session(token)
     if player:
+        account = accounts_service.resolve_session(account_token) if account_token else None
+        if account and player.user_id != account["id"]:
+            player.user_id = account["id"]
         repo.update_player_socket(player.id, request.sid)
         player.connection_state = ConnectionState.CONNECTED
         repo.save_player(player)
@@ -468,6 +492,7 @@ def _start_grace_timer(player_id: str, room_id: str) -> None:
                         repo.save_match(match)
                         room.status = RoomStatus.MATCH_COMPLETE
                         repo.save_room(room)
+                        accounts_service.record_match_stats(room, match)
                         socketio.emit(
                             "match:finished",
                             {"winner": winning_team, "reason": "forfeit", "result_summary": match.result_summary},
@@ -488,9 +513,16 @@ def _start_grace_timer(player_id: str, room_id: str) -> None:
 def on_register(data):
     display_name = (data or {}).get("display_name", "").strip()
     session_token = (data or {}).get("session_token", "").strip() or None
+    account = _resolve_account(data)
+    if not display_name and account:
+        display_name = account["display_name"]
 
     try:
-        player, is_new = room_service.create_or_restore_player(display_name, session_token)
+        player, is_new = room_service.create_or_restore_player(
+            display_name,
+            session_token,
+            user_id=account["id"] if account else None,
+        )
     except ValueError as e:
         return emit("player:registered", _err(str(e)))
 
@@ -523,6 +555,7 @@ def on_player_restore(data):
     if not player:
         return emit("player:restored", _err("not_authenticated"))
 
+    _link_player_account(player, data)
     repo.update_player_socket(player.id, request.sid)
     player.connection_state = ConnectionState.CONNECTED
     repo.save_player(player)
@@ -609,6 +642,7 @@ def on_room_sync(data):
     if not player:
         return emit("room:error", _err("not_authenticated"))
 
+    _link_player_account(player, data)
     repo.update_player_socket(player.id, request.sid)
     player.connection_state = ConnectionState.CONNECTED
     repo.save_player(player)
@@ -626,7 +660,7 @@ def _get_or_register_player(data: dict | None):
     token = ((data or {}).get("session_token") or "").strip()
     if not token:
         return None
-    return repo.get_player_by_session(token)
+    return _link_player_account(repo.get_player_by_session(token), data)
 
 
 # ---------------------------------------------------------------------------

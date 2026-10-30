@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { connectSocket, disconnectSocket, reconnectSocket } from '../services/socket'
+import { getAccountToken } from '../services/accounts'
 import type {
   AllOutInfo,
   ChatMessage,
@@ -26,6 +27,13 @@ export interface LobbyRemovedNotice {
   room_id: string
   reason: string
   message: string
+}
+
+/** Account identity travels with every identity-bearing payload so the server
+ * can link the guest player to the signed-in account (stats, badges). */
+function accountField(): { account_token?: string } {
+  const token = getAccountToken()
+  return token ? { account_token: token } : {}
 }
 
 export interface LobbyAck {
@@ -172,12 +180,16 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       lastServerPacketAt = Date.now()
       const token = sessionTokenNow()
       if (token) {
-        s.emit('player:restore', { session_token: token })
+        s.emit('player:restore', { session_token: token, ...accountField() })
       }
       // The server only rejoins rooms on restore; ask for the authoritative
       // snapshot so a reconnect does not leave the page on stale state.
       if (activeRoomIdRef.current) {
-        s.emit('room:sync', { room_id: activeRoomIdRef.current, session_token: token })
+        s.emit('room:sync', {
+          room_id: activeRoomIdRef.current,
+          session_token: token,
+          ...accountField(),
+        })
       }
       s.emit('ping_check', Date.now())
     }
@@ -211,7 +223,11 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       }
       s.emit('ping_check', Date.now())
       if (activeRoomIdRef.current) {
-        s.emit('room:sync', { room_id: activeRoomIdRef.current, session_token: sessionTokenNow() })
+        s.emit('room:sync', {
+          room_id: activeRoomIdRef.current,
+          session_token: sessionTokenNow(),
+          ...accountField(),
+        })
       }
     }
 
@@ -557,23 +573,35 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
 
   // ---------- emitters ----------
   const register = useCallback((displayName: string, token?: string) => {
-    socketRef.current.emit('player:register', { display_name: displayName, session_token: token })
+    socketRef.current.emit('player:register', {
+      display_name: displayName,
+      session_token: token,
+      ...accountField(),
+    })
   }, [])
 
   const createRoom = useCallback((mode: string, overs: number) => {
     const token = sessionToken || localStorage.getItem('hcl_session') || ''
-    socketRef.current.emit('room:create', { mode, overs, session_token: token })
+    socketRef.current.emit('room:create', { mode, overs, session_token: token, ...accountField() })
   }, [sessionToken])
 
   const joinRoom = useCallback((joinCode: string) => {
     const token = sessionToken || localStorage.getItem('hcl_session') || ''
-    socketRef.current.emit('room:join', { join_code: joinCode, session_token: token })
+    socketRef.current.emit('room:join', {
+      join_code: joinCode,
+      session_token: token,
+      ...accountField(),
+    })
   }, [sessionToken])
 
   const syncRoom = useCallback((roomId: string) => {
     activeRoomIdRef.current = roomId
     const token = sessionToken || localStorage.getItem('hcl_session') || ''
-    socketRef.current.emit('room:sync', { room_id: roomId, session_token: token })
+    socketRef.current.emit('room:sync', {
+      room_id: roomId,
+      session_token: token,
+      ...accountField(),
+    })
   }, [sessionToken])
 
   // Force a fresh transport handshake (manual "Refresh Connection", or healing

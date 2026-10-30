@@ -182,14 +182,88 @@ def init_db() -> None:
                 PRIMARY KEY (room_id, sender_id, receiver_id)
             );
 
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                friend_code TEXT NOT NULL UNIQUE,
+                avatar TEXT NOT NULL DEFAULT '🏏',
+                bio TEXT NOT NULL DEFAULT '',
+                default_mode TEXT NOT NULL DEFAULT 'SOLO',
+                default_overs INTEGER NOT NULL DEFAULT 2,
+                default_wickets INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                user_agent TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS friendships (
+                id TEXT PRIMARY KEY,
+                requester_id TEXT NOT NULL,
+                addressee_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(requester_id, addressee_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS user_match_stats (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                match_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                team TEXT,
+                result TEXT NOT NULL,
+                opponent_name TEXT NOT NULL DEFAULT '',
+                runs_scored INTEGER NOT NULL DEFAULT 0,
+                wickets_taken INTEGER NOT NULL DEFAULT 0,
+                wickets_lost INTEGER NOT NULL DEFAULT 0,
+                balls_faced INTEGER NOT NULL DEFAULT 0,
+                balls_bowled INTEGER NOT NULL DEFAULT 0,
+                dead_balls INTEGER NOT NULL DEFAULT 0,
+                super_over INTEGER NOT NULL DEFAULT 0,
+                overs INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(user_id, match_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS user_achievements (
+                user_id TEXT NOT NULL,
+                code TEXT NOT NULL,
+                earned_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, code)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_memberships_room ON memberships(room_id);
             CREATE INDEX IF NOT EXISTS idx_matches_room ON matches(room_id);
             CREATE INDEX IF NOT EXISTS idx_deliveries_match ON deliveries(match_id);
             CREATE INDEX IF NOT EXISTS idx_voice_perm_room ON voice_permissions(room_id);
+            CREATE INDEX IF NOT EXISTS idx_matches_created ON matches(created_at);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_created ON deliveries(created_at);
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(token_hash);
+            CREATE INDEX IF NOT EXISTS idx_friendships_requester ON friendships(requester_id, status);
+            CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id, status);
+            CREATE INDEX IF NOT EXISTS idx_user_match_stats_user ON user_match_stats(user_id, created_at);
             """
         )
         try:
             conn.execute("ALTER TABLE matches ADD COLUMN innings_break_deadline TEXT;")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE players ADD COLUMN user_id TEXT;")
         except Exception:
             pass
 
@@ -251,13 +325,14 @@ def save_player(player: Player) -> Player:
         with _get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO players (id, display_name, session_token, connection_state, socket_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO players (id, display_name, session_token, connection_state, socket_id, created_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     display_name=excluded.display_name,
                     session_token=excluded.session_token,
                     connection_state=excluded.connection_state,
-                    socket_id=excluded.socket_id
+                    socket_id=excluded.socket_id,
+                    user_id=excluded.user_id
                 """,
                 (
                     player.id,
@@ -266,6 +341,7 @@ def save_player(player: Player) -> Player:
                     player.connection_state.value if hasattr(player.connection_state, "value") else str(player.connection_state),
                     player.socket_id,
                     player.created_at.isoformat() if hasattr(player.created_at, "isoformat") else str(player.created_at),
+                    getattr(player, "user_id", None),
                 ),
             )
     return player
@@ -331,6 +407,10 @@ def _row_to_player(row: sqlite3.Row) -> Player:
         created = datetime.fromisoformat(row["created_at"])
     except Exception:
         created = datetime.utcnow()
+    try:
+        user_id = row["user_id"]
+    except (KeyError, IndexError):
+        user_id = None
     return Player(
         id=row["id"],
         display_name=row["display_name"],
@@ -338,6 +418,7 @@ def _row_to_player(row: sqlite3.Row) -> Player:
         connection_state=ConnectionState(row["connection_state"]),
         socket_id=row["socket_id"],
         created_at=created,
+        user_id=user_id,
     )
 
 
@@ -1033,6 +1114,11 @@ def clear_all() -> None:
             conn.execute("DELETE FROM memberships;")
             conn.execute("DELETE FROM rooms;")
             conn.execute("DELETE FROM players;")
+            conn.execute("DELETE FROM user_achievements;")
+            conn.execute("DELETE FROM user_match_stats;")
+            conn.execute("DELETE FROM friendships;")
+            conn.execute("DELETE FROM user_sessions;")
+            conn.execute("DELETE FROM users;")
 
 
 # Aliases for interface compatibility

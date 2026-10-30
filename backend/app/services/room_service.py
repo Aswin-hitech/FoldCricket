@@ -34,6 +34,7 @@ from ..security.utils import (
     generate_session_token,
     validate_display_name,
 )
+from . import accounts_service
 
 DELIVERY_TIMEOUT_SECONDS = Config.DELIVERY_TIMEOUT_SECONDS
 FIRST_BALL_TIMEOUT_SECONDS = 30
@@ -65,14 +66,20 @@ _match_lock = threading.RLock()
 def create_or_restore_player(
     display_name: str,
     session_token: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> tuple[Player, bool]:
     """
     Returns (player, is_new).
     If a valid session_token is provided and matches an existing player, restore.
+    A logged-in account links its profile to the game identity so finished
+    matches can be credited to that account.
     """
     if session_token:
         existing = repo.get_player_by_session(session_token)
         if existing:
+            if user_id and existing.user_id != user_id:
+                existing.user_id = user_id
+                repo.save_player(existing)
             return existing, False
 
     ok, reason = validate_display_name(display_name)
@@ -82,6 +89,7 @@ def create_or_restore_player(
     player = Player(
         display_name=display_name.strip(),
         session_token=session_token or generate_session_token(),
+        user_id=user_id,
     )
     repo.save_player(player)
     return player, True
@@ -687,6 +695,7 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
         match.delivery_deadline = None
         repo.save_room(room)
         repo.save_match(match)
+        accounts_service.record_match_stats(room, match)
         return match, outcome.delivery
 
     members = repo.get_room_members(room.id)
@@ -752,6 +761,7 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
                     room.status = RoomStatus.MATCH_COMPLETE
                     repo.save_room(room)
                     repo.save_match(match)
+                    accounts_service.record_match_stats(room, match)
                     return match, outcome.delivery
                 else:
                     # First innings completed via all out -> enter INNINGS_BREAK

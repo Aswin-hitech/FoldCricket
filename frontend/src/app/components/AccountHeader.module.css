@@ -1,0 +1,75 @@
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 16px 24px 0;
+  z-index: 30;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+
+.logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+}
+
+.brandName {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.playLink {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: var(--color-text-dim);
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: color var(--transition), background var(--transition);
+}
+
+.playLink:hover {
+  color: var(--color-team-a);
+  background: var(--color-surface-2);
+}
+
+@media (max-width: 560px) {
+  .bar {
+    padding: 12px 14px 0;
+    gap: 8px;
+  }
+
+  .brandName {
+    display: none;
+  }
+
+  .playLink {
+    display: none;
+  }
+}

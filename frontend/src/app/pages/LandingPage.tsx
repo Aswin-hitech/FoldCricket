@@ -6,10 +6,14 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { connectSocket } from '../../services/socket'
 import { ThemeToggle } from '../../context/ThemeContext'
+import { useAuth } from '../../context/AuthContext'
 import { logClientSession } from '../../services/telemetry'
 import { sound } from '../../services/sound'
+import { startInstantMatch } from '../../services/instantMatch'
+import { getAccountToken } from '../../services/accounts'
 import { Footer } from '../components/Footer'
 import { NetworkIndicator } from '../components/NetworkIndicator'
+import { AccountMenu } from '../components/AccountMenu'
 import { useSocket } from '../../hooks/useSocket'
 import { stopVoiceSession } from '../../services/voiceSession'
 import styles from './LandingPage.module.css'
@@ -21,6 +25,7 @@ export default function LandingPage() {
   const { code: routeCode } = useParams<{ code?: string }>()
   const [searchParams] = useSearchParams()
   const invitedCode = routeCode || searchParams.get('join') || searchParams.get('code')
+  const { user } = useAuth()
 
   const { status, pingLatency } = useSocket()
   const [tab, setTab] = useState<Tab>(invitedCode ? 'join' : 'create')
@@ -46,10 +51,40 @@ export default function LandingPage() {
     if (saved) setDisplayName(saved)
   }, [])
 
+  // Signed-in players start with their profile name already filled in.
+  useEffect(() => {
+    if (user) {
+      setDisplayName((current) => current || user.display_name)
+    }
+  }, [user])
+
   // Leaving the room routes always releases the microphone.
   useEffect(() => {
     stopVoiceSession()
   }, [])
+
+  async function handleInstantMatch() {
+    if (!user || loading) return
+    setError('')
+    setLoading(true)
+    const mode = user.default_mode === 'TEAM' ? 'TEAM' : 'SOLO'
+    const overs = Math.min(10, Math.max(1, user.default_overs ?? 2))
+    const wickets = Math.min(mode === 'SOLO' ? 5 : 10, Math.max(1, user.default_wickets ?? 1))
+
+    try {
+      const { roomId } = await startInstantMatch({
+        displayName: displayName.trim() || user.display_name,
+        mode,
+        overs,
+        wickets,
+      })
+      logClientSession('create_room', { mode, overs, wickets, instant: true })
+      navigate(`/room/${roomId}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start the match.')
+      setLoading(false)
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -63,10 +98,8 @@ export default function LandingPage() {
 
     setLoading(true)
     const sessionToken = localStorage.getItem('hcl_session') || undefined
+    const accountToken = getAccountToken() || undefined
     const socket = connectSocket(sessionToken)
-
-    // Register player
-    socket.emit('player:register', { display_name: name, session_token: sessionToken })
 
     socket.once('player:registered', (data: { success: boolean; player_id: string; session_token: string; error?: string }) => {
       if (!data.success) {
@@ -80,8 +113,6 @@ export default function LandingPage() {
       localStorage.setItem('hcl_display_name', name)
 
       if (tab === 'create') {
-        logClientSession('create_room', { mode, overs, wickets, display_name: name })
-        socket.emit('room:create', { mode, overs, wickets, session_token: data.session_token })
         socket.once('room:created', (roomData: { success: boolean; room_id?: string; join_code?: string; error?: string }) => {
           setLoading(false)
           if (!roomData.success) {
@@ -90,6 +121,14 @@ export default function LandingPage() {
           }
           navigate(`/room/${roomData.room_id}`)
         })
+        logClientSession('create_room', { mode, overs, wickets, display_name: name })
+        socket.emit('room:create', {
+          mode,
+          overs,
+          wickets,
+          session_token: data.session_token,
+          ...(accountToken ? { account_token: accountToken } : {}),
+        })
       } else {
         const code = joinCode.trim().toUpperCase()
         if (!code) {
@@ -97,8 +136,6 @@ export default function LandingPage() {
           setLoading(false)
           return
         }
-        logClientSession('join_room', { join_code: code, display_name: name })
-        socket.emit('room:join', { join_code: code, session_token: data.session_token })
         socket.once('room:joined', (roomData: { success: boolean; room_id?: string; error?: string }) => {
           setLoading(false)
           if (!roomData.success) {
@@ -107,7 +144,20 @@ export default function LandingPage() {
           }
           navigate(`/room/${roomData.room_id}`)
         })
+        logClientSession('join_room', { join_code: code, display_name: name })
+        socket.emit('room:join', {
+          join_code: code,
+          session_token: data.session_token,
+          ...(accountToken ? { account_token: accountToken } : {}),
+        })
       }
+    })
+
+    // Register player
+    socket.emit('player:register', {
+      display_name: name,
+      session_token: sessionToken,
+      ...(accountToken ? { account_token: accountToken } : {}),
     })
   }
 
@@ -117,6 +167,7 @@ export default function LandingPage() {
       <div className={styles.topBar}>
         <NetworkIndicator status={status} latency={pingLatency} showReconnectingBanner={false} />
         <ThemeToggle />
+        <AccountMenu />
       </div>
 
       {/* Hero */}
@@ -141,6 +192,27 @@ export default function LandingPage() {
       {/* Form card */}
       <main className={styles.main}>
         <div className={styles.card}>
+          {user && (
+            <div className={styles.instant}>
+              <div className={styles.instantText}>
+                <span className={styles.instantTag}>Signed in as {user.display_name}</span>
+                <strong>⚡ Instant match</strong>
+                <p>
+                  {user.default_mode === 'TEAM' ? 'Team' : 'Solo 1v1'} · {user.default_overs ?? 2}{' '}
+                  {(user.default_overs ?? 2) === 1 ? 'over' : 'overs'} · {user.default_wickets ?? 1}{' '}
+                  {(user.default_wickets ?? 1) === 1 ? 'wicket' : 'wickets'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleInstantMatch}
+                disabled={loading}
+              >
+                {loading ? <span className={styles.spinner} /> : 'Start now'}
+              </button>
+            </div>
+          )}
           {invitedCode && (
             <div className={styles.invitedBanner}>
               <span>🔗</span>

@@ -1,7 +1,12 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 import styles from './Footer.module.css'
 
 export const Footer: React.FC = () => {
+  const { user, profile } = useAuth()
+  const pending = profile?.incoming_requests ?? 0
+
   return (
     <footer className={styles.footer}>
       <div className={styles.inner}>
@@ -59,7 +64,22 @@ export const Footer: React.FC = () => {
 
         <div className={styles.bottomBar}>
           <span>© {new Date().getFullYear()} FoldCricket. All rights reserved.</span>
-          <span className={styles.systemStatus}>Server-Authoritative • WebSocket v2.0 • Ultra-low Latency</span>
+          <div className={styles.bottomLinks}>
+            {user && (
+              <>
+                <Link to="/profile" className={styles.creatorLink} title="Your profile">
+                  👤 Profile
+                </Link>
+                <Link to="/friends" className={styles.creatorLink} title="Friends circle">
+                  🫂 Friends{pending > 0 ? ` (${pending})` : ''}
+                </Link>
+              </>
+            )}
+            <Link to="/creator" className={styles.creatorLink} title="Creator dashboard">
+              🔒 Creator
+            </Link>
+            <span className={styles.systemStatus}>Server-Authoritative • WebSocket v2.0 • Ultra-low Latency</span>
+          </div>
         </div>
       </div>
     </footer>

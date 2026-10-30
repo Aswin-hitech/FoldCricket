@@ -40,6 +40,15 @@ class Config:
     # Socket.IO
     SOCKETIO_ASYNC_MODE: str = os.getenv("SOCKETIO_ASYNC_MODE", "threading")
 
+    # Creator dashboard. Unset means loopback-only access; set it in
+    # production to unlock the dashboard with X-Creator-Key.
+    CREATOR_DASHBOARD_KEY: str = os.getenv("CREATOR_DASHBOARD_KEY", "")
+
+    # Player accounts. Sessions are opaque bearer tokens stored hashed at
+    # rest; the browser keeps the raw token and sends it as Authorization:
+    # Bearer. 30 days of inactivity expires a session.
+    ACCOUNT_SESSION_DAYS: int = int(os.getenv("ACCOUNT_SESSION_DAYS", "30"))
+
     # Game rules (15-second authoritative server deadline)
     DELIVERY_TIMEOUT_SECONDS: int = int(os.getenv("DELIVERY_TIMEOUT_SECONDS", "15"))
     INNINGS_BREAK_SECONDS: int = int(os.getenv("INNINGS_BREAK_SECONDS", "10"))

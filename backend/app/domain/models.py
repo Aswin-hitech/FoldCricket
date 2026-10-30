@@ -78,6 +78,8 @@ class Player:
     connection_state: ConnectionState = ConnectionState.CONNECTED
     socket_id: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.utcnow)
+    # Optional link to a registered account. Guests keep this None.
+    user_id: Optional[str] = None
 
     def to_public_dict(self) -> dict:
         """Safe serialisation – never includes session_token."""

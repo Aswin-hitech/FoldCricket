@@ -250,6 +250,34 @@ def test_duplicate_timeout_events_cannot_start_second_innings_twice():
     assert final_room.status == RoomStatus.INNINGS_ACTIVE
 
 
+def test_dead_ball_is_rebowled_with_same_players():
+    """A timed-out delivery is a dead ball: same ball, same batter and bowler."""
+    room, match, batting_p, bowling_p = _setup_match(overs=2, wickets=2)
+    batter_id, bowler_id = match.active_batter_id, match.active_bowler_id
+
+    # Batter picks, bowler times out -> dead ball
+    room_service.submit_pick(room, batting_p, 5)
+    match.delivery_deadline = datetime.utcnow() - timedelta(seconds=1)
+    repo.save_match(match)
+    match, dead = room_service.resolve_timeout(room.id)
+
+    assert dead.result.value == "TIMEOUT"
+    assert match.current_ball == 0
+    assert match.current_over == 0
+    assert match.active_batter_id == batter_id
+    assert match.active_bowler_id == bowler_id
+    assert match.delivery_deadline is not None
+    assert match.delivery_deadline > datetime.utcnow()
+    assert match.team_a_runs == 0
+    assert match.team_a_wickets == 0
+
+    # The re-bowled ball accepts fresh picks and then advances normally
+    room_service.submit_pick(room, batting_p, 3)
+    match, res = room_service.submit_pick(room, bowling_p, 7)
+    assert res.runs_scored == 3
+    assert match.current_ball == 1
+
+
 def test_chasing_team_fails_to_reach_target_loses():
     """10. A chasing team that fails to reach the target loses when its innings ends."""
     room, match, batting_p, bowling_p = _setup_match(overs=2, wickets=1)

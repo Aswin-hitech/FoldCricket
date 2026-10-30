@@ -1067,10 +1067,6 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const ensureCamera = useCallback(async (): Promise<boolean> => {
     if (!videoEnabled) return false
     if (videoStreamRef.current) return true
-    if (!videoNetwork?.allowed) {
-      setCameraError(videoNetwork?.reason || 'Network is not good enough for video right now.')
-      return false
-    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -1090,7 +1086,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       setCameraError('Camera permission denied or the camera is in use by another app.')
       return false
     }
-  }, [videoEnabled, videoNetwork?.allowed, videoNetwork?.reason])
+  }, [videoEnabled])
 
   // Keep every authorized peer's video sender in sync with the current mode:
   // broadcast = everyone who may hear me, call = only the call partner.
@@ -1167,11 +1163,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     }
   }, [videoMode, videoCallPeer, incomingVideoCall, stopCameraStream])
 
-  // The network gate only decides whether a call may *start* (button disabled,
-  // ensureCamera refuses). Once media is live, a momentary latency spike must
-  // not tear the call down: WebRTC already adapts its bitrate, and killing the
-  // camera mid-call left the peer with a one-way (recvonly) video stream.
-  const networkAllowed = videoNetwork?.allowed ?? false
+  // Video quality follows the available bandwidth (WebRTC adapts its bitrate),
+  // so the network is never a gate: a weaker link simply gets a softer picture.
 
   // Release the camera if the device stops qualifying as a laptop (e.g. the
   // window is emulated as a phone) and stop any video surface from lingering.
@@ -1403,11 +1396,11 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   }).length
 
   // A private call can be requested from any authorized peer; broadcast mode
-  // and private calls share one camera.
+  // and private calls share one camera. The network is never a gate: better
+  // network simply means better video quality.
   const videoBusy = Boolean(videoCallPeer)
-  const canStartVideo = Boolean(videoNetwork?.allowed) && !videoBusy
-  const videoUnavailableReason =
-    videoNetwork?.reason || 'Checking whether this connection can handle video…'
+  const canStartVideo = !videoBusy
+  const videoQualityHint = 'Better network — better quality'
   const videoErrorMessages: Record<string, string> = {
     rate_limited: 'Too many video call attempts. Please wait a moment.',
     no_pending_call: 'That call is no longer available.',
@@ -1441,6 +1434,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         onClick={toggleMute}
         title={!micEnabled ? 'Connect Microphone to Speak' : isMuted ? 'Microphone is Muted. Click to Speak' : 'Microphone is Live. Click to Mute'}
         aria-label="Toggle Microphone"
+        data-tour="mic"
       >
         <span className={styles.micIcon}>
           {!micEnabled ? '🎙️' : isMuted ? '🔇' : '🎙️'}
@@ -1465,17 +1459,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         type="button"
         className={`${styles.micBtn} ${videoMode !== 'off' ? styles.videoBtnActive : ''}`}
         onClick={toggleBroadcastCamera}
-        disabled={videoMode === 'off' && !videoNetwork?.allowed}
         title={
           videoMode === 'call'
             ? cameraOn
               ? 'Stop sending video (audio stays live)'
               : 'Resume sending video'
-            : videoNetwork?.allowed
-              ? videoMode === 'broadcast'
-                ? 'Stop camera broadcast'
-                : `Start camera (broadcast to everyone who can hear you) — ${videoNetwork.reason}`
-              : `Video unavailable: ${videoUnavailableReason}`
+            : videoMode === 'broadcast'
+              ? 'Stop camera broadcast'
+              : `Start camera (broadcast to everyone who can hear you) — ${videoQualityHint}`
         }
         aria-label="Toggle Camera"
       >
@@ -1496,6 +1487,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         onClick={() => setShowVoiceListModal(true)}
         title="Voice Control (who hears you, who you hear)"
         aria-label="Open Voice Control"
+        data-tour="voice-list"
       >
         <span className={styles.voiceListIcon}>👥</span>
         <span className={styles.voiceListLabel}>
@@ -1719,6 +1711,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                             className={`${styles.listenBtn} ${isListeningMuted ? styles.listenBtnMuted : ''}`}
                             onClick={() => toggleIncomingMute(peerId)}
                             title={isListeningMuted ? `Unmute incoming sound from ${m.player.display_name}` : `Mute incoming sound from ${m.player.display_name}`}
+                            data-tour="mute-incoming"
                           >
                             {isListeningMuted ? '🔇' : '🔊'}
                           </button>
@@ -1729,11 +1722,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                               disabled={!canStartVideo}
                               onClick={() => startPrivateVideoCall(peerId)}
                               title={
-                                videoNetwork?.allowed
-                                  ? videoBusy
-                                    ? 'Finish the current video call first'
-                                    : `Start a private video call with ${m.player.display_name}`
-                                  : `Video unavailable: ${videoUnavailableReason}`
+                                videoBusy
+                                  ? 'Finish the current video call first'
+                                  : `Start a private video call with ${m.player.display_name} — ${videoQualityHint}`
                               }
                             >
                               📹 Video
@@ -1841,6 +1832,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                             className={`${styles.listenBtn} ${isListeningMuted ? styles.listenBtnMuted : ''}`}
                             onClick={() => toggleIncomingMute(peerId)}
                             title={isListeningMuted ? `Unmute incoming sound from ${m.player.display_name}` : `Mute incoming sound from ${m.player.display_name}`}
+                            data-tour="mute-incoming"
                           >
                             {isListeningMuted ? '🔇' : '🔊'}
                           </button>
@@ -1851,11 +1843,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                               disabled={!canStartVideo}
                               onClick={() => startPrivateVideoCall(peerId)}
                               title={
-                                videoNetwork?.allowed
-                                  ? videoBusy
-                                    ? 'Finish the current video call first'
-                                    : `Start a private video call with ${m.player.display_name} (accepting also opens voice)`
-                                  : `Video unavailable: ${videoUnavailableReason}`
+                                videoBusy
+                                  ? 'Finish the current video call first'
+                                  : `Start a private video call with ${m.player.display_name} (accepting also opens voice) — ${videoQualityHint}`
                               }
                             >
                               📹 Video
@@ -1869,6 +1859,18 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
               </div>
             </div>
 
+            {/* Video availability note: quality follows the connection, so the
+                network is never a gate and laptops always get the option. */}
+            {videoEnabled && (
+              <div className={styles.videoInfoCard} role="note" aria-label="Video call support">
+                <span className={styles.videoInfoIcon}>📹</span>
+                <div className={styles.videoInfoText}>
+                  <strong>Video Calls (Beta)</strong>
+                  <span>Better network — better quality. Video calls are supported on laptop devices.</span>
+                </div>
+              </div>
+            )}
+
             <div className={styles.modalFooter}>
               <div className={styles.modalFooterHint}>
                 {isTeamMatch ? (
@@ -1878,7 +1880,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                 ) : (
                   <>
                     💡 <strong>Privacy:</strong> Teammates and your opponent can only hear you while you allow it.
-                    {videoEnabled ? ' Video requires a good connection and mutual consent.' : ''}
+                    {videoEnabled ? ' Video calls need mutual consent; better network means better quality.' : ''}
                   </>
                 )}
               </div>
@@ -1914,14 +1916,10 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           remoteStreams={remoteVideoStreams}
           cameraOn={cameraOn}
           cameraError={cameraError}
-          network={{
-            allowed: Boolean(videoNetwork?.allowed),
-            reason: videoNetwork?.reason || 'Checking whether this connection can handle video…',
-            latency: videoNetwork?.latency ?? null,
-          }}
+          network={{ latency: videoNetwork?.latency ?? null }}
           callPeer={videoCallPeer}
           onToggleCamera={toggleBroadcastCamera}
-          canToggleCamera={Boolean(videoNetwork?.allowed)}
+          canToggleCamera
         />
         </ModalPortal>
       )}

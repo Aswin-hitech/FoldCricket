@@ -169,7 +169,7 @@ class Match:
     team_b_wickets: int = 0
     target: Optional[int] = None        # set after first innings
 
-    # Extra wickets for smaller team
+    # Legacy persisted columns; kept for schema compatibility, no longer awarded.
     team_a_extra_wickets: int = 0
     team_b_extra_wickets: int = 0
 
@@ -225,16 +225,16 @@ class Match:
         return "B" if self.batting_team == "A" else "A"
 
     def wicket_limit(self, team: str) -> int:
-        """Configured match wickets or players on team + extra wicket allowance."""
+        """The configured wicket count, identical for both teams."""
         if getattr(self, "is_super_over", False):
             return 2
-        extra = self.team_a_extra_wickets if team == "A" else self.team_b_extra_wickets
         base = getattr(self, "wickets", None)
         if base is not None and base > 0:
-            return base + extra
-        # Fallback stored at match creation; default 10 if not set
-        team_size = getattr(self, "_team_a_size", 10) if team == "A" else getattr(self, "_team_b_size", 10)
-        return team_size + extra
+            return base
+        # Fallback stored at match creation; the larger roster keeps both limits equal
+        size_a = getattr(self, "_team_a_size", 10)
+        size_b = getattr(self, "_team_b_size", 10)
+        return max(size_a, size_b)
 
 
 # ---------------------------------------------------------------------------

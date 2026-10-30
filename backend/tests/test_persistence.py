@@ -1,8 +1,7 @@
 """
-Persistence tests verifying SQLite durability, process restart recovery, and delivery uniqueness.
+Persistence tests verifying SQLite durability, process restart recovery, and dead-ball re-bowls.
 """
 
-import sqlite3
 import pytest
 
 from app.domain.models import RoomStatus
@@ -137,26 +136,24 @@ def test_snapshot_hides_finished_match_after_rematch():
     assert snap["recent_deliveries"] == []
 
 
-def test_sqlite_unique_delivery_constraint():
-    """Verify the database schema enforces uniqueness on (match_id, innings, over_index, ball_index)."""
+def test_sqlite_allows_dead_ball_rebowl_on_the_same_ball():
+    """A dead ball is re-bowled, so two deliveries may share one ball slot."""
     with sqlite_repo._get_connection() as conn:
         c = conn.cursor()
 
-        # Attempt inserting two deliveries with identical match_id, innings, over_index, and ball_index
         c.execute("""
             INSERT OR IGNORE INTO matches (id, room_id, phase, overs, current_over, current_ball, batting_team)
-            VALUES ('m_test', 'r_test', 'FIRST', 2, 0, 1, 'A')
+            VALUES ('m_rebowl', 'r_rebowl', 'FIRST', 2, 0, 1, 'A')
         """)
 
-        c.execute("""
-            INSERT INTO deliveries (id, match_id, innings, over_index, ball_index, batter_id, bowler_id, batter_pick, bowler_pick, result, runs_scored, committed, commit_sequence, created_at)
-            VALUES ('d1', 'm_test', 'FIRST', 0, 1, 'p1', 'p2', 4, 6, 'RUNS', 4, 1, 1, '2026-10-27T00:00:00Z')
-        """)
-
-    with pytest.raises(sqlite3.IntegrityError):
-        with sqlite_repo._get_connection() as conn2:
-            c2 = conn2.cursor()
-            c2.execute("""
+        # The dead delivery, then the re-bowled delivery for the same slot.
+        for delivery_id, result, committed in (("d_dead", "TIMEOUT", 1), ("d_rebowl", "RUNS", 1)):
+            c.execute("""
                 INSERT INTO deliveries (id, match_id, innings, over_index, ball_index, batter_id, bowler_id, batter_pick, bowler_pick, result, runs_scored, committed, commit_sequence, created_at)
-                VALUES ('d2', 'm_test', 'FIRST', 0, 1, 'p1', 'p2', 5, 5, 'OUT', 0, 1, 2, '2026-10-27T00:00:01Z')
-            """)
+                VALUES (?, 'm_rebowl', 'FIRST', 0, 1, 'p1', 'p2', 4, 6, ?, 4, ?, 1, '2026-10-27T00:00:00Z')
+            """, (delivery_id, result, committed))
+
+        rows = c.execute(
+            "SELECT COUNT(*) AS n FROM deliveries WHERE match_id = 'm_rebowl'"
+        ).fetchone()
+        assert rows["n"] == 2

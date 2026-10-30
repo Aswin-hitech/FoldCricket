@@ -66,8 +66,8 @@ class GameRules:
         bwp = delivery.bowler_pick
 
         # --- Timeout handling ---
-        # A timed-out delivery is dead: 0 runs, no wicket, regardless of whose
-        # pick was missing.
+        # A timed-out delivery is dead: 0 runs, no wicket, and the same ball is
+        # re-bowled, regardless of whose pick was missing.
         if bp is None or bwp is None:
             delivery.result = DeliveryResult.TIMEOUT
             delivery.runs_scored = 0
@@ -85,6 +85,12 @@ class GameRules:
             delivery.runs_scored = bp
 
         delivery.committed = True
+
+        # --- Dead ball: a timed-out delivery is re-bowled ---
+        # No ball is consumed, no wicket falls, no innings can end here.
+        if delivery.result == DeliveryResult.TIMEOUT:
+            match.version += 1
+            return DeliveryOutcome(delivery=delivery, match=match)
 
         # --- Apply to match state ---
         current_batting_team = match.batting_team
@@ -324,15 +330,3 @@ class GameRules:
         if value not in VALID_PICKS:
             return "pick_out_of_range"
         return None
-
-    @staticmethod
-    def compute_extra_wickets(team_a_size: int, team_b_size: int) -> tuple[int, int]:
-        """
-        The smaller team receives one additional wicket allowance.
-        Returns (team_a_extra, team_b_extra).
-        """
-        if team_a_size < team_b_size:
-            return 1, 0
-        elif team_b_size < team_a_size:
-            return 0, 1
-        return 0, 0

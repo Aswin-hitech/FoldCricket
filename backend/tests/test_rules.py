@@ -111,11 +111,16 @@ class TestTimeoutPolicy:
         assert match.team_a_runs == 0
         assert match.team_a_wickets == 0
 
-    def test_timeout_still_advances_ball(self):
+    def test_timeout_is_dead_ball_and_does_not_advance_ball(self):
         match = make_match()
         delivery = make_delivery(match, batter_pick=None, bowler_pick=4)
-        GameRules.resolve_delivery(match, copy.copy(delivery))
-        assert match.current_ball == 1
+        outcome = GameRules.resolve_delivery(match, copy.copy(delivery))
+        assert outcome.delivery.result == DeliveryResult.TIMEOUT
+        assert match.current_ball == 0
+        assert match.current_over == 0
+        assert outcome.innings_ended is False
+        assert match.team_a_runs == 0
+        assert match.team_a_wickets == 0
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +154,6 @@ class TestInningsProgression:
         match = make_match(overs=10)
         match._team_a_size = 2
         match._team_b_size = 2
-        match.team_a_extra_wickets = 0
         # 2 players = 2 wicket limit
         for _ in range(2):
             d = make_delivery(match, batter_pick=5, bowler_pick=5)  # out
@@ -169,21 +173,27 @@ class TestInningsProgression:
 
 
 # ---------------------------------------------------------------------------
-# Extra wicket rule
+# Wicket limit: both teams always get the same count
 # ---------------------------------------------------------------------------
 
-class TestExtraWicket:
-    def test_smaller_team_gets_extra_wicket(self):
-        ea, eb = GameRules.compute_extra_wickets(3, 5)
-        assert ea == 1 and eb == 0
+class TestWicketLimit:
+    def test_uneven_squads_share_the_configured_limit(self):
+        match = make_match(wickets=3)
+        match._team_a_size = 3
+        match._team_b_size = 5
+        assert match.wicket_limit("A") == 3
+        assert match.wicket_limit("B") == 3
 
-    def test_equal_teams_no_extra(self):
-        ea, eb = GameRules.compute_extra_wickets(5, 5)
-        assert ea == 0 and eb == 0
+    def test_fallback_keeps_limits_equal_for_uneven_squads(self):
+        match = make_match()
+        match._team_a_size = 3
+        match._team_b_size = 5
+        assert match.wicket_limit("A") == match.wicket_limit("B") == 5
 
-    def test_team_b_smaller_gets_extra(self):
-        ea, eb = GameRules.compute_extra_wickets(5, 3)
-        assert ea == 0 and eb == 1
+    def test_super_over_limit_is_two_for_both(self):
+        match = make_match(wickets=5)
+        match.is_super_over = True
+        assert match.wicket_limit("A") == match.wicket_limit("B") == 2
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +227,6 @@ class TestWinner:
         match.team_b_runs = 45
         match._team_b_size = 5
         match.team_b_wickets = 1
-        match.team_b_extra_wickets = 0
         GameRules._determine_winner(match)
         assert match.winner == "B"
         assert "won by 4 wickets" in match.result_summary
@@ -240,7 +249,6 @@ class TestWinner:
         match.team_a_runs = 52
         match._team_a_size = 5
         match.team_a_wickets = 2
-        match.team_a_extra_wickets = 0
         GameRules._determine_winner(match)
         assert match.winner == "A"
         assert "won by 3 wickets" in match.result_summary

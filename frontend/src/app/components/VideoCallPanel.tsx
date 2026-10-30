@@ -21,7 +21,7 @@ interface VideoCallPanelProps {
   remoteStreams: Record<string, MediaStream>
   cameraOn: boolean
   cameraError: string | null
-  network: { allowed: boolean; reason: string; latency: number | null }
+  network: { latency: number | null }
   callPeer: VideoCallSession | null
   onToggleCamera: () => void
   canToggleCamera: boolean
@@ -165,11 +165,15 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
 
       {!isMinimized && (
         <>
-          {(cameraError || !network.allowed) && (
+          {cameraError && (
             <div className={styles.errorBanner}>
-              <span>⚠️ {cameraError || network.reason}</span>
+              <span>⚠️ {cameraError}</span>
             </div>
           )}
+
+          <div className={styles.networkHint}>
+            <span>💡 Better network — better quality. Video calls are supported on laptop devices.</span>
+          </div>
 
           <div className={styles.videoGrid}>
             <div className={styles.videoTile}>
@@ -241,11 +245,9 @@ export const VideoCallPanel: React.FC<VideoCallPanelProps> = ({
               onClick={onToggleCamera}
               disabled={!canToggleCamera}
               title={
-                network.allowed
-                  ? cameraOn
-                    ? 'Stop sending video (audio stays live)'
-                    : 'Resume camera'
-                  : `Video unavailable: ${network.reason}`
+                cameraOn
+                  ? 'Stop sending video (audio stays live)'
+                  : 'Resume camera'
               }
             >
               {cameraOn ? '📹 Camera On' : '📷 Camera Off'}

@@ -707,6 +707,35 @@
   line-height: 1.35;
 }
 
+.videoInfoCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: var(--radius-md, 10px);
+}
+
+.videoInfoIcon {
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.videoInfoText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+  line-height: 1.4;
+}
+
+.videoInfoText strong {
+  color: var(--color-text);
+  font-size: 0.8rem;
+}
+
 /* Mobile & Tablet responsiveness */
 @media (max-width: 600px) {
   .micBtn {

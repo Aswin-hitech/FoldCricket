@@ -170,8 +170,7 @@ def init_db() -> None:
                 timeout_reason TEXT,
                 committed INTEGER NOT NULL,
                 commit_sequence INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                UNIQUE (match_id, innings, over_index, ball_index)
+                created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS voice_permissions (
@@ -193,6 +192,49 @@ def init_db() -> None:
             conn.execute("ALTER TABLE matches ADD COLUMN innings_break_deadline TEXT;")
         except Exception:
             pass
+
+    _migrate_deliveries_rebowl()
+
+
+def _migrate_deliveries_rebowl() -> None:
+    """
+    A dead ball is re-bowled, so two deliveries may legitimately share the same
+    (match, innings, over, ball). Older databases carry a UNIQUE constraint that
+    would reject the re-bowled row; rebuild the table without it.
+    """
+    with _lock, _get_connection() as conn:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='deliveries'"
+        ).fetchone()
+        if not row or "UNIQUE" not in (row["sql"] or "").upper():
+            return
+
+        conn.execute("DROP INDEX IF EXISTS idx_deliveries_match;")
+        conn.execute("ALTER TABLE deliveries RENAME TO deliveries_legacy;")
+        conn.execute(
+            """
+            CREATE TABLE deliveries (
+                id TEXT PRIMARY KEY,
+                match_id TEXT NOT NULL,
+                innings TEXT NOT NULL,
+                over_index INTEGER NOT NULL,
+                ball_index INTEGER NOT NULL,
+                batter_pick INTEGER,
+                bowler_pick INTEGER,
+                batter_id TEXT,
+                bowler_id TEXT,
+                result TEXT,
+                runs_scored INTEGER NOT NULL,
+                timeout_reason TEXT,
+                committed INTEGER NOT NULL,
+                commit_sequence INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute("INSERT INTO deliveries SELECT * FROM deliveries_legacy;")
+        conn.execute("DROP TABLE deliveries_legacy;")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deliveries_match ON deliveries(match_id);")
 
 
 # Initialize schema on module load
@@ -369,6 +411,26 @@ def get_room_by_code(code: str) -> Optional[Room]:
             r = _row_to_room(row)
             _rooms_cache[r.id] = r
             return r
+
+
+def delete_room(room_id: str) -> None:
+    """Permanently remove a room and everything attached to it."""
+    with _lock:
+        _rooms_cache.pop(room_id, None)
+        _memberships_cache.pop(room_id, None)
+        with _get_connection() as conn:
+            match_ids = [
+                r["id"]
+                for r in conn.execute("SELECT id FROM matches WHERE room_id = ?", (room_id,)).fetchall()
+            ]
+            for match_id in match_ids:
+                conn.execute("DELETE FROM deliveries WHERE match_id = ?", (match_id,))
+                _deliveries_cache.pop(match_id, None)
+                _matches_cache.pop(match_id, None)
+            conn.execute("DELETE FROM matches WHERE room_id = ?", (room_id,))
+            conn.execute("DELETE FROM memberships WHERE room_id = ?", (room_id,))
+            conn.execute("DELETE FROM voice_permissions WHERE room_id = ?", (room_id,))
+            conn.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
 
 
 def _row_to_room(row: sqlite3.Row) -> Room:

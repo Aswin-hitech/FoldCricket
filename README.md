@@ -72,7 +72,7 @@ Frontend starts at **http://localhost:5173**
 | Deadline | 15 seconds (server-enforced) |
 | Innings end | Over limit OR wicket limit |
 | Target | First innings runs + 1 |
-| Extra wicket | Smaller team gets +1 wicket |
+| Wickets | Both teams get the same wicket limit |
 | Reconnect grace | 120 seconds |
 
 ## Project Structure

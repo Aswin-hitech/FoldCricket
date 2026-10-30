@@ -121,6 +121,14 @@
   font-weight: 600;
 }
 
+.networkHint {
+  padding: 7px 12px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  background: rgba(59, 130, 246, 0.08);
+  border-bottom: 1px solid var(--color-border);
+}
+
 .videoGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

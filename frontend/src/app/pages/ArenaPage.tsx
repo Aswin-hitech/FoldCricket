@@ -184,8 +184,8 @@ export default function ArenaPage() {
   const dismissedBatters = battingTeam === 'A' ? (match?.dismissed_batters_a || []) : (match?.dismissed_batters_b || [])
   const eligibleBatters = battingMembers.filter(m => !dismissedBatters.includes(m.player.id))
 
-  // Wicket allowances come from the server (base setting + the smaller team's
-  // extra wicket), so the arena never shows a limit different from the engine.
+  // Wicket limits come from the server so the arena never shows a limit
+  // different from the engine.
   const teamAWicketLimit = match?.team_a_wicket_limit ?? match?.wickets ?? 10
   const teamBWicketLimit = match?.team_b_wicket_limit ?? match?.wickets ?? 10
   const teamAWicketsLeft = Math.max(0, teamAWicketLimit - (match?.team_a_wickets ?? 0))
@@ -384,6 +384,11 @@ export default function ArenaPage() {
   // Handle delivery reveal sound & vibration - 2s popup animation & 2s party popper
   useEffect(() => {
     if (lastReveal) {
+      // A dead ball is re-bowled on the same ball key, so the "submitted" latch
+      // would otherwise stay closed and the pad could never reopen.
+      if (lastReveal.result === 'TIMEOUT') {
+        submittedBallRef.current = null
+      }
       setRevealAnimation(lastReveal)
       setPickSubmitted(false)
       setSelectedPick(null)
@@ -688,10 +693,12 @@ export default function ArenaPage() {
     const curInnings = match.phase
 
     // Filter deliveries belonging to current innings. Timed-out deliveries are
-    // dead balls (0 runs, no wicket) and must still appear as dots.
+    // dead balls: the same ball is re-bowled, so they never occupy a legal-ball
+    // slot in the over strip or the recent-balls list.
     const inningsDelivs = recentDeliveries.filter(
       d => (d.innings === curInnings || !d.innings) &&
-        (d.result === 'OUT' || d.result === 'TIMEOUT' || d.runs_scored > 0)
+        d.result !== 'TIMEOUT' &&
+        (d.result === 'OUT' || d.runs_scored > 0)
     )
 
     // Current over deliveries
@@ -721,8 +728,10 @@ export default function ArenaPage() {
     const memsB = members.filter(m => m.team === 'B')
 
     const calcBatter = (m: MemberInfo, isBattingTeam: boolean) => {
-      // Runs & balls from resolved deliveries
-      const myDelivs = recentDeliveries.filter(d => d.batter_id === m.player.id)
+      // Runs & balls from resolved deliveries; dead balls are not balls faced.
+      const myDelivs = recentDeliveries.filter(
+        d => d.batter_id === m.player.id && d.result !== 'TIMEOUT'
+      )
       const runs = myDelivs.reduce((sum, d) => sum + (d.runs_scored || 0), 0)
       const balls = myDelivs.length
       const fours = myDelivs.filter(d => d.runs_scored === 4).length
@@ -760,7 +769,10 @@ export default function ArenaPage() {
     }
 
     const calcBowler = (m: MemberInfo) => {
-      const myDelivs = recentDeliveries.filter(d => d.bowler_id === m.player.id)
+      // Dead balls are re-bowled, so they never count towards the over.
+      const myDelivs = recentDeliveries.filter(
+        d => d.bowler_id === m.player.id && d.result !== 'TIMEOUT'
+      )
       const balls = myDelivs.length
       const overs = `${Math.floor(balls / 6)}.${balls % 6}`
       const runs = myDelivs.reduce((sum, d) => sum + (d.runs_scored || 0), 0)

@@ -200,6 +200,94 @@ def assign_team(room: Room, captain: Player, target_player_id: str, team: str) -
     return target_mem
 
 
+def _reconcile_lobby_after_departure(room: Room, departed: Membership) -> Optional[Room]:
+    """
+    Restore lobby invariants after someone leaves: a room always keeps a host,
+    every populated team keeps a captain, and a one-player room is not 'ready'.
+    Returns None when the room became empty and was deleted.
+    """
+    members = repo.get_room_members(room.id)
+    if not members:
+        repo.delete_room(room.id)
+        return None
+
+    if departed.is_host or not any(m.is_host for m in members):
+        new_host = members[0]
+        new_host.is_host = True
+        room.host_id = new_host.player_id
+        if not any(m.is_captain and m.team == new_host.team for m in members):
+            new_host.is_captain = True
+        repo.save_membership(new_host)
+
+    if departed.is_captain and departed.team:
+        teammates = [m for m in members if m.team == departed.team]
+        if teammates and not any(m.is_captain for m in teammates):
+            teammates[0].is_captain = True
+            repo.save_membership(teammates[0])
+
+    if len(members) < 2:
+        room.status = RoomStatus.WAITING_FOR_PLAYERS
+    elif room.status == RoomStatus.WAITING_FOR_PLAYERS:
+        room.status = RoomStatus.LOBBY_READY
+    room.toss = None
+    repo.save_room(room)
+    return room
+
+
+_LOBBY_STATUSES = (
+    RoomStatus.WAITING_FOR_PLAYERS,
+    RoomStatus.LOBBY_READY,
+    RoomStatus.RULEBOOK_REQUIRED,
+)
+
+
+def leave_lobby(room: Room, player: Player) -> Optional[Room]:
+    """A player voluntarily exits a lobby. Returns None if the room is now empty."""
+    with _match_lock:
+        room = repo.get_room(room.id) or room
+        if room.status not in _LOBBY_STATUSES:
+            raise ValueError("cannot_leave_now")
+        mem = repo.get_membership(room.id, player.id)
+        if not mem:
+            raise ValueError("not_in_room")
+
+        repo.remove_membership(room.id, player.id)
+        cleanup_player_voice(room.id, player.id)
+        return _reconcile_lobby_after_departure(room, mem)
+
+
+def remove_player_from_lobby(room: Room, actor: Player, target_id: str) -> Optional[Room]:
+    """
+    A team captain (or the host) removes another player from the lobby.
+    Hosts remove anyone; other captains only their own team. Nobody removes
+    themselves through this path.
+    """
+    with _match_lock:
+        room = repo.get_room(room.id) or room
+        if room.status not in _LOBBY_STATUSES:
+            raise ValueError("cannot_remove_now")
+        actor_mem = repo.get_membership(room.id, actor.id)
+        if not actor_mem:
+            raise PermissionError("not_in_room")
+        if target_id == actor.id:
+            raise ValueError("cannot_remove_self")
+        target_mem = repo.get_membership(room.id, target_id)
+        if not target_mem:
+            raise ValueError("player_not_in_room")
+        if target_mem.is_host:
+            raise PermissionError("cannot_remove_host")
+
+        can_remove = actor_mem.is_host or (
+            actor_mem.is_captain and actor_mem.team is not None and actor_mem.team == target_mem.team
+        )
+        if not can_remove:
+            raise PermissionError("not_allowed")
+
+        repo.remove_membership(room.id, target_id)
+        cleanup_player_voice(room.id, target_id)
+        return _reconcile_lobby_after_departure(room, target_mem)
+
+
 def ack_rules(room: Room, player: Player) -> None:
     mem = repo.get_membership(room.id, player.id)
     if not mem:
@@ -365,7 +453,6 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
         members = repo.get_room_members(room.id)
         team_a = [m for m in members if m.team == "A"]
         team_b = [m for m in members if m.team == "B"]
-        extra_a, extra_b = GameRules.compute_extra_wickets(len(team_a), len(team_b))
 
         p_a = repo.get_player(team_a[0].player_id) if team_a else None
         p_b = repo.get_player(team_b[0].player_id) if team_b else None
@@ -387,8 +474,6 @@ def decide_toss(room: Room, player: Player, decision: str) -> Match:
             room_id=room.id,
             overs=room.overs,
             wickets=getattr(room, "wickets", 1 if room.mode == GameMode.SOLO else 5),
-            team_a_extra_wickets=extra_a,
-            team_b_extra_wickets=extra_b,
             batting_team=batting_team,
             first_batting_team=batting_team,
             phase=InningsPhase.FIRST,
@@ -579,6 +664,13 @@ def _advance_gameplay_state(room: Room, match: Match, outcome) -> tuple[Match, D
     and resets the delivery deadline for the next ball.
     """
     repo.save_delivery(outcome.delivery)
+
+    # Dead ball (timeout / one or both players missed the pick): the delivery is
+    # nullified and the same batter faces the same ball again. Nothing advances.
+    if outcome.delivery.result == DeliveryResult.TIMEOUT:
+        match.delivery_deadline = datetime.utcnow() + timedelta(seconds=get_delivery_timeout_seconds(match))
+        repo.save_match(match)
+        return match, outcome.delivery
 
     if outcome.delivery.result == DeliveryResult.OUT:
         dismissed_id = outcome.delivery.batter_id or match.active_batter_id
@@ -958,8 +1050,7 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
             "result_summary": match.result_summary,
             "first_batting_team": getattr(match, "first_batting_team", "A"),
             "wickets": getattr(match, "wickets", getattr(room, "wickets", 1)),
-            # Per-team allowances (base wickets + the smaller team's extra wicket),
-            # so the arena can show "wickets left" exactly as the engine counts them.
+            # Per-team limits mirror the engine so the arena can show "wickets left".
             "team_a_wicket_limit": match.wicket_limit("A"),
             "team_b_wicket_limit": match.wicket_limit("B"),
             "team_a_name": getattr(match, "team_a_name", getattr(room, "team_a_name", "Team A")),

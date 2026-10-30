@@ -42,12 +42,12 @@ RULES_TEXT = """
 2. If both picks are **equal** → the batter is **OUT**.
 3. If picks are **different** → the batter scores their chosen number.
 4. The first ball of each innings has a **30-second** deadline, every other ball **15 seconds**.
-5. If either player fails to pick in time, the delivery is dead: **0 runs, no wicket**.
+5. If either player fails to pick in time, the delivery is a **dead ball**: **0 runs, no wicket**, and the same ball is **re-bowled**.
 6. An innings ends when the over limit or wicket limit is reached.
 7. The second innings target = first innings runs + 1.
 8. Play starts only after every player confirms they are ready for the first ball.
 9. A disconnect starts a **120-second** grace period.
-10. The smaller team receives **one extra wicket** allowance.
+10. Every team bats with the **same wicket limit**, however many players it has.
 """.strip()
 
 
@@ -655,6 +655,87 @@ def on_team_assign(data):
     room_service.cleanup_player_voice(room.id, target_id)
     emit("team:assigned", _ok())
     _broadcast_snapshot(room_id)
+
+
+@socketio.on("lobby:leave")
+def on_lobby_leave(data):
+    player = _require_player()
+    if not player:
+        return emit("lobby:left", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("lobby:left", _ok())
+
+    try:
+        room = room_service.leave_lobby(room, player)
+    except (ValueError, PermissionError) as e:
+        return emit("lobby:left", _err(str(e)))
+
+    leave_room(room_id)
+    emit("lobby:left", _ok())
+    if room:
+        socketio.emit(
+            "chat:message",
+            {
+                "id": str(uuid.uuid4()),
+                "sender_id": "system",
+                "sender_name": "FoldCricket Umpire",
+                "text": f"👋 {player.display_name} left the lobby.",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            },
+            room=room_id,
+        )
+        _broadcast_snapshot(room_id)
+
+
+@socketio.on("lobby:remove_player")
+def on_lobby_remove_player(data):
+    player = _require_player()
+    if not player:
+        return emit("lobby:remove_ack", _err("not_authenticated"))
+
+    room_id = (data or {}).get("room_id", "")
+    target_id = (data or {}).get("player_id", "")
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("lobby:remove_ack", _err("room_not_found"))
+
+    target = repo.get_player(target_id)
+    try:
+        room = room_service.remove_player_from_lobby(room, player, target_id)
+    except (ValueError, PermissionError) as e:
+        return emit("lobby:remove_ack", _err(str(e)))
+
+    emit("lobby:remove_ack", _ok())
+    if target and target.socket_id:
+        try:
+            socketio.server.leave_room(target.socket_id, room_id, namespace="/")
+        except Exception:
+            pass
+        socketio.emit(
+            "lobby:removed",
+            {
+                "room_id": room_id,
+                "reason": "removed_by_captain",
+                "message": "The team captain removed you from the lobby.",
+            },
+            to=target.socket_id,
+        )
+    if room:
+        socketio.emit(
+            "chat:message",
+            {
+                "id": str(uuid.uuid4()),
+                "sender_id": "system",
+                "sender_name": "FoldCricket Umpire",
+                "text": f"🚪 {target.display_name if target else 'A player'} was removed from the lobby.",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            },
+            room=room_id,
+        )
+        _broadcast_snapshot(room_id)
 
 
 @socketio.on("rules:ack")

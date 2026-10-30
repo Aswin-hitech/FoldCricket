@@ -756,6 +756,23 @@
   line-height: 1.5;
 }
 
+.modalText {
+  color: var(--color-text-dim);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.modalError {
+  color: #ef4444;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.modalActions {
+  display: flex;
+  gap: 10px;
+}
+
 /* Responsive Breakpoints */
 @media (max-width: 1024px) {
   .layout {

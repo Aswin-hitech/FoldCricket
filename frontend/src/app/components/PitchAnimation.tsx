@@ -287,7 +287,7 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
               {isWicket
                 ? 'WICKET !!!'
                 : isTimeout
-                ? 'TIME OUT — 0 RUNS'
+                ? 'DEAD BALL — RE-BOWL'
                 : isSix
                 ? '+6 MAXIMUM!'
                 : isFour
@@ -298,7 +298,7 @@ export const PitchAnimation: React.FC<PitchAnimationProps> = ({
               {isWicket
                 ? 'Equal numbers matched — Batter is OUT!'
                 : isTimeout
-                ? 'No pick in time — dead ball, no wicket'
+                ? 'No pick in time — dead ball, this ball is re-bowled'
                 : `Batter chose ${reveal.batter_pick} vs Bowler ${reveal.bowler_pick}`}
             </div>
           </div>

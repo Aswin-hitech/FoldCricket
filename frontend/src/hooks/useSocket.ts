@@ -21,6 +21,18 @@ import type {
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
+/** Payload sent to a player who was removed from a lobby by a captain/host. */
+export interface LobbyRemovedNotice {
+  room_id: string
+  reason: string
+  message: string
+}
+
+export interface LobbyAck {
+  success: boolean
+  error?: string
+}
+
 /** Pick rejections caused by a race with the ball moving on, not by bad input. */
 const PICK_RESYNC_ONLY_ERRORS = new Set([
   'ball_changed',
@@ -51,6 +63,14 @@ interface UseSocketReturn {
   clearVideoCallError: () => void
   deliveryAck: DeliveryAck | null
   firstBallAck: { success: boolean; error?: string; activated?: boolean } | null
+  lobbyLeft: LobbyAck | null
+  lobbyRemoved: LobbyRemovedNotice | null
+  lobbyRemoveAck: LobbyAck | null
+  clearLobbyLeft: () => void
+  clearLobbyRemoved: () => void
+  clearLobbyRemoveAck: () => void
+  leaveLobby: (roomId: string) => void
+  removePlayerFromLobby: (roomId: string, playerId: string) => void
   /** Current server time in ms (accounts for device clock skew). */
   serverNow: () => number
 
@@ -111,6 +131,9 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [videoCallError, setVideoCallError] = useState<string | null>(null)
   const [deliveryAck, setDeliveryAck] = useState<DeliveryAck | null>(null)
   const [firstBallAck, setFirstBallAck] = useState<{ success: boolean; error?: string; activated?: boolean } | null>(null)
+  const [lobbyLeft, setLobbyLeft] = useState<LobbyAck | null>(null)
+  const [lobbyRemoved, setLobbyRemoved] = useState<LobbyRemovedNotice | null>(null)
+  const [lobbyRemoveAck, setLobbyRemoveAck] = useState<LobbyAck | null>(null)
   const lastSnapshotVersionRef = useRef<number>(-1)
   const lastSnapshotMatchIdRef = useRef<string | null>(null)
   // The room this page is actually rendering. Snapshots for any other room the
@@ -313,6 +336,10 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       if (!data?.success && data?.error) setLastError(data.error)
     }
 
+    const onLobbyLeft = (data: LobbyAck) => setLobbyLeft(data)
+    const onLobbyRemoved = (data: LobbyRemovedNotice) => setLobbyRemoved(data)
+    const onLobbyRemoveAck = (data: LobbyAck) => setLobbyRemoveAck(data)
+
     const onCrossTeamRequested = (req: CrossTeamVoiceRequest) => {
       setCrossTeamRequests((prev) => {
         if (prev.some((r) => r.from_player_id === req.from_player_id)) return prev
@@ -437,6 +464,9 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('match:resumed', onMatchResumed)
     s.on('delivery:ack', onDeliveryAck)
     s.on('first_ball:ack', onFirstBallAck)
+    s.on('lobby:left', onLobbyLeft)
+    s.on('lobby:removed', onLobbyRemoved)
+    s.on('lobby:remove_ack', onLobbyRemoveAck)
 
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
@@ -519,6 +549,9 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       s.off('match:resumed', onMatchResumed)
       s.off('delivery:ack', onDeliveryAck)
       s.off('first_ball:ack', onFirstBallAck)
+      s.off('lobby:left', onLobbyLeft)
+      s.off('lobby:removed', onLobbyRemoved)
+      s.off('lobby:remove_ack', onLobbyRemoveAck)
     }
   }, [])
 
@@ -597,6 +630,20 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const rematchRoom = useCallback((roomId: string) => {
     socketRef.current.emit('room:rematch', { room_id: roomId })
   }, [])
+
+  const leaveLobby = useCallback((roomId: string) => {
+    setLobbyLeft(null)
+    socketRef.current.emit('lobby:leave', { room_id: roomId })
+  }, [])
+
+  const removePlayerFromLobby = useCallback((roomId: string, playerId: string) => {
+    setLobbyRemoveAck(null)
+    socketRef.current.emit('lobby:remove_player', { room_id: roomId, player_id: playerId })
+  }, [])
+
+  const clearLobbyLeft = useCallback(() => setLobbyLeft(null), [])
+  const clearLobbyRemoved = useCallback(() => setLobbyRemoved(null), [])
+  const clearLobbyRemoveAck = useCallback(() => setLobbyRemoveAck(null), [])
 
   const assignTeam = useCallback((roomId: string, playerId: string, team: string) => {
     socketRef.current.emit('team:assign', { room_id: roomId, player_id: playerId, team })
@@ -697,6 +744,14 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     clearVideoCallError,
     deliveryAck,
     firstBallAck,
+    lobbyLeft,
+    lobbyRemoved,
+    lobbyRemoveAck,
+    clearLobbyLeft,
+    clearLobbyRemoved,
+    clearLobbyRemoveAck,
+    leaveLobby,
+    removePlayerFromLobby,
     serverNow,
     register,
     createRoom,

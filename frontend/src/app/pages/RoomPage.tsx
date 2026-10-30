@@ -3,7 +3,7 @@
  * Features 10-second post-toss decision announcement, dynamic team naming, and broadcast gaming UI.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { useNetworkQuality } from '../../hooks/useNetworkQuality'
@@ -12,7 +12,9 @@ import { CoinTossModal } from '../components/CoinTossModal'
 import { Footer } from '../components/Footer'
 import { NetworkIndicator } from '../components/NetworkIndicator'
 import { VoiceChat } from '../components/VoiceChat'
+import { VoiceTour } from '../components/VoiceTour'
 import { sound } from '../../services/sound'
+import { claimVoiceTour } from '../../services/voiceTour'
 import { formatPlayerWithTeam } from '../../utils/teamLabels'
 import type { MemberInfo, RoomInfo } from '../../services/types'
 import styles from './RoomPage.module.css'
@@ -55,6 +57,14 @@ export default function RoomPage() {
     respondVideoCall,
     endVideoCall,
     sendChat,
+    leaveLobby,
+    removePlayerFromLobby,
+    lobbyLeft,
+    lobbyRemoved,
+    lobbyRemoveAck,
+    clearLobbyLeft,
+    clearLobbyRemoved,
+    clearLobbyRemoveAck,
   } = useSocket(sessionToken)
 
   const videoNetwork = useNetworkQuality(pingLatency)
@@ -68,10 +78,22 @@ export default function RoomPage() {
   const [copiedCode, setCopiedCode] = useState(false)
   const [tossCountdown, setTossCountdown] = useState<number | null>(null)
   const [isSoundMuted, setIsSoundMuted] = useState(() => sound.isMuted())
+
+  // Lobby exit / captain removal UI
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
+  const [exitError, setExitError] = useState<string | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<MemberInfo | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
   // Whether this client actually watched this match's toss happen. Someone who
   // lands on the room at the first-ball gate must never be shown "Toss
   // Concluded" for a toss they never saw.
   const sawTossRef = useRef(false)
+
+  // Voice introduction tour: runs in the lobby for the first 5 TEAM and first
+  // 2 SOLO matches. `tourVoiceListOpen` drives the real Voice List modal.
+  const [voiceTourOpen, setVoiceTourOpen] = useState(false)
+  const [tourVoiceListOpen, setTourVoiceListOpen] = useState<boolean | undefined>(undefined)
+  const voiceTourClaimedRef = useRef(false)
 
   // Keep sound mute state in sync
   useEffect(() => {
@@ -97,6 +119,44 @@ export default function RoomPage() {
   const members: MemberInfo[] = snapshot?.members ?? []
   const myMembership = members.find(m => m.player.id === myPlayerId)
   const isHost = myMembership?.is_host ?? false
+  const inLobby = Boolean(
+    room && ['WAITING_FOR_PLAYERS', 'LOBBY_READY', 'RULEBOOK_REQUIRED'].includes(room.status)
+  )
+
+  // Hosts remove anyone (except themselves/the host); other captains only their
+  // own team, mirroring the server-side check.
+  const canRemoveMember = (m: MemberInfo) => {
+    if (!myMembership || m.player.id === myPlayerId || m.is_host) return false
+    if (isHost) return true
+    return Boolean(myMembership.is_captain && m.team && m.team === myMembership.team)
+  }
+
+  // Wait for a real lobby, then let players settle before the spotlight opens.
+  useEffect(() => {
+    if (!roomId || !myPlayerId) return
+    const mode = room?.mode
+    if (mode !== 'TEAM' && mode !== 'SOLO') return
+    if (room?.status !== 'LOBBY_READY' || voiceTourClaimedRef.current) return
+    voiceTourClaimedRef.current = true
+    if (!claimVoiceTour(myPlayerId, mode, roomId)) return
+    const timer = setTimeout(() => setVoiceTourOpen(true), 1200)
+    return () => clearTimeout(timer)
+  }, [roomId, myPlayerId, room?.mode, room?.status])
+
+  // The tour belongs to the lobby; never let it follow the room into the match.
+  useEffect(() => {
+    if (voiceTourOpen && room?.status !== 'LOBBY_READY') {
+      setVoiceTourOpen(false)
+      setTourVoiceListOpen(false)
+    }
+  }, [room?.status, voiceTourOpen])
+
+  const openVoiceListForTour = useCallback(() => setTourVoiceListOpen(true), [])
+  const closeVoiceListForTour = useCallback(() => setTourVoiceListOpen(false), [])
+  const finishVoiceTour = useCallback(() => {
+    setVoiceTourOpen(false)
+    setTourVoiceListOpen(false)
+  }, [])
 
   // Instant room synchronization on mount & connection
   useEffect(() => {
@@ -192,6 +252,42 @@ export default function RoomPage() {
     sound.playClick()
     if (roomId) assignTeam(roomId, playerId, team)
   }
+
+  function handleLeaveLobby() {
+    sound.playClick()
+    if (!roomId) return
+    setExitError(null)
+    leaveLobby(roomId)
+  }
+
+  function handleConfirmRemove() {
+    if (!roomId || !removeTarget) return
+    sound.playClick()
+    setRemoveError(null)
+    removePlayerFromLobby(roomId, removeTarget.player.id)
+  }
+
+  // Leaving is confirmed by the server; navigate only once it succeeded.
+  useEffect(() => {
+    if (!lobbyLeft) return
+    if (lobbyLeft.success) {
+      navigate('/', { replace: true })
+      return
+    }
+    setExitError(lobbyLeft.error || 'Could not leave the lobby')
+    clearLobbyLeft()
+  }, [lobbyLeft, navigate, clearLobbyLeft])
+
+  useEffect(() => {
+    if (!lobbyRemoveAck) return
+    if (lobbyRemoveAck.success) {
+      setRemoveTarget(null)
+      setRemoveError(null)
+    } else {
+      setRemoveError(lobbyRemoveAck.error || 'Could not remove this player')
+    }
+    clearLobbyRemoveAck()
+  }, [lobbyRemoveAck, clearLobbyRemoveAck])
 
   function handleOversChange(o: number) {
     setOvers(o)
@@ -301,7 +397,26 @@ export default function RoomPage() {
             onEndVideoCall={endVideoCall}
             videoCallError={videoCallError}
             onClearVideoCallError={clearVideoCallError}
+            isOpenVoiceList={tourVoiceListOpen}
+            onCloseVoiceList={closeVoiceListForTour}
           />
+
+          {/* Leave the lobby (available to every player, host included) */}
+          {inLobby && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                sound.playClick()
+                setExitError(null)
+                setShowExitConfirm(true)
+              }}
+              title="Leave this lobby"
+              style={{ height: '36px', padding: '6px 14px', borderRadius: '999px', fontSize: '0.82rem', fontWeight: 700 }}
+            >
+              🚪 <span className={styles.controlLabel}>Exit Lobby</span>
+            </button>
+          )}
 
           {/* Sound Toggle (Speaker output for voice chat & sounds) */}
           <button
@@ -498,6 +613,8 @@ export default function RoomPage() {
                 team="A"
                 onAssign={handleAssignTeam}
                 onUpdateTeamName={handleUpdateTeamAName}
+                canRemove={canRemoveMember}
+                onRemove={setRemoveTarget}
               />
 
               {/* Central VS Badge */}
@@ -515,6 +632,8 @@ export default function RoomPage() {
                 team="B"
                 onAssign={handleAssignTeam}
                 onUpdateTeamName={handleUpdateTeamBName}
+                canRemove={canRemoveMember}
+                onRemove={setRemoveTarget}
               />
             </div>
 
@@ -545,6 +664,22 @@ export default function RoomPage() {
                             → {displayTeamBName}
                           </button>
                         </div>
+                      )}
+                      {canRemoveMember(m) && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '0.78rem',
+                            borderColor: 'rgba(239, 68, 68, 0.5)',
+                            color: '#ef4444',
+                          }}
+                          onClick={() => setRemoveTarget(m)}
+                          title="Remove this player from the lobby"
+                        >
+                          Remove
+                        </button>
                       )}
                     </div>
                   ))}
@@ -645,7 +780,7 @@ export default function RoomPage() {
               <p>2. If both picks match exactly → the batter is <strong>OUT</strong>.</p>
               <p>3. If picks differ → the batter scores <strong>their chosen number</strong>.</p>
               <p>4. The first ball of each innings has a <strong>30-second</strong> deadline; every other ball <strong>15 seconds</strong>.</p>
-              <p>5. If a player runs out of time, the delivery is dead: <strong>0 runs and no wicket</strong>.</p>
+              <p>5. If a player runs out of time, the delivery is dead: <strong>0 runs, no wicket</strong>, and the ball is <strong>re-bowled</strong>.</p>
               <p>6. An innings ends when the <strong>overs limit or wickets limit</strong> is reached.</p>
               <p>7. Second innings target = first innings runs + 1.</p>
               <p>8. Play begins only after every player confirms they are ready for the first ball.</p>
@@ -658,6 +793,101 @@ export default function RoomPage() {
               onClick={handleAckRules}
             >
               ✅ I Understand – Continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Exit Lobby Confirmation */}
+      {showExitConfirm && (
+        <div className={styles.modalOverlay} role="dialog" aria-modal aria-label="Exit lobby">
+          <div className={styles.modal}>
+            <h2 className={styles.modalTitle}>🚪 Exit Lobby?</h2>
+            <p className={styles.modalText}>
+              You will leave this room. The remaining players stay in the lobby, and you can
+              rejoin later with the room code.
+            </p>
+            {exitError && <p className={styles.modalError}>{exitError}</p>}
+            <div className={styles.modalActions}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ flex: 1, padding: '12px', fontWeight: 700 }}
+                onClick={() => {
+                  sound.playClick()
+                  setShowExitConfirm(false)
+                }}
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1, padding: '12px', fontWeight: 700 }}
+                onClick={handleLeaveLobby}
+              >
+                Exit Lobby
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Captain removes a player */}
+      {removeTarget && (
+        <div className={styles.modalOverlay} role="dialog" aria-modal aria-label="Remove player">
+          <div className={styles.modal}>
+            <h2 className={styles.modalTitle}>Remove Player?</h2>
+            <p className={styles.modalText}>
+              Remove <strong>{removeTarget.player.display_name}</strong> from the lobby? They can
+              rejoin later with the room code.
+            </p>
+            {removeError && <p className={styles.modalError}>{removeError}</p>}
+            <div className={styles.modalActions}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ flex: 1, padding: '12px', fontWeight: 700 }}
+                onClick={() => {
+                  sound.playClick()
+                  setRemoveTarget(null)
+                  setRemoveError(null)
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1, padding: '12px', fontWeight: 700 }}
+                onClick={handleConfirmRemove}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* This player was removed from the lobby by a captain/host */}
+      {lobbyRemoved && (
+        <div className={styles.modalOverlay} role="dialog" aria-modal aria-label="Removed from lobby">
+          <div className={styles.modal}>
+            <h2 className={styles.modalTitle}>Removed from Lobby</h2>
+            <p className={styles.modalText}>
+              {lobbyRemoved.message || 'You were removed from this lobby.'}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px', fontWeight: 700 }}
+              onClick={() => {
+                sound.playClick()
+                clearLobbyRemoved()
+                navigate('/', { replace: true })
+              }}
+            >
+              Back to Home
             </button>
           </div>
         </div>
@@ -679,6 +909,15 @@ export default function RoomPage() {
         />
       )}
 
+      {voiceTourOpen && (
+        <VoiceTour
+          isTeamMatch={room?.mode === 'TEAM'}
+          onOpenVoiceList={openVoiceListForTour}
+          onCloseVoiceList={closeVoiceListForTour}
+          onFinish={finishVoiceTour}
+        />
+      )}
+
       <div className={styles.pageFooter}>
         <Footer />
       </div>
@@ -695,6 +934,8 @@ function TeamColumn({
   team,
   onAssign,
   onUpdateTeamName,
+  canRemove,
+  onRemove,
 }: {
   label: string
   members: MemberInfo[]
@@ -704,6 +945,8 @@ function TeamColumn({
   team: 'A' | 'B'
   onAssign: (playerId: string, team: 'A' | 'B') => void
   onUpdateTeamName: (newName: string) => void
+  canRemove: (m: MemberInfo) => boolean
+  onRemove: (m: MemberInfo) => void
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const [nameInput, setNameInput] = useState(label)
@@ -793,6 +1036,22 @@ function TeamColumn({
                     title={`Move to ${team === 'A' ? 'Team B' : 'Team A'}`}
                   >
                     Move
+                  </button>
+                )}
+                {canRemove(m) && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{
+                      padding: '3px 8px',
+                      fontSize: '0.72rem',
+                      borderColor: 'rgba(239, 68, 68, 0.5)',
+                      color: '#ef4444',
+                    }}
+                    onClick={() => onRemove(m)}
+                    title="Remove this player from the lobby"
+                  >
+                    Remove
                   </button>
                 )}
               </div>

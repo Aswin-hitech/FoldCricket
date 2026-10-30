@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useSocial } from '../../context/SocialContext'
 import {
   acceptFriendRequest,
   accountErrorMessage,
@@ -8,10 +9,12 @@ import {
   fetchPlayer,
   removeFriend,
   sendFriendRequest,
+  type Presence,
   type PublicProfile,
 } from '../../services/accounts'
 import { AccountHeader } from '../components/AccountHeader'
 import { Footer } from '../components/Footer'
+import { PresenceBadge } from '../components/PresenceBadge'
 import styles from './PlayerPage.module.css'
 
 function parseServerDate(value: string): Date {
@@ -29,6 +32,7 @@ export default function PlayerPage() {
   const { code = '' } = useParams<{ code: string }>()
   const navigate = useNavigate()
   const { ready, user, refresh } = useAuth()
+  const { openChat, invitePlayer, presenceOf } = useSocial()
 
   const [profile, setProfile] = useState<PublicProfile | null>(null)
   const [incomingRequestId, setIncomingRequestId] = useState('')
@@ -75,6 +79,13 @@ export default function PlayerPage() {
   const stats = profile?.stats
   const achievements = profile?.achievements ?? []
   const earned = useMemo(() => achievements.filter((badge) => badge.earned), [achievements])
+
+  const livePresence: Presence = (() => {
+    if (!profile) return { status: 'offline' }
+    const live = presenceOf(profile.user_id)
+    return live.status !== 'offline' ? live : profile.presence ?? { status: 'offline' }
+  })()
+  const canInvite = livePresence.status === 'online'
 
   async function addFriend() {
     if (!profile || busy) return
@@ -167,8 +178,8 @@ export default function PlayerPage() {
       <AccountHeader />
 
       <main className={styles.main}>
-        <Link to="/friends" className={styles.backLink}>
-          ← Friends
+        <Link to="/players" className={styles.backLink}>
+          ← Players
         </Link>
 
         {notice && <p className={styles.notice} role="status">{notice}</p>}
@@ -181,6 +192,7 @@ export default function PlayerPage() {
               <span className={styles.username}>@{profile.username}</span>
               <h1 className={styles.name}>{profile.display_name}</h1>
               <div className={styles.chips}>
+                <PresenceBadge presence={livePresence} showRoom />
                 <span className={styles.levelChip}>Lv {profile.level}</span>
                 <span className={styles.chip}>{profile.wins} wins</span>
                 <span className={styles.chip}>{profile.matches} matches</span>
@@ -232,6 +244,35 @@ export default function PlayerPage() {
                   Remove friend
                 </button>
               ))}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void openChat(profile.user_id || profile.friend_code)}
+            >
+              💬 Message
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!canInvite}
+              title={
+                canInvite
+                  ? `Invite ${profile.display_name} to a match`
+                  : 'They are offline or already in a room.'
+              }
+              onClick={() =>
+                invitePlayer({
+                  user_id: profile.user_id || profile.friend_code,
+                  username: profile.username,
+                  display_name: profile.display_name,
+                  avatar: profile.avatar,
+                  friend_code: profile.friend_code,
+                  presence: livePresence,
+                })
+              }
+            >
+              🎮 Invite to play
+            </button>
           </div>
         </section>
 

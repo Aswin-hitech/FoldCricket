@@ -1,0 +1,83 @@
+.badge,
+.compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+.compact {
+  padding: 4px;
+  gap: 0;
+  background: transparent;
+  border-color: transparent;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 22%, transparent);
+  flex-shrink: 0;
+}
+
+.room {
+  font-style: normal;
+  opacity: 0.75;
+  font-weight: 600;
+}
+
+.online {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
+
+.in_lobby {
+  color: var(--color-info);
+  border-color: color-mix(in srgb, var(--color-info) 35%, transparent);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+}
+
+.in_match {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+.spectating {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+}
+
+.offline {
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+}
+
+.online .dot,
+.in_lobby .dot {
+  animation: presencePulse 2.4s ease-in-out infinite;
+}
+
+@keyframes presencePulse {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 22%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 8%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .online .dot,
+  .in_lobby .dot {
+    animation: none;
+  }
+}

@@ -3,11 +3,14 @@ Read-only analytics queries for the creator dashboard.
 
 All timestamps are stored as naive UTC ISO-8601 strings, so lexicographic
 comparisons against an ISO cut-off are exact.
+
+The dashboard is cross-filterable: every aggregate honours an optional game
+mode and an optional single day, mirroring how a BI dashboard slices a report.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any, Optional
 
 from ..domain.models import RoomStatus
@@ -34,6 +37,8 @@ IN_PLAY_STATUSES = (
     RoomStatus.PAUSED,
 )
 
+MODE_VALUES = ("SOLO", "TEAM")
+
 
 def _scalar(conn, sql: str, params: tuple = ()) -> int:
     row = conn.execute(sql, params).fetchone()
@@ -48,13 +53,139 @@ def _score(runs: int, wickets: int, over: int, ball: int) -> str:
     return f"{runs}/{wickets} · {over}.{ball} ov"
 
 
-def _day_series(conn, sql: str, cutoff: str) -> dict[str, int]:
-    rows = conn.execute(sql, (cutoff,)).fetchall()
+def _day_series(conn, sql: str, params: tuple) -> dict[str, int]:
+    rows = conn.execute(sql, params).fetchall()
     return {row[0]: int(row[1]) for row in rows if row[0]}
 
 
-def get_creator_insights(days: int = 7) -> dict:
-    """Aggregate platform health for the creator dashboard."""
+def _normalise_mode(mode: Optional[str]) -> Optional[str]:
+    value = (mode or "").strip().upper()
+    return value if value in MODE_VALUES else None
+
+
+def _normalise_date(value: Optional[str]) -> Optional[datetime]:
+    try:
+        return datetime.strptime((value or "").strip(), "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _match_filters(
+    mode: Optional[str], start: str, end: Optional[str]
+) -> tuple[list[str], list]:
+    clauses = ["m.created_at >= ?"]
+    params: list = [start]
+    if end:
+        clauses.append("m.created_at < ?")
+        params.append(end)
+    if mode:
+        clauses.append("r.mode = ?")
+        params.append(mode)
+    return clauses, params
+
+
+def _delivery_filters(
+    mode: Optional[str], start: str, end: Optional[str]
+) -> tuple[str, list[str], list]:
+    """Return (FROM clause, WHERE clauses, params) for committed deliveries."""
+    from_clause = "deliveries d"
+    clauses = ["d.committed = 1"]
+    params: list = []
+    if mode:
+        from_clause = (
+            "deliveries d "
+            "JOIN matches dm ON dm.id = d.match_id "
+            "JOIN rooms dr ON dr.id = dm.room_id"
+        )
+        clauses.append("dr.mode = ?")
+        params.append(mode)
+    clauses.append("d.created_at >= ?")
+    params.append(start)
+    if end:
+        clauses.append("d.created_at < ?")
+        params.append(end)
+    return from_clause, clauses, params
+
+
+def _where(clauses: list[str]) -> str:
+    return " AND ".join(clauses)
+
+
+def _totals_for_window(
+    conn,
+    mode: Optional[str],
+    start: str,
+    end: Optional[str],
+) -> dict:
+    """Headline counts for an arbitrary window, used for period comparison."""
+    match_clauses, match_params = _match_filters(mode, start, end)
+    where = _where(match_clauses)
+
+    matches = _scalar(
+        conn,
+        f"SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id WHERE {where}",
+        tuple(match_params),
+    )
+    completed = _scalar(
+        conn,
+        f"SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id "
+        f"WHERE {where} AND m.winner IS NOT NULL",
+        tuple(match_params),
+    )
+
+    from_clause, delivery_clauses, delivery_params = _delivery_filters(mode, start, end)
+    deliveries = _scalar(
+        conn,
+        f"SELECT COUNT(*) FROM {from_clause} WHERE {_where(delivery_clauses)}",
+        tuple(delivery_params),
+    )
+    active_players = _scalar(
+        conn,
+        f"SELECT COUNT(DISTINCT d.batter_id) FROM {from_clause} "
+        f"WHERE {_where(delivery_clauses)} AND d.batter_id IS NOT NULL",
+        tuple(delivery_params),
+    )
+    runs = _scalar(
+        conn,
+        f"SELECT COALESCE(SUM(d.runs_scored), 0) FROM {from_clause} "
+        f"WHERE {_where(delivery_clauses)} AND d.result = 'RUNS'",
+        tuple(delivery_params),
+    )
+    dead_balls = _scalar(
+        conn,
+        f"SELECT COUNT(*) FROM {from_clause} "
+        f"WHERE {_where(delivery_clauses)} AND d.result = 'TIMEOUT'",
+        tuple(delivery_params),
+    )
+
+    players_new = _scalar(
+        conn,
+        "SELECT COUNT(*) FROM players WHERE created_at >= ?"
+        + (" AND created_at < ?" if end else ""),
+        (start, end) if end else (start,),
+    )
+
+    return {
+        "matches": matches,
+        "completed_matches": completed,
+        "deliveries": deliveries,
+        "active_players": active_players,
+        "runs": runs,
+        "dead_balls": dead_balls,
+        "new_players": players_new,
+    }
+
+
+def get_creator_insights(
+    days: int = 7, mode: Optional[str] = None, date: Optional[str] = None
+) -> dict:
+    """Aggregate platform health for the creator dashboard.
+
+    ``mode`` narrows match and delivery aggregates to SOLO or TEAM. ``date``
+    (YYYY-MM-DD) narrows everything except the always-live panels to one day
+    inside the selected range. Invalid filters are ignored rather than 400ing,
+    so a stale dashboard tab never breaks.
+    """
     now = datetime.utcnow()
     cutoff = (now - timedelta(days=days)).isoformat()
     # Midnight-anchored window so the chart always shows whole days.
@@ -62,144 +193,241 @@ def get_creator_insights(days: int = 7) -> dict:
         hour=0, minute=0, second=0, microsecond=0
     )
     window_iso = window_start.isoformat()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    selected_mode = _normalise_mode(mode)
+    selected_day = _normalise_date(date)
+    if selected_day is not None:
+        # Only days inside the visible window are meaningful to the slicer.
+        if not (window_start <= selected_day <= today_start):
+            selected_day = None
+
+    if selected_day is not None:
+        start_iso = selected_day.isoformat()
+        end_iso = (selected_day + timedelta(days=1)).isoformat()
+        previous_start = (selected_day - timedelta(days=1)).isoformat()
+        previous_end = start_iso
+    else:
+        start_iso = cutoff
+        end_iso = None
+        previous_start = (now - timedelta(days=days * 2)).isoformat()
+        previous_end = cutoff
 
     live_ph = ",".join("?" for _ in LIVE_ROOM_STATUSES)
     live_values = tuple(s.value for s in LIVE_ROOM_STATUSES)
     play_ph = ",".join("?" for _ in IN_PLAY_STATUSES)
     play_values = tuple(s.value for s in IN_PLAY_STATUSES)
 
+    match_clauses, match_params = _match_filters(selected_mode, start_iso, end_iso)
+    match_where = _where(match_clauses)
+    delivery_from, delivery_clauses, delivery_params = _delivery_filters(
+        selected_mode, start_iso, end_iso
+    )
+    delivery_where = _where(delivery_clauses)
+
     with _lock, _get_connection() as conn:
         players_total = _scalar(conn, "SELECT COUNT(*) FROM players")
         players_new = _scalar(
-            conn, "SELECT COUNT(*) FROM players WHERE created_at >= ?", (cutoff,)
-        )
-        players_active = _scalar(
             conn,
-            """
-            SELECT COUNT(DISTINCT batter_id) FROM deliveries
-            WHERE committed = 1 AND batter_id IS NOT NULL AND created_at >= ?
-            """,
-            (cutoff,),
+            "SELECT COUNT(*) FROM players WHERE created_at >= ?"
+            + (" AND created_at < ?" if end_iso else ""),
+            (start_iso, end_iso) if end_iso else (start_iso,),
         )
 
         rooms_total = _scalar(
-            conn, "SELECT COUNT(*) FROM rooms WHERE created_at >= ?", (cutoff,)
+            conn,
+            "SELECT COUNT(*) FROM rooms WHERE created_at >= ?"
+            + (" AND created_at < ?" if end_iso else "")
+            + (" AND mode = ?" if selected_mode else ""),
+            (
+                (start_iso, end_iso, selected_mode)
+                if end_iso and selected_mode
+                else (start_iso, end_iso)
+                if end_iso
+                else (start_iso, selected_mode)
+                if selected_mode
+                else (start_iso,)
+            ),
         )
         live_rooms = _scalar(
-            conn, f"SELECT COUNT(*) FROM rooms WHERE status IN ({live_ph})", live_values
+            conn,
+            f"SELECT COUNT(*) FROM rooms WHERE status IN ({live_ph})"
+            + (" AND mode = ?" if selected_mode else ""),
+            live_values + ((selected_mode,) if selected_mode else ()),
         )
 
         matches_total = _scalar(
-            conn, "SELECT COUNT(*) FROM matches WHERE created_at >= ?", (cutoff,)
+            conn,
+            f"SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id "
+            f"WHERE {match_where}",
+            tuple(match_params),
         )
         completed_matches = _scalar(
             conn,
-            "SELECT COUNT(*) FROM matches WHERE winner IS NOT NULL AND created_at >= ?",
-            (cutoff,),
+            f"SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id "
+            f"WHERE {match_where} AND m.winner IS NOT NULL",
+            tuple(match_params),
         )
         live_matches = _scalar(
             conn,
             f"""
             SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id
             WHERE m.winner IS NULL AND r.status IN ({play_ph})
-            """,
-            play_values,
-        )
-        solo_matches = _scalar(
-            conn,
             """
-            SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id
-            WHERE r.mode = 'SOLO' AND m.created_at >= ?
-            """,
-            (cutoff,),
-        )
-        team_matches = _scalar(
-            conn,
-            """
-            SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id
-            WHERE r.mode = 'TEAM' AND m.created_at >= ?
-            """,
-            (cutoff,),
+            + (" AND r.mode = ?" if selected_mode else ""),
+            play_values + ((selected_mode,) if selected_mode else ()),
         )
 
+        # The mode slicer zeroes the excluded slice instead of showing stale
+        # totals the rest of the report no longer reflects.
+        solo_matches = 0
+        team_matches = 0
+        if selected_mode in (None, "SOLO"):
+            solo_clauses, solo_params = _match_filters("SOLO", start_iso, end_iso)
+            solo_matches = _scalar(
+                conn,
+                f"SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id "
+                f"WHERE {_where(solo_clauses)}",
+                tuple(solo_params),
+            )
+        if selected_mode in (None, "TEAM"):
+            team_clauses, team_params = _match_filters("TEAM", start_iso, end_iso)
+            team_matches = _scalar(
+                conn,
+                f"SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id "
+                f"WHERE {_where(team_clauses)}",
+                tuple(team_params),
+            )
+
+        players_active = _scalar(
+            conn,
+            f"SELECT COUNT(DISTINCT d.batter_id) FROM {delivery_from} "
+            f"WHERE {delivery_where} AND d.batter_id IS NOT NULL",
+            tuple(delivery_params),
+        )
         deliveries_total = _scalar(
             conn,
-            "SELECT COUNT(*) FROM deliveries WHERE committed = 1 AND created_at >= ?",
-            (cutoff,),
+            f"SELECT COUNT(*) FROM {delivery_from} WHERE {delivery_where}",
+            tuple(delivery_params),
         )
         runs_total = _scalar(
             conn,
-            """
-            SELECT COALESCE(SUM(runs_scored), 0) FROM deliveries
-            WHERE committed = 1 AND result = 'RUNS' AND created_at >= ?
-            """,
-            (cutoff,),
+            f"SELECT COALESCE(SUM(d.runs_scored), 0) FROM {delivery_from} "
+            f"WHERE {delivery_where} AND d.result = 'RUNS'",
+            tuple(delivery_params),
         )
         dead_balls = _scalar(
             conn,
-            """
-            SELECT COUNT(*) FROM deliveries
-            WHERE committed = 1 AND result = 'TIMEOUT' AND created_at >= ?
-            """,
-            (cutoff,),
+            f"SELECT COUNT(*) FROM {delivery_from} "
+            f"WHERE {delivery_where} AND d.result = 'TIMEOUT'",
+            tuple(delivery_params),
         )
 
         avg_match_minutes = _float_or_none(
             conn.execute(
-                """
+                f"""
                 SELECT AVG((julianday(last_at) - julianday(created_at)) * 1440.0)
                 FROM (
                     SELECT m.created_at, MAX(d.created_at) AS last_at
-                    FROM matches m JOIN deliveries d ON d.match_id = m.id
-                    WHERE m.winner IS NOT NULL AND m.created_at >= ?
+                    FROM matches m
+                    JOIN rooms r ON r.id = m.room_id
+                    JOIN deliveries d ON d.match_id = m.id
+                    WHERE {match_where} AND m.winner IS NOT NULL
                     GROUP BY m.id
                 )
                 """,
-                (cutoff,),
+                tuple(match_params),
             ).fetchone()[0]
         )
 
-        # --- activity time series (zero-filled below) ---
+        previous = _totals_for_window(
+            conn, selected_mode, previous_start, previous_end
+        )
+
+        # --- activity time series (always the full window, zero-filled below) ---
+        series_mode_params = (window_iso, selected_mode) if selected_mode else (window_iso,)
         matches_by_day = _day_series(
             conn,
-            "SELECT substr(created_at, 1, 10), COUNT(*) FROM matches "
-            "WHERE created_at >= ? GROUP BY 1",
-            window_iso,
+            "SELECT substr(m.created_at, 1, 10), COUNT(*) "
+            "FROM matches m JOIN rooms r ON r.id = m.room_id "
+            "WHERE m.created_at >= ?"
+            + (" AND r.mode = ?" if selected_mode else "")
+            + " GROUP BY 1",
+            series_mode_params,
         )
+        mode_rows = conn.execute(
+            "SELECT substr(m.created_at, 1, 10), r.mode, COUNT(*) "
+            "FROM matches m JOIN rooms r ON r.id = m.room_id "
+            "WHERE m.created_at >= ? GROUP BY 1, 2",
+            (window_iso,),
+        ).fetchall()
+        solo_by_day: dict[str, int] = {}
+        team_by_day: dict[str, int] = {}
+        for row in mode_rows:
+            target = solo_by_day if row[1] == "SOLO" else team_by_day
+            target[row[0]] = target.get(row[0], 0) + int(row[2])
+
         new_players_by_day = _day_series(
             conn,
             "SELECT substr(created_at, 1, 10), COUNT(*) FROM players "
             "WHERE created_at >= ? GROUP BY 1",
-            window_iso,
+            (window_iso,),
         )
+
+        window_from, window_clauses, window_params = _delivery_filters(
+            selected_mode, window_iso, None
+        )
+        window_where = _where(window_clauses)
         deliveries_by_day = _day_series(
             conn,
-            "SELECT substr(created_at, 1, 10), COUNT(*) FROM deliveries "
-            "WHERE committed = 1 AND created_at >= ? GROUP BY 1",
-            window_iso,
+            f"SELECT substr(d.created_at, 1, 10), COUNT(*) FROM {window_from} "
+            f"WHERE {window_where} GROUP BY 1",
+            tuple(window_params),
         )
         batters_by_day = _day_series(
             conn,
-            "SELECT substr(created_at, 1, 10), COUNT(DISTINCT batter_id) FROM deliveries "
-            "WHERE committed = 1 AND batter_id IS NOT NULL AND created_at >= ? GROUP BY 1",
-            window_iso,
+            f"SELECT substr(d.created_at, 1, 10), COUNT(DISTINCT d.batter_id) "
+            f"FROM {window_from} WHERE {window_where} AND d.batter_id IS NOT NULL "
+            f"GROUP BY 1",
+            tuple(window_params),
         )
+        runs_by_day = _day_series(
+            conn,
+            f"SELECT substr(d.created_at, 1, 10), COALESCE(SUM(d.runs_scored), 0) "
+            f"FROM {window_from} WHERE {window_where} AND d.result = 'RUNS' GROUP BY 1",
+            tuple(window_params),
+        )
+        dead_by_day = _day_series(
+            conn,
+            f"SELECT substr(d.created_at, 1, 10), COUNT(*) FROM {window_from} "
+            f"WHERE {window_where} AND d.result = 'TIMEOUT' GROUP BY 1",
+            tuple(window_params),
+        )
+
+        # --- hourly drilldown: the selected day, else the whole window by hour ---
+        hour_deliveries = conn.execute(
+            f"SELECT substr(d.created_at, 12, 2), COUNT(*) FROM {delivery_from} "
+            f"WHERE {delivery_where} GROUP BY 1",
+            tuple(delivery_params),
+        ).fetchall()
+        hourly_matches = conn.execute(
+            f"SELECT substr(m.created_at, 12, 2), COUNT(*) FROM matches m "
+            f"JOIN rooms r ON r.id = m.room_id WHERE {match_where} GROUP BY 1",
+            tuple(match_params),
+        ).fetchall()
 
         # --- delivery mix ---
         pick_rows = conn.execute(
-            """
-            SELECT batter_pick, COUNT(*) FROM deliveries
-            WHERE committed = 1 AND result = 'RUNS' AND batter_pick IS NOT NULL
-              AND created_at >= ?
-            GROUP BY batter_pick
-            """,
-            (cutoff,),
+            f"SELECT d.batter_pick, COUNT(*) FROM {delivery_from} "
+            f"WHERE {delivery_where} AND d.result = 'RUNS' "
+            f"AND d.batter_pick IS NOT NULL GROUP BY d.batter_pick",
+            tuple(delivery_params),
         ).fetchall()
         outs = _scalar(
             conn,
-            "SELECT COUNT(*) FROM deliveries WHERE committed = 1 AND result = 'OUT' "
-            "AND created_at >= ?",
-            (cutoff,),
+            f"SELECT COUNT(*) FROM {delivery_from} "
+            f"WHERE {delivery_where} AND d.result = 'OUT'",
+            tuple(delivery_params),
         )
 
         # --- live rooms ---
@@ -215,50 +443,51 @@ def get_creator_insights(days: int = 7) -> dict:
                 SELECT id FROM matches WHERE room_id = r.id ORDER BY created_at DESC LIMIT 1
             )
             WHERE r.status IN ({live_ph})
+            """ + (" AND r.mode = ?" if selected_mode else "") + """
             ORDER BY r.created_at DESC
             LIMIT 12
             """,
-            live_values,
+            live_values + ((selected_mode,) if selected_mode else ()),
         ).fetchall()
 
         # --- recent matches ---
         recent_rows = conn.execute(
-            """
+            f"""
             SELECT m.id, r.join_code, r.mode, r.status,
                    m.team_a_name, m.team_b_name,
                    m.team_a_runs, m.team_a_wickets, m.team_b_runs, m.team_b_wickets,
                    m.winner, m.result_summary, m.created_at,
                    (SELECT MAX(d.created_at) FROM deliveries d WHERE d.match_id = m.id) AS last_at
             FROM matches m JOIN rooms r ON r.id = m.room_id
-            WHERE m.created_at >= ?
+            WHERE {match_where}
             ORDER BY m.created_at DESC
             LIMIT 8
             """,
-            (cutoff,),
+            tuple(match_params),
         ).fetchall()
 
         # --- standout players ---
         top_batters = conn.execute(
-            """
+            f"""
             SELECT p.display_name, COUNT(*) AS balls, COALESCE(SUM(d.runs_scored), 0) AS runs
-            FROM deliveries d JOIN players p ON p.id = d.batter_id
-            WHERE d.committed = 1 AND d.result = 'RUNS' AND d.created_at >= ?
+            FROM {delivery_from} JOIN players p ON p.id = d.batter_id
+            WHERE {delivery_where} AND d.result = 'RUNS'
             GROUP BY d.batter_id
             ORDER BY balls DESC, runs DESC
             LIMIT 5
             """,
-            (cutoff,),
+            tuple(delivery_params),
         ).fetchall()
         top_bowlers = conn.execute(
-            """
+            f"""
             SELECT p.display_name, COUNT(*) AS wickets
-            FROM deliveries d JOIN players p ON p.id = d.bowler_id
-            WHERE d.committed = 1 AND d.result = 'OUT' AND d.created_at >= ?
+            FROM {delivery_from} JOIN players p ON p.id = d.bowler_id
+            WHERE {delivery_where} AND d.result = 'OUT'
             GROUP BY d.bowler_id
             ORDER BY wickets DESC
             LIMIT 5
             """,
-            (cutoff,),
+            tuple(delivery_params),
         ).fetchall()
 
     # Zero-fill every day in the window (including today).
@@ -270,12 +499,28 @@ def get_creator_insights(days: int = 7) -> dict:
             {
                 "date": key,
                 "matches": matches_by_day.get(key, 0),
+                "solo_matches": solo_by_day.get(key, 0),
+                "team_matches": team_by_day.get(key, 0),
                 "new_players": new_players_by_day.get(key, 0),
                 "deliveries": deliveries_by_day.get(key, 0),
                 "batters": batters_by_day.get(key, 0),
+                "runs": runs_by_day.get(key, 0),
+                "dead_balls": dead_by_day.get(key, 0),
             }
         )
         cursor += timedelta(days=1)
+
+    hourly = []
+    delivery_hours = {int(row[0]): int(row[1]) for row in hour_deliveries if row[0]}
+    match_hours = {int(row[0]): int(row[1]) for row in hourly_matches if row[0]}
+    for hour in range(24):
+        hourly.append(
+            {
+                "hour": hour,
+                "deliveries": delivery_hours.get(hour, 0),
+                "matches": match_hours.get(hour, 0),
+            }
+        )
 
     delivery_mix = {str(pick): 0 for pick in range(1, 7)}
     for pick, count in pick_rows:
@@ -341,6 +586,10 @@ def get_creator_insights(days: int = 7) -> dict:
     return {
         "days": days,
         "window_start": window_start.isoformat() + "Z",
+        "filters": {
+            "mode": selected_mode,
+            "date": selected_day.date().isoformat() if selected_day else None,
+        },
         "totals": {
             "players": players_total,
             "new_players": players_new,
@@ -363,7 +612,9 @@ def get_creator_insights(days: int = 7) -> dict:
             else None,
             "avg_match_minutes": avg_match_minutes,
         },
+        "previous": previous,
         "activity": activity,
+        "hourly": hourly,
         "delivery_mix": delivery_mix,
         "live": live,
         "recent_matches": recent_matches,

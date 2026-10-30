@@ -38,6 +38,7 @@ def create_app(config: type = Config) -> Flask:
     from .api.feedback import bp as feedback_bp
     from .api.creator import bp as creator_bp
     from .api.accounts import bp as accounts_bp
+    from .api.social import bp as social_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(rooms_bp, url_prefix="/api")
@@ -45,6 +46,7 @@ def create_app(config: type = Config) -> Flask:
     app.register_blueprint(feedback_bp, url_prefix="/api")
     app.register_blueprint(creator_bp, url_prefix="/api")
     app.register_blueprint(accounts_bp, url_prefix="/api")
+    app.register_blueprint(social_bp, url_prefix="/api")
 
     # Socket handlers
     from .sockets import events  # noqa: F401 – registers handlers as a side effect

@@ -57,7 +57,7 @@ Frontend starts at **http://localhost:5173**
 3. Share the **6-character room code** with friends
 4. Acknowledge the rules, set Ready
 5. Host clicks **Start Match**
-6. Each delivery: both batter and bowler pick a number 1–10 within **15 seconds**
+6. Each delivery: both batter and bowler pick a number 1–10 within **20 seconds**
    - Same numbers → **OUT** 🔴
    - Different numbers → batter scores their pick ✅
 7. First innings ends on over limit or wicket limit; second innings chases the target
@@ -69,7 +69,7 @@ Frontend starts at **http://localhost:5173**
 | Valid picks | 1–10 |
 | Out | Both picks equal |
 | Scoring | Batter's pick (if different) |
-| Deadline | 15 seconds (server-enforced) |
+| Deadline | 20 seconds (server-enforced; 30 seconds on the first ball of each innings) |
 | Innings end | Over limit OR wicket limit |
 | Target | First innings runs + 1 |
 | Wickets | Both teams get the same wicket limit |

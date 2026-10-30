@@ -1,0 +1,541 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(2, 6, 23, 0.42);
+  backdrop-filter: blur(2px);
+  cursor: default;
+  animation: fadeIn 180ms ease;
+}
+
+.drawer {
+  position: relative;
+  width: min(430px, 100vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: -18px 0 50px rgba(2, 6, 23, 0.28);
+  animation: drawerIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes drawerIn {
+  from { transform: translateX(32px); opacity: 0.4; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.headerIcon {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  font-size: 1.1rem;
+}
+
+.backBtn,
+.closeBtn {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.backBtn:hover,
+.closeBtn:hover {
+  background: var(--color-border);
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headText strong {
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headText > span {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+}
+
+.peerBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-2);
+}
+
+.peerAvatar {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  border-radius: 13px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.peerMeta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.peerLink {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-team-a);
+  text-decoration: none;
+}
+
+.peerLink:hover {
+  text-decoration: underline;
+}
+
+.peerMeta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inviteBtn {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-team-a) 40%, transparent);
+  background: color-mix(in srgb, var(--color-team-a) 12%, transparent);
+  color: var(--color-team-a);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.inviteBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-team-a) 22%, transparent);
+  transform: translateY(-1px);
+}
+
+.inviteBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background:
+    radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--color-team-a) 7%, transparent), transparent 60%),
+    var(--color-surface);
+}
+
+.hint {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  margin-top: 20px;
+}
+
+.emptyChat {
+  margin: auto;
+  text-align: center;
+  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px;
+}
+
+.emptyChat span {
+  font-size: 2rem;
+}
+
+.emptyChat p {
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.bubbleRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.theirRow {
+  justify-content: flex-start;
+}
+
+.mineRow {
+  justify-content: flex-end;
+}
+
+.bubbleAvatar {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  border-radius: 9px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+}
+
+.bubble {
+  max-width: 78%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bubble p {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.theirs {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-bottom-left-radius: 4px;
+}
+
+.mine {
+  background: linear-gradient(135deg, var(--color-team-a), var(--color-team-a-dim));
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--color-team-a) 70%, transparent);
+}
+
+.stamp {
+  font-size: 0.64rem;
+  opacity: 0.65;
+  align-self: flex-end;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-team-a);
+}
+
+.sendBtn {
+  padding: 0 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-team-a);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.sendBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sendBtn:hover:not(:disabled) {
+  background: var(--color-team-a-dim);
+}
+
+.inbox {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px 24px;
+}
+
+.pendingStrip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pendingRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--color-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 9%, transparent);
+}
+
+.pendingAvatar {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 1.05rem;
+}
+
+.pendingInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+}
+
+.pendingInfo strong {
+  font-size: 0.8rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cancelBtn {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-danger);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.emptyInbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 60px 28px;
+  color: var(--color-text-muted);
+}
+
+.emptyInbox > span {
+  font-size: 2.4rem;
+}
+
+.emptyInbox h3 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: var(--color-text);
+}
+
+.emptyInbox p {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.threadList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.thread {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+.thread:hover {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+  transform: translateY(-1px);
+}
+
+.threadUnread {
+  background: color-mix(in srgb, var(--color-team-a) 7%, transparent);
+  border-color: color-mix(in srgb, var(--color-team-a) 20%, transparent);
+}
+
+.threadAvatar {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.55rem;
+  border-radius: 14px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--color-team-a) 16%, transparent), color-mix(in srgb, var(--color-team-b) 14%, transparent));
+  border: 1px solid var(--color-border);
+}
+
+.threadAvatar > :last-child {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  background: var(--color-surface);
+  border-radius: 50%;
+}
+
+.threadBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.threadTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.threadTop strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadTop em {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.threadBottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--color-team-a);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.threadPresence {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 520px) {
+  .drawer {
+    width: 100vw;
+    border-left: none;
+  }
+}

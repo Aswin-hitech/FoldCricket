@@ -25,6 +25,7 @@ from ..domain import achievements
 from ..domain.models import DeliveryResult, GameMode
 from ..repositories import accounts as accounts_repo
 from ..repositories import memory as repo
+from ..repositories import social as social_repo
 from ..security.utils import validate_display_name
 
 SESSION_DAYS = max(1, int(getattr(Config, "ACCOUNT_SESSION_DAYS", 30)))
@@ -374,13 +375,21 @@ def relationship(viewer_id: str, target_id: str) -> str:
     return "friend"
 
 
+def public_summary(user: dict) -> dict:
+    return _public_summary(user)
+
+
 def profile_for_viewer(target: dict, viewer: dict) -> dict:
     rel = relationship(viewer["id"], target["id"])
     payload = {
         **_public_summary(target),
+        "user_id": target["id"],
         "relationship": rel,
         "is_friend": rel == "friend",
         "is_self": rel == "self",
+        "presence": social_repo.presence_map([target["id"]]).get(
+            target["id"], {"status": "offline"}
+        ),
     }
     if rel in ("friend", "self"):
         stats = build_stats(target["id"])
@@ -466,24 +475,24 @@ def find_user(identifier: str) -> Optional[dict]:
         if found:
             return found
     username = value[1:] if value.startswith("@") else value
-    return accounts_repo.get_user_by_username(username)
-
-
-def search_users(query: str, viewer: dict) -> list[dict]:
-    target = find_user(query)
-    if not target or target["id"] == viewer["id"]:
-        return []
-    return [profile_for_viewer(target, viewer)]
+    found = accounts_repo.get_user_by_username(username)
+    if found:
+        return found
+    if len(value) == 36 and value.count("-") == 4:
+        return accounts_repo.get_user_by_id(value)
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Friends
 # ---------------------------------------------------------------------------
 
-def _friend_row_payload(row: dict) -> dict:
+def _friend_row_payload(row: dict, presence: Optional[dict] = None) -> dict:
     user = accounts_repo.get_user_by_id(row["id"])
     summary = _public_summary(user) if user else {}
+    summary["user_id"] = row["id"]
     summary["friendship_id"] = row.get("friendship_id")
+    summary["presence"] = (presence or {}).get(row["id"], {"status": "offline"})
     if row.get("friends_since"):
         summary["friends_since"] = row["friends_since"]
     if row.get("requested_at"):
@@ -492,9 +501,15 @@ def _friend_row_payload(row: dict) -> dict:
 
 
 def friend_list(user_id: str) -> dict:
-    friends = [_friend_row_payload(row) for row in accounts_repo.list_friends(user_id)]
-    incoming = [_friend_row_payload(row) for row in accounts_repo.list_incoming_requests(user_id)]
-    outgoing = [_friend_row_payload(row) for row in accounts_repo.list_outgoing_requests(user_id)]
+    friend_rows = accounts_repo.list_friends(user_id)
+    incoming_rows = accounts_repo.list_incoming_requests(user_id)
+    outgoing_rows = accounts_repo.list_outgoing_requests(user_id)
+    ids = {row["id"] for row in (*friend_rows, *incoming_rows, *outgoing_rows)}
+    presence = social_repo.presence_map(ids)
+
+    friends = [_friend_row_payload(row, presence) for row in friend_rows]
+    incoming = [_friend_row_payload(row, presence) for row in incoming_rows]
+    outgoing = [_friend_row_payload(row, presence) for row in outgoing_rows]
     return {
         "friends": friends,
         "incoming": incoming,

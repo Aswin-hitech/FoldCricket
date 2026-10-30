@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useSocial } from '../../context/SocialContext'
 import styles from './AccountMenu.module.css'
 
 export function AccountMenu() {
   const { ready, profile, user, stats, logout } = useAuth()
+  const { unreadTotal, requests, openInbox } = useSocial()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -38,6 +40,7 @@ export function AccountMenu() {
   }
 
   const pending = profile?.incoming_requests ?? 0
+  const pendingInvites = requests.incoming.length
 
   async function handleLogout() {
     setBusy(true)
@@ -84,10 +87,26 @@ export function AccountMenu() {
           <Link to="/profile" className={styles.item} role="menuitem" onClick={() => setOpen(false)}>
             <span className={styles.itemIcon}>👤</span> My profile
           </Link>
+          <Link to="/players" className={styles.item} role="menuitem" onClick={() => setOpen(false)}>
+            <span className={styles.itemIcon}>🔎</span> Players
+            {pendingInvites > 0 && <span className={styles.count}>{pendingInvites}</span>}
+          </Link>
           <Link to="/friends" className={styles.item} role="menuitem" onClick={() => setOpen(false)}>
             <span className={styles.itemIcon}>🫂</span> Friends
             {pending > 0 && <span className={styles.count}>{pending}</span>}
           </Link>
+          <button
+            type="button"
+            className={styles.item}
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              openInbox()
+            }}
+          >
+            <span className={styles.itemIcon}>💬</span> Messages
+            {unreadTotal > 0 && <span className={styles.count}>{unreadTotal}</span>}
+          </button>
           <Link to="/profile#settings" className={styles.item} role="menuitem" onClick={() => setOpen(false)}>
             <span className={styles.itemIcon}>⚙️</span> Match defaults
           </Link>

@@ -46,7 +46,7 @@ def get_delivery_timeout_seconds(match: Match) -> int:
     """
     Authoritative delivery timer rule:
     First ball of the first innings and second innings is 30 seconds;
-    all other balls are 15 seconds.
+    all other balls are 20 seconds.
     """
     if (
         match.current_over == 0

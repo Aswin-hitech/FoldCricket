@@ -245,6 +245,29 @@ def init_db() -> None:
                 PRIMARY KEY (user_id, code)
             );
 
+            CREATE TABLE IF NOT EXISTS direct_messages (
+                id TEXT PRIMARY KEY,
+                sender_id TEXT NOT NULL,
+                recipient_id TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                read_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS play_requests (
+                id TEXT PRIMARY KEY,
+                requester_id TEXT NOT NULL,
+                recipient_id TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                overs INTEGER NOT NULL,
+                wickets INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                room_id TEXT,
+                room_code TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_memberships_room ON memberships(room_id);
             CREATE INDEX IF NOT EXISTS idx_matches_room ON matches(room_id);
             CREATE INDEX IF NOT EXISTS idx_deliveries_match ON deliveries(match_id);
@@ -256,6 +279,10 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_friendships_requester ON friendships(requester_id, status);
             CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id, status);
             CREATE INDEX IF NOT EXISTS idx_user_match_stats_user ON user_match_stats(user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_dm_pair ON direct_messages(sender_id, recipient_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_dm_recipient_unread ON direct_messages(recipient_id, read_at);
+            CREATE INDEX IF NOT EXISTS idx_play_requests_recipient ON play_requests(recipient_id, status);
+            CREATE INDEX IF NOT EXISTS idx_play_requests_requester ON play_requests(requester_id, status);
             """
         )
         try:
@@ -383,6 +410,30 @@ def get_player_by_socket(socket_id: str) -> Optional[Player]:
                 return p
         with _get_connection() as conn:
             row = conn.execute("SELECT * FROM players WHERE socket_id = ?", (socket_id,)).fetchone()
+            if not row:
+                return None
+            p = _row_to_player(row)
+            _players_cache[p.id] = p
+            return p
+
+
+def get_connected_player_for_user(user_id: str) -> Optional[Player]:
+    """Newest live socket-backed player linked to an account, if any."""
+    if not user_id:
+        return None
+    with _lock:
+        for p in _players_cache.values():
+            if p.user_id == user_id and p.connection_state == ConnectionState.CONNECTED:
+                return p
+        with _get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM players
+                WHERE user_id = ? AND connection_state = 'CONNECTED'
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone()
             if not row:
                 return None
             p = _row_to_player(row)
@@ -1114,6 +1165,8 @@ def clear_all() -> None:
             conn.execute("DELETE FROM memberships;")
             conn.execute("DELETE FROM rooms;")
             conn.execute("DELETE FROM players;")
+            conn.execute("DELETE FROM play_requests;")
+            conn.execute("DELETE FROM direct_messages;")
             conn.execute("DELETE FROM user_achievements;")
             conn.execute("DELETE FROM user_match_stats;")
             conn.execute("DELETE FROM friendships;")

@@ -141,7 +141,17 @@ export interface OwnerProfile {
   new_achievements: string[]
 }
 
+export type PresenceStatus = 'offline' | 'online' | 'in_lobby' | 'in_match' | 'spectating'
+
+export interface Presence {
+  status: PresenceStatus
+  room_id?: string
+  join_code?: string
+  mode?: string
+}
+
 export interface PublicProfile extends ProfileUser {
+  user_id?: string
   relationship: 'self' | 'friend' | 'incoming' | 'outgoing' | 'none'
   is_friend: boolean
   is_self: boolean
@@ -150,6 +160,7 @@ export interface PublicProfile extends ProfileUser {
   achievements?: Badge[]
   recent_matches?: RecentMatch[]
   friends_count?: number
+  presence?: Presence
 }
 
 export interface FriendSummary {
@@ -164,6 +175,8 @@ export interface FriendSummary {
   friendship_id?: string
   friends_since?: string
   requested_at?: string
+  user_id?: string
+  presence?: Presence
 }
 
 export interface FriendsPayload {
@@ -331,3 +344,5 @@ export function avatarHue(name: string): number {
   }
   return hash
 }
+
+export { request as accountRequest }

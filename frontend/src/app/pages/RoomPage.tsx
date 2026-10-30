@@ -605,7 +605,7 @@ export default function RoomPage() {
                 </div>
                 <div className={styles.guestSummaryItem}>
                   <span className={styles.summaryLabel}>Delivery Timeout</span>
-                  <span className={styles.summaryValue}>15 Seconds</span>
+                  <span className={styles.summaryValue}>20 Seconds</span>
                 </div>
               </div>
             )}
@@ -851,7 +851,7 @@ export default function RoomPage() {
               <p>1. Each player picks a number from <strong>1, 2, 3, 4, 5, or 6</strong> per delivery.</p>
               <p>2. If both picks match exactly → the batter is <strong>OUT</strong>.</p>
               <p>3. If picks differ → the batter scores <strong>their chosen number</strong>.</p>
-              <p>4. The first ball of each innings has a <strong>30-second</strong> deadline; every other ball <strong>15 seconds</strong>.</p>
+              <p>4. The first ball of each innings has a <strong>30-second</strong> deadline; every other ball <strong>20 seconds</strong>.</p>
               <p>5. If a player runs out of time, the delivery is dead: <strong>0 runs, no wicket</strong>, and the ball is <strong>re-bowled</strong>.</p>
               <p>6. An innings ends when the <strong>overs limit or wickets limit</strong> is reached.</p>
               <p>7. Second innings target = first innings runs + 1.</p>

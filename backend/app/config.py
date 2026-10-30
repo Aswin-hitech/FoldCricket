@@ -40,8 +40,13 @@ class Config:
     # Socket.IO
     SOCKETIO_ASYNC_MODE: str = os.getenv("SOCKETIO_ASYNC_MODE", "threading")
 
-    # Creator dashboard. Unset means loopback-only access; set it in
-    # production to unlock the dashboard with X-Creator-Key.
+    # Creator dashboard. The creator signs in with these credentials; the
+    # server issues a signed, expiring bearer token. Override both values
+    # in the environment for any real deployment. The optional
+    # CREATOR_DASHBOARD_KEY remains an automation-only bypass header.
+    CREATOR_USERNAME: str = os.getenv("CREATOR_USERNAME", "aswin_dashboard")
+    CREATOR_PASSWORD: str = os.getenv("CREATOR_PASSWORD", "12345678")
+    CREATOR_SESSION_HOURS: int = int(os.getenv("CREATOR_SESSION_HOURS", "12"))
     CREATOR_DASHBOARD_KEY: str = os.getenv("CREATOR_DASHBOARD_KEY", "")
 
     # Player accounts. Sessions are opaque bearer tokens stored hashed at
@@ -49,8 +54,8 @@ class Config:
     # Bearer. 30 days of inactivity expires a session.
     ACCOUNT_SESSION_DAYS: int = int(os.getenv("ACCOUNT_SESSION_DAYS", "30"))
 
-    # Game rules (15-second authoritative server deadline)
-    DELIVERY_TIMEOUT_SECONDS: int = int(os.getenv("DELIVERY_TIMEOUT_SECONDS", "15"))
+    # Game rules (20-second authoritative server deadline per delivery)
+    DELIVERY_TIMEOUT_SECONDS: int = int(os.getenv("DELIVERY_TIMEOUT_SECONDS", "20"))
     INNINGS_BREAK_SECONDS: int = int(os.getenv("INNINGS_BREAK_SECONDS", "10"))
     RECONNECT_GRACE_SECONDS: int = int(os.getenv("RECONNECT_GRACE_SECONDS", "120"))
     ALLOWED_OVERS: list[int] = [int(x) for x in os.getenv("ALLOWED_OVERS", "1,2,5,10").split(",")]

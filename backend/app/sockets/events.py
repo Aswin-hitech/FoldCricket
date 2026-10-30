@@ -42,7 +42,7 @@ RULES_TEXT = """
 1. Each player picks a number from **1 to 10** per delivery.
 2. If both picks are **equal** → the batter is **OUT**.
 3. If picks are **different** → the batter scores their chosen number.
-4. The first ball of each innings has a **30-second** deadline, every other ball **15 seconds**.
+4. The first ball of each innings has a **30-second** deadline, every other ball **20 seconds**.
 5. If either player fails to pick in time, the delivery is a **dead ball**: **0 runs, no wicket**, and the same ball is **re-bowled**.
 6. An innings ends when the over limit or wicket limit is reached.
 7. The second innings target = first innings runs + 1.
@@ -76,11 +76,18 @@ def _resolve_account(data: dict | None):
     return accounts_service.resolve_session(token)
 
 
+def _join_user_room(account: dict | None) -> None:
+    """Subscribe this socket to account-scoped events (DMs, play invites)."""
+    if account and account.get("id"):
+        join_room(f"user:{account['id']}")
+
+
 def _link_player_account(player, data: dict | None):
     """Attach a registered account to the game identity, if one is signed in."""
+    account = _resolve_account(data)
+    _join_user_room(account)
     if not player:
         return player
-    account = _resolve_account(data)
     if account and player.user_id != account["id"]:
         player.user_id = account["id"]
         repo.save_player(player)
@@ -285,13 +292,16 @@ def on_connect(auth=None):
 
     token = (auth or {}).get("token") or request.args.get("token", "")
     account_token = (auth or {}).get("account_token") or request.args.get("account_token", "")
+    account = accounts_service.resolve_session(account_token) if account_token else None
+    # Account rooms must work even before a game identity exists, so a signed-in
+    # player who is only browsing social pages still receives DMs and invites.
+    _join_user_room(account)
     if not token:
         # Allow connection; player must register/restore before acting
         return
 
     player = repo.get_player_by_session(token)
     if player:
-        account = accounts_service.resolve_session(account_token) if account_token else None
         if account and player.user_id != account["id"]:
             player.user_id = account["id"]
         repo.update_player_socket(player.id, request.sid)
@@ -541,6 +551,7 @@ def on_register(data):
     except ValueError as e:
         return emit("player:registered", _err(str(e)))
 
+    _join_user_room(account)
     repo.update_player_socket(player.id, request.sid)
     player.connection_state = ConnectionState.CONNECTED
     repo.save_player(player)

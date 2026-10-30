@@ -1,6 +1,7 @@
 /**
  * Creator dashboard API client.
- * The dashboard is read-only and gated by the server's CREATOR_DASHBOARD_KEY.
+ * Sign-in returns a short-lived bearer token; insights never carry the
+ * creator password.
  */
 
 const rawBackend = import.meta.env.VITE_BACKEND_URL || ''
@@ -28,9 +29,36 @@ export interface CreatorTotals {
 export interface ActivityPoint {
   date: string
   matches: number
+  solo_matches: number
+  team_matches: number
   new_players: number
   deliveries: number
   batters: number
+  runs: number
+  dead_balls: number
+}
+
+export interface HourlyPoint {
+  hour: number
+  deliveries: number
+  matches: number
+}
+
+export interface PreviousTotals {
+  matches: number
+  completed_matches: number
+  deliveries: number
+  active_players: number
+  runs: number
+  new_players: number
+  dead_balls: number
+}
+
+export type CreatorMode = 'SOLO' | 'TEAM'
+
+export interface CreatorFilters {
+  mode: CreatorMode | null
+  date: string | null
 }
 
 export interface LiveRoom {
@@ -75,8 +103,11 @@ export interface TopBowler {
 export interface CreatorInsights {
   days: number
   window_start: string
+  filters: CreatorFilters
   totals: CreatorTotals
+  previous: PreviousTotals
   activity: ActivityPoint[]
+  hourly: HourlyPoint[]
   delivery_mix: Record<string, number>
   live: LiveRoom[]
   recent_matches: RecentMatch[]
@@ -96,16 +127,45 @@ export class CreatorApiError extends Error {
   }
 }
 
-export async function fetchCreatorInsights(days: number, key: string): Promise<CreatorInsights> {
-  const response = await fetch(`${BACKEND_URL}/api/creator/insights?days=${days}`, {
-    headers: key ? { 'X-Creator-Key': key } : {},
+export interface CreatorSession {
+  token: string
+  expires_in: number
+}
+
+async function parseError(response: Response): Promise<CreatorApiError> {
+  const payload = await response.json().catch(() => ({}))
+  return new CreatorApiError(response.status, payload.error || `http_${response.status}`)
+}
+
+export async function loginCreator(
+  username: string,
+  password: string
+): Promise<CreatorSession> {
+  const response = await fetch(`${BACKEND_URL}/api/creator/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
     cache: 'no-store',
   })
 
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}))
-    throw new CreatorApiError(response.status, payload.error || `http_${response.status}`)
-  }
+  if (!response.ok) throw await parseError(response)
+  return (await response.json()) as CreatorSession
+}
 
+export async function fetchCreatorInsights(
+  days: number,
+  token: string,
+  filters: Partial<CreatorFilters> = {}
+): Promise<CreatorInsights> {
+  const params = new URLSearchParams({ days: String(days) })
+  if (filters.mode) params.set('mode', filters.mode)
+  if (filters.date) params.set('date', filters.date)
+
+  const response = await fetch(`${BACKEND_URL}/api/creator/insights?${params.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+  })
+
+  if (!response.ok) throw await parseError(response)
   return (await response.json()) as CreatorInsights
 }

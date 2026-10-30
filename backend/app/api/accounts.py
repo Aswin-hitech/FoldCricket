@@ -12,7 +12,7 @@ from functools import wraps
 
 from flask import Blueprint, g, jsonify, request
 
-from ..services import accounts_service
+from ..services import accounts_service, social_service
 from ..services.accounts_service import AccountError
 from ..security.utils import SimpleRateLimiter
 
@@ -157,9 +157,9 @@ def search_users():
     if not _search_limiter.allow(_remote()):
         return jsonify({"error": "rate_limited"}), 429
     query = (request.args.get("q") or "").strip()
-    if len(query) < 3:
+    if len(query) < 2:
         return jsonify({"results": []})
-    return jsonify({"results": accounts_service.search_users(query, g.user)})
+    return jsonify({"results": social_service.search_players(query, g.user)})
 
 
 @bp.get("/users/<path:identifier>")

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useSocial } from '../../context/SocialContext'
 import {
   acceptFriendRequest,
   accountErrorMessage,
@@ -11,10 +12,12 @@ import {
   sendFriendRequest,
   type FriendSummary,
   type FriendsPayload,
+  type Presence,
   type PublicProfile,
 } from '../../services/accounts'
 import { AccountHeader } from '../components/AccountHeader'
 import { Footer } from '../components/Footer'
+import { PresenceBadge } from '../components/PresenceBadge'
 import styles from './FriendsPage.module.css'
 
 function levelLabel(level: number): string {
@@ -24,6 +27,14 @@ function levelLabel(level: number): string {
 export default function FriendsPage() {
   const navigate = useNavigate()
   const { ready, user, refresh } = useAuth()
+  const { openChat, invitePlayer, presenceOf } = useSocial()
+
+  const livePresence = (person: { user_id?: string; presence?: Presence }): Presence => {
+    const live = presenceOf(person.user_id)
+    return live.status !== 'offline' ? live : person.presence ?? { status: 'offline' }
+  }
+
+  const canInvite = (presence: Presence) => presence.status === 'online'
 
   const [data, setData] = useState<FriendsPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -256,6 +267,36 @@ export default function FriendsPage() {
                       </span>
                     </div>
                     <div className={styles.personActions}>
+                      <PresenceBadge presence={livePresence(person)} />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => void openChat(person.user_id || person.friend_code)}
+                      >
+                        💬 Chat
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!canInvite(livePresence(person))}
+                        title={
+                          canInvite(livePresence(person))
+                            ? `Invite ${person.display_name} to a match`
+                            : 'They are offline or already in a room.'
+                        }
+                        onClick={() =>
+                          invitePlayer({
+                            user_id: person.user_id || person.friend_code,
+                            username: person.username,
+                            display_name: person.display_name,
+                            avatar: person.avatar,
+                            friend_code: person.friend_code,
+                            presence: livePresence(person),
+                          })
+                        }
+                      >
+                        🎮 Invite
+                      </button>
                       {person.relationship === 'self' && <span className={styles.muted}>You</span>}
                       {person.relationship === 'friend' && (
                         <span className={styles.friendTag}>Friends ✓</span>
@@ -387,6 +428,7 @@ export default function FriendsPage() {
                       <span>
                         {levelLabel(friend.level)} · {friend.wins}W / {friend.matches}M · {friend.win_rate}%
                       </span>
+                      <PresenceBadge presence={livePresence(friend)} showRoom />
                     </div>
                   </Link>
                   <div className={styles.friendFooter}>
@@ -410,6 +452,35 @@ export default function FriendsPage() {
                         <Link to={`/u/${friend.friend_code}`} className={styles.viewLink}>
                           View profile
                         </Link>
+                        <button
+                          type="button"
+                          className={styles.ghostBtn}
+                          onClick={() => void openChat(friend.user_id || friend.friend_code)}
+                        >
+                          💬 Chat
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.ghostBtn}
+                          disabled={!canInvite(livePresence(friend))}
+                          title={
+                            canInvite(livePresence(friend))
+                              ? `Invite ${friend.display_name} to a match`
+                              : 'They are offline or already in a room.'
+                          }
+                          onClick={() =>
+                            invitePlayer({
+                              user_id: friend.user_id || friend.friend_code,
+                              username: friend.username,
+                              display_name: friend.display_name,
+                              avatar: friend.avatar,
+                              friend_code: friend.friend_code,
+                              presence: livePresence(friend),
+                            })
+                          }
+                        >
+                          🎮 Invite
+                        </button>
                         <button type="button" className={styles.ghostBtn} onClick={() => setConfirming(friend.friend_code)}>
                           Remove
                         </button>

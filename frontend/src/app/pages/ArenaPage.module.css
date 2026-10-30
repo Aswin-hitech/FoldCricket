@@ -849,7 +849,7 @@
   justify-content: center;
   z-index: 1000;
   padding: 20px;
-  animation: fadeIn 2s ease;
+  animation: fadeIn 0.2s ease;
 }
 
 .bowlerModalCard {
@@ -920,7 +920,7 @@
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(4px);
   z-index: 150;
-  animation: fadeIn 2s ease;
+  animation: fadeIn 0.2s ease;
 }
 
 .chatDrawer {
@@ -1103,7 +1103,7 @@
   justify-content: center;
   z-index: 500;
   backdrop-filter: blur(8px);
-  animation: fadeIn 2s ease;
+  animation: fadeIn 0.2s ease;
   padding: 20px;
 }
 

@@ -49,6 +49,21 @@ export default function ResultPage() {
     }
   }, [roomId, syncRoom])
 
+  // Follow the room if it moves on while this page is open: another player can
+  // start a rematch, or a new match can begin, and this screen must not keep
+  // showing the previous scorecard.
+  const roomStatus = snapshot?.room?.status
+  useEffect(() => {
+    if (!snapshot || !roomStatus || roomStatus === 'MATCH_COMPLETE') return
+    if (roomStatus === 'AWAITING_FIRST_BALL' || roomStatus === 'INNINGS_ACTIVE' || roomStatus === 'INNINGS_BREAK' || roomStatus === 'PAUSED') {
+      navigate(`/room/${roomId}/arena`, { replace: true })
+      return
+    }
+    if (roomStatus === 'WAITING_FOR_PLAYERS' || roomStatus === 'LOBBY_READY' || roomStatus === 'RULEBOOK_REQUIRED' || roomStatus === 'TOSS' || roomStatus === 'MATCH_SETUP') {
+      navigate(`/room/${roomId}`, { replace: true })
+    }
+  }, [snapshot, roomStatus, navigate, roomId])
+
   const match = snapshot?.match
   const members = snapshot?.members ?? []
   const myMembership = members.find(m => m.player.id === myPlayerId)

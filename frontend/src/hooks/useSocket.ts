@@ -4,11 +4,12 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { connectSocket, disconnectSocket } from '../services/socket'
+import { connectSocket, disconnectSocket, reconnectSocket } from '../services/socket'
 import type {
   AllOutInfo,
   ChatMessage,
   CrossTeamVoiceRequest,
+  DeliveryAck,
   DeliveryReveal,
   InningsBreakInfo,
   PausedInfo,
@@ -19,6 +20,14 @@ import type {
 } from '../services/types'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
+
+/** Pick rejections caused by a race with the ball moving on, not by bad input. */
+const PICK_RESYNC_ONLY_ERRORS = new Set([
+  'ball_changed',
+  'already_submitted',
+  'delivery_already_resolved',
+  'deadline_expired',
+])
 
 interface UseSocketReturn {
   status: ConnectionStatus
@@ -40,7 +49,7 @@ interface UseSocketReturn {
   videoCallPeer: VideoCallSession | null
   videoCallError: string | null
   clearVideoCallError: () => void
-  deliveryAck: { success: boolean; error?: string } | null
+  deliveryAck: DeliveryAck | null
   firstBallAck: { success: boolean; error?: string; activated?: boolean } | null
   /** Current server time in ms (accounts for device clock skew). */
   serverNow: () => number
@@ -49,13 +58,14 @@ interface UseSocketReturn {
   createRoom: (mode: string, overs: number) => void
   joinRoom: (joinCode: string) => void
   syncRoom: (roomId: string) => void
+  reconnect: () => void
   startMatch: (roomId: string) => void
   callToss: (roomId: string, choice: 'HEADS' | 'TAILS') => void
   decideToss: (roomId: string, decision: 'BAT' | 'BOWL') => void
   firstBallReady: (roomId: string) => void
   selectBowler: (roomId: string, bowlerId: string) => void
   selectBatter: (roomId: string, batterId: string) => void
-  submitPick: (roomId: string, pick: number) => void
+  submitPick: (roomId: string, pick: number, over?: number, ball?: number, phase?: string) => void
   pauseMatch: (roomId: string) => void
   resumeMatch: (roomId: string) => void
   sendChat: (roomId: string, text: string) => void
@@ -99,10 +109,13 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   const [incomingVideoCall, setIncomingVideoCall] = useState<VideoCallInvite | null>(null)
   const [videoCallPeer, setVideoCallPeer] = useState<VideoCallSession | null>(null)
   const [videoCallError, setVideoCallError] = useState<string | null>(null)
-  const [deliveryAck, setDeliveryAck] = useState<{ success: boolean; error?: string } | null>(null)
+  const [deliveryAck, setDeliveryAck] = useState<DeliveryAck | null>(null)
   const [firstBallAck, setFirstBallAck] = useState<{ success: boolean; error?: string; activated?: boolean } | null>(null)
   const lastSnapshotVersionRef = useRef<number>(-1)
   const lastSnapshotMatchIdRef = useRef<string | null>(null)
+  // The room this page is actually rendering. Snapshots for any other room the
+  // player was a member of earlier (restore/reconnect echoes) must be ignored.
+  const activeRoomIdRef = useRef<string | null>(null)
   const serverOffsetRef = useRef<number>(0)
   const voiceSignalSeqRef = useRef(0)
   // Video call bookkeeping: who we are calling and the ring timeout handle.
@@ -111,29 +124,80 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
 
   useEffect(() => {
     const s = socketRef.current
+    // Timestamp of the last packet actually received from the server. Used to
+    // detect half-open sockets (tab sleep, network switch) that still report
+    // `connected` but can no longer receive anything.
+    let lastServerPacketAt = Date.now()
+    // When the socket first went down, so a stalled retry loop can be restarted.
+    let downSince: number | null = null
+    // `id` is set as soon as the namespace connects, so this also covers a
+    // handshake that finished before these listeners were attached.
+    let everConnected = s.connected || Boolean(s.id)
 
     // Synchronize immediate status
     if (s.connected) {
       setStatus('connected')
     }
 
+    const sessionTokenNow = () =>
+      sessionToken || (typeof window !== 'undefined' ? localStorage.getItem('hcl_session') || '' : '')
+
     const onConnect = () => {
+      everConnected = true
+      downSince = null
       setStatus('connected')
-      const token = sessionToken || (typeof window !== 'undefined' ? localStorage.getItem('hcl_session') || '' : '')
+      lastServerPacketAt = Date.now()
+      const token = sessionTokenNow()
       if (token) {
         s.emit('player:restore', { session_token: token })
+      }
+      // The server only rejoins rooms on restore; ask for the authoritative
+      // snapshot so a reconnect does not leave the page on stale state.
+      if (activeRoomIdRef.current) {
+        s.emit('room:sync', { room_id: activeRoomIdRef.current, session_token: token })
       }
       s.emit('ping_check', Date.now())
     }
     const onDisconnect = () => {
+      downSince = downSince ?? Date.now()
       setStatus('disconnected')
       setPingLatency(null)
     }
     const onConnectError = () => {
+      downSince = downSince ?? Date.now()
       setStatus('error')
       setPingLatency(null)
     }
+
+    const onOffline = () => {
+      // navigator.onLine === false: socket.io will retry on its own.
+      downSince = downSince ?? Date.now()
+      setStatus('disconnected')
+      setPingLatency(null)
+    }
+    const onOnline = () => {
+      if (!s.connected) reconnectSocket()
+      else s.emit('ping_check', Date.now())
+    }
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (navigator.onLine === false) return
+      if (!s.connected) {
+        reconnectSocket()
+        return
+      }
+      s.emit('ping_check', Date.now())
+      if (activeRoomIdRef.current) {
+        s.emit('room:sync', { room_id: activeRoomIdRef.current, session_token: sessionTokenNow() })
+      }
+    }
+
     const onSnapshot = (data: RoomSnapshot) => {
+      lastServerPacketAt = Date.now()
+      if (activeRoomIdRef.current && data?.room?.id && data.room.id !== activeRoomIdRef.current) {
+        return // snapshot for a room this page is not displaying
+      }
+
       // Clock sync: derive offset from the server timestamp shipped with every snapshot
       if (data?.server_time) {
         const parsed = Date.parse(data.server_time)
@@ -148,6 +212,16 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       if (matchId !== lastSnapshotMatchIdRef.current) {
         lastSnapshotMatchIdRef.current = matchId
         lastSnapshotVersionRef.current = -1
+        // Event-derived state belongs to the match that just ended. Carrying it
+        // into the next game (or back into the lobby) replays old reveals,
+        // all-out banners and finish transitions.
+        setLastReveal(null)
+        setInningsBreak(null)
+        setMatchFinished(null)
+        setAllOutInfo(null)
+        setSuperOverInfo(null)
+        setDeliveryAck(null)
+        setFirstBallAck(null)
       }
       if (data?.match?.version !== undefined) {
         if (data.match.version < lastSnapshotVersionRef.current) {
@@ -178,6 +252,14 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       if (!data.success) setLastError(data.error || 'unknown_error')
     }
     const onPongAck = (sentTime: number) => {
+      lastServerPacketAt = Date.now()
+      // A short blip (tab sleep, Wi-Fi switch) can raise `offline`/`error`
+      // without ever tearing the transport down. Traffic resuming proves the
+      // socket is healthy again, so clear the stuck "Reconnecting" state.
+      if (downSince !== null) {
+        downSince = null
+        setStatus('connected')
+      }
       if (typeof sentTime === 'number') {
         const rtt = Math.max(1, Date.now() - sentTime)
         setPingLatency(rtt)
@@ -213,9 +295,17 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       setVoiceSignals((prev) => [...prev.slice(-99), entry])
     }
 
-    const onDeliveryAck = (data: { success: boolean; error?: string }) => {
+    const onDeliveryAck = (data: DeliveryAck) => {
       setDeliveryAck(data)
-      if (!data?.success && data?.error) setLastError(data.error)
+      // These only mean the packet lost a race with the next ball; surfacing
+      // them as a global error would be a false alarm.
+      if (
+        !data?.success &&
+        data?.error &&
+        !PICK_RESYNC_ONLY_ERRORS.has(data.error)
+      ) {
+        setLastError(data.error)
+      }
     }
 
     const onFirstBallAck = (data: { success: boolean; error?: string; activated?: boolean }) => {
@@ -348,6 +438,17 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     s.on('delivery:ack', onDeliveryAck)
     s.on('first_ball:ack', onFirstBallAck)
 
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    window.addEventListener('pageshow', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+
+    // Ask for latency right away instead of waiting one heartbeat, so the
+    // indicator does not sit on "Connecting" for the first few seconds.
+    if (s.connected) {
+      s.emit('ping_check', Date.now())
+    }
+
     // Regular ping heartbeats every 3.5s
     const pingInterval = setInterval(() => {
       if (s.connected) {
@@ -355,8 +456,40 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
       }
     }, 3500)
 
+    // Connection watchdog. Two failure modes need an explicit restart:
+    //  - half-open socket: still reports `connected` but the server has been
+    //    silent for 12s, so nothing will ever arrive or be delivered;
+    //  - stalled retry loop: socket.io's manager can stop scheduling attempts
+    //    (e.g. a reconnect error that never lands), leaving the app stuck on
+    //    "Reconnecting" even after the network is back.
+    // Both restart the manager, which forces a fresh handshake and room sync.
+    const watchdog = setInterval(() => {
+      if (document.visibilityState === 'hidden') return
+      if (navigator.onLine === false) return
+      if (!s.connected) {
+        // Before the first successful handshake, socket.io handles retries.
+        if (!everConnected) return
+        if (downSince === null) {
+          downSince = Date.now()
+          return
+        }
+        if (Date.now() - downSince < 10000) return
+        downSince = Date.now()
+        reconnectSocket()
+        return
+      }
+      if (Date.now() - lastServerPacketAt < 12000) return
+      lastServerPacketAt = Date.now()
+      reconnectSocket()
+    }, 4000)
+
     return () => {
       clearInterval(pingInterval)
+      clearInterval(watchdog)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      window.removeEventListener('pageshow', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
       s.off('connect', onConnect)
       s.off('disconnect', onDisconnect)
       s.off('connect_error', onConnectError)
@@ -405,9 +538,16 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   }, [sessionToken])
 
   const syncRoom = useCallback((roomId: string) => {
+    activeRoomIdRef.current = roomId
     const token = sessionToken || localStorage.getItem('hcl_session') || ''
     socketRef.current.emit('room:sync', { room_id: roomId, session_token: token })
   }, [sessionToken])
+
+  // Force a fresh transport handshake (manual "Refresh Connection", or healing
+  // a socket that reports connected but receives nothing).
+  const reconnect = useCallback(() => {
+    reconnectSocket()
+  }, [])
 
   const startMatch = useCallback((roomId: string) => {
     socketRef.current.emit('match:start', { room_id: roomId })
@@ -435,9 +575,12 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('match:select_batter', { room_id: roomId, batter_id: batterId })
   }, [])
 
-  const submitPick = useCallback((roomId: string, pick: number) => {
-    socketRef.current.emit('delivery:submit', { room_id: roomId, pick })
-  }, [])
+  const submitPick = useCallback(
+    (roomId: string, pick: number, over?: number, ball?: number, phase?: string) => {
+      socketRef.current.emit('delivery:submit', { room_id: roomId, pick, over, ball, phase })
+    },
+    [],
+  )
 
   const sendChat = useCallback((roomId: string, text: string) => {
     socketRef.current.emit('chat:send', { room_id: roomId, text })
@@ -559,6 +702,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     createRoom,
     joinRoom,
     syncRoom,
+    reconnect,
     startMatch,
     callToss,
     decideToss,

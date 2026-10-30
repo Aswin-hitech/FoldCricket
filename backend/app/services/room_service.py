@@ -764,10 +764,27 @@ def start_second_innings(room_id: str | Any) -> tuple[Room, Match]:
         return room, match
 
 
-def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[Delivery]]:
+def submit_pick(
+    room: Room,
+    player: Player,
+    pick: int,
+    over: Optional[int] = None,
+    ball: Optional[int] = None,
+    phase: Optional[str] = None,
+) -> tuple[Match, Optional[Delivery]]:
     """
     Submit a batter or bowler pick.
     Returns (match, resolved_delivery) – delivery is None if waiting for other player.
+
+    `over`/`ball`/`phase` are the ball the client believed it was picking for.
+    A pick buffered by the transport (socket.io replays the send buffer after a
+    reconnect) or tapped twice must never land on a later ball, so a mismatch is
+    rejected with `ball_changed` instead of being applied to the current ball.
+
+    Re-sending the *same* pick for the same ball is a no-op success: acks can be
+    lost on a flaky link and the client may retry, but that must not look like a
+    rejection to the player.
+
     Thread-safe & atomic under _match_lock.
     """
     with _match_lock:
@@ -792,6 +809,15 @@ def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[
         err = GameRules.validate_pick(pick)
         if err:
             raise ValueError(err)
+
+        # Stale-ball guard: the pick must belong to the ball that is live now.
+        live_phase = match.phase.value if hasattr(match.phase, "value") else str(match.phase)
+        if (
+            (over is not None and int(over) != match.current_over)
+            or (ball is not None and int(ball) != match.current_ball)
+            or (phase is not None and str(phase) != live_phase)
+        ):
+            raise ValueError("ball_changed")
 
         # Check deadline with 2.5s network skew tolerance
         if match.delivery_deadline and (datetime.utcnow() - match.delivery_deadline).total_seconds() > 2.5:
@@ -819,10 +845,14 @@ def submit_pick(room: Room, player: Player, pick: int) -> tuple[Match, Optional[
 
         if is_batter:
             if delivery.batter_pick is not None:
+                if delivery.batter_pick == pick:
+                    return match, None  # idempotent retry of the same pick
                 raise ValueError("already_submitted")
             delivery.batter_pick = pick
         elif is_bowler:
             if delivery.bowler_pick is not None:
+                if delivery.bowler_pick == pick:
+                    return match, None  # idempotent retry of the same pick
                 raise ValueError("already_submitted")
             delivery.bowler_pick = pick
         else:
@@ -887,6 +917,17 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
         if datetime.utcnow() >= match.innings_break_deadline:
             room, match = start_second_innings(room.id)
 
+    # A finished match row survives a rematch. Before the next toss is decided
+    # the lobby must not be handed that old match, or clients rebuild the last
+    # game's arena/result from it.
+    if room.status in (
+        RoomStatus.WAITING_FOR_PLAYERS,
+        RoomStatus.LOBBY_READY,
+        RoomStatus.RULEBOOK_REQUIRED,
+        RoomStatus.TOSS,
+    ):
+        match = None
+
     match_data = None
     current_delivery = None
 
@@ -917,6 +958,10 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
             "result_summary": match.result_summary,
             "first_batting_team": getattr(match, "first_batting_team", "A"),
             "wickets": getattr(match, "wickets", getattr(room, "wickets", 1)),
+            # Per-team allowances (base wickets + the smaller team's extra wicket),
+            # so the arena can show "wickets left" exactly as the engine counts them.
+            "team_a_wicket_limit": match.wicket_limit("A"),
+            "team_b_wicket_limit": match.wicket_limit("B"),
             "team_a_name": getattr(match, "team_a_name", getattr(room, "team_a_name", "Team A")),
             "team_b_name": getattr(match, "team_b_name", getattr(room, "team_b_name", "Team B")),
             "dismissed_batters_a": getattr(match, "dismissed_batters_a", []),

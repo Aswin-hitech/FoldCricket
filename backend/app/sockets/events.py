@@ -17,7 +17,7 @@ from flask_socketio import emit, join_room, leave_room
 
 logger = logging.getLogger(__name__)
 
-from ..domain.models import ConnectionState, ReadinessState, RoomStatus
+from ..domain.models import ConnectionState, GameMode, ReadinessState, RoomStatus
 from ..extensions import socketio
 from ..repositories import memory as repo
 from ..security.utils import (
@@ -51,8 +51,8 @@ RULES_TEXT = """
 """.strip()
 
 
-def _err(msg: str) -> dict:
-    return {"success": False, "error": msg}
+def _err(msg: str, **extra) -> dict:
+    return {"success": False, "error": msg, **extra}
 
 
 def _ok(data: dict | None = None) -> dict:
@@ -274,14 +274,15 @@ def on_connect(auth=None):
         player.connection_state = ConnectionState.CONNECTED
         repo.save_player(player)
 
-        # Rejoin any active rooms
-        memberships = [
-            m for m in _all_memberships_for_player(player.id)
-        ]
-        for mem in memberships:
+        # Rejoin live rooms only. Completed rooms keep the player's membership
+        # forever; joining them would replay old match events into whatever page
+        # is open and let a stale room unpause itself.
+        for mem in _all_memberships_for_player(player.id):
+            mem_room = repo.get_room(mem.room_id)
+            if not mem_room or mem_room.status == RoomStatus.MATCH_COMPLETE:
+                continue
             join_room(mem.room_id)
             _handle_player_reconnected(mem.room_id, player.id)
-            _broadcast_snapshot(mem.room_id)
 
 
 def _all_memberships_for_player(player_id: str):
@@ -314,16 +315,28 @@ def _handle_player_reconnected(room_id: str, player_id: str) -> None:
             for m in members
         )
         if all_connected:
-            room.status = RoomStatus.INNINGS_ACTIVE
+            # A room paused while the coin was still in the air has no match to
+            # resume; send it back to the toss instead of a live innings.
+            in_toss = bool(room.toss) and not room.toss.get("elected_choice")
+            room.status = RoomStatus.TOSS if in_toss else RoomStatus.INNINGS_ACTIVE
             repo.save_room(room)
             match = repo.get_match_by_room(room_id)
-            if match and match.active_bowler_id and not match.winner:
+            if match and match.active_bowler_id and not match.winner and not in_toss:
                 match.delivery_deadline = datetime.utcnow() + timedelta(
                     seconds=room_service.get_delivery_timeout_seconds(match)
                 )
                 repo.save_match(match)
                 _schedule_delivery_timer(room_id, match.id)
             socketio.emit("match:resumed", {"paused": False}, room=room_id)
+            # The paused snapshot every client holds still says PAUSED and still
+            # describes the returning player as disconnected. Without a fresh
+            # snapshot the others stay stuck on the pause overlay while the match
+            # runs on for the reconnected client.
+            _broadcast_snapshot(room_id)
+        else:
+            # Still waiting on someone else: let the room see this player as
+            # connected again without resuming the match.
+            _broadcast_snapshot(room_id)
     elif room.status == RoomStatus.AWAITING_FIRST_BALL:
         # If the last missing player reconnects after everyone else already
         # confirmed, and they had also confirmed before dropping, start play.
@@ -343,6 +356,13 @@ def _handle_player_reconnected(room_id: str, player_id: str) -> None:
                 )
                 if match.active_bowler_id:
                     _schedule_delivery_timer(room_id, match.id)
+                # Let the room see the gate lift; otherwise the other clients
+                # keep rendering the first-ball gate that no longer applies.
+                _broadcast_snapshot(room_id)
+            else:
+                # Back, but still has to confirm readiness: refresh the gate so
+                # the others stop seeing them as disconnected.
+                _broadcast_snapshot(room_id)
 
 
 @socketio.on("disconnect")
@@ -358,7 +378,10 @@ def on_disconnect():
     # Notify rooms, pause active gameplay, and start grace timers
     for mem in _all_memberships_for_player(player.id):
         room = repo.get_room(mem.room_id)
-        if room and room.status in (RoomStatus.INNINGS_ACTIVE, RoomStatus.TOSS, RoomStatus.PAUSED):
+        # The toss has no running clock: pausing it would turn the room into
+        # PAUSED and the reconnect path would then resume it straight into
+        # INNINGS_ACTIVE before the match has even started.
+        if room and room.status in (RoomStatus.INNINGS_ACTIVE, RoomStatus.PAUSED):
             # Pause room immediately
             room.status = RoomStatus.PAUSED
             repo.save_room(room)
@@ -505,9 +528,14 @@ def on_player_restore(data):
     repo.save_player(player)
 
     for mem in repo.get_memberships_for_player(player.id):
+        mem_room = repo.get_room(mem.room_id)
+        if not mem_room or mem_room.status == RoomStatus.MATCH_COMPLETE:
+            continue
         join_room(mem.room_id)
         _handle_player_reconnected(mem.room_id, player.id)
-        emit("room:snapshot", room_service.get_room_snapshot(mem.room_id, player.id))
+    # Snapshots are pushed only for the room a page explicitly syncs. Echoing
+    # every historical membership here leaks stale rooms (old tosses/matches)
+    # into the page that is currently displayed.
 
     emit("player:restored", _ok({
         "player_id": player.id,
@@ -852,8 +880,9 @@ def on_delivery_submit(data):
     if not player:
         return emit("delivery:ack", _err("not_authenticated"))
 
-    room_id = (data or {}).get("room_id", "")
-    pick = (data or {}).get("pick")
+    data = data or {}
+    room_id = data.get("room_id", "")
+    pick = data.get("pick")
 
     if pick is None:
         return emit("delivery:ack", _err("pick_required"))
@@ -863,21 +892,52 @@ def on_delivery_submit(data):
     except (TypeError, ValueError):
         return emit("delivery:ack", _err("pick_must_be_integer"))
 
+    def _as_int(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    submitted_over = _as_int(data.get("over"))
+    submitted_ball = _as_int(data.get("ball"))
+    submitted_phase = data.get("phase")
+    submitted_phase = str(submitted_phase) if submitted_phase else None
+
     room = repo.get_room(room_id)
     if not room:
         return emit("delivery:ack", _err("room_not_found"))
 
-    try:
-        match, resolved_delivery = room_service.submit_pick(room, player, pick)
-    except (ValueError, PermissionError) as e:
-        return emit("delivery:ack", _err(str(e)))
+    # Every ack echoes the ball it was meant for so the client can drop acks for
+    # a ball that has already been resolved by the server.
+    live = repo.get_match_by_room(room_id)
+    ack_corr = {
+        "over": submitted_over if submitted_over is not None else (live.current_over if live else None),
+        "ball": submitted_ball if submitted_ball is not None else (live.current_ball if live else None),
+        "phase": (
+            submitted_phase
+            if submitted_phase is not None
+            else (live.phase.value if live and hasattr(live.phase, "value") else None)
+        ),
+    }
 
-    emit("delivery:ack", _ok({"pick_received": True}))
+    try:
+        match, resolved_delivery = room_service.submit_pick(
+            room,
+            player,
+            pick,
+            over=submitted_over,
+            ball=submitted_ball,
+            phase=submitted_phase,
+        )
+    except (ValueError, PermissionError) as e:
+        return emit("delivery:ack", _err(str(e), **ack_corr))
+
+    emit("delivery:ack", _ok({"pick_received": True, **ack_corr}))
 
     if resolved_delivery:
         _emit_delivery_resolution(room_id, match, resolved_delivery)
     else:
-        # Waiting for other player's pick
+        # Waiting for other player's pick (or an idempotent retry of our own)
         _broadcast_snapshot(room_id)
 
 
@@ -1392,6 +1452,17 @@ def on_match_resume(data):
 
     if room.status != RoomStatus.PAUSED:
         return emit("match:resume_ack", _err("match_not_paused"))
+
+    if not repo.get_membership(room_id, player.id):
+        return emit("match:resume_ack", _err("not_in_room"))
+
+    # A pause caused by a disconnect must wait for that player: resuming early
+    # would run their deliveries on a timeout while they are still offline.
+    members = repo.get_room_members(room_id)
+    for m in members:
+        member_player = repo.get_player(m.player_id)
+        if not member_player or member_player.connection_state != ConnectionState.CONNECTED:
+            return emit("match:resume_ack", _err("players_disconnected"))
 
     room.status = RoomStatus.INNINGS_ACTIVE
     repo.save_room(room)

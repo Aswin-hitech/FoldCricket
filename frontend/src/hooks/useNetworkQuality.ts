@@ -19,7 +19,10 @@ interface ConnectionLike {
 
 const GOOD_LATENCY_MS = 100
 const BAD_LATENCY_MS = 160
-const MIN_DOWNLINK_MBPS = 4
+// Chrome's downlink estimate is coarse and often reports ~1.5 Mbps even on
+// fast links. 480p/15fps needs well under 1 Mbps, so only truly terrible
+// links should fail the gate (2G/3G are rejected separately).
+const MIN_DOWNLINK_MBPS = 1
 
 /**
  * Gates the beta video call on network quality. Uses the Network Information

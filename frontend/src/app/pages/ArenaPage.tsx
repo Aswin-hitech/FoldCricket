@@ -27,6 +27,23 @@ import { formatPlayerWithTeam, getTeamRoleLabel } from '../../utils/teamLabels'
 import type { DeliveryReveal, MatchInfo, MemberInfo, ResolvedDelivery } from '../../services/types'
 import styles from './ArenaPage.module.css'
 
+/** Identity of one delivery: a pick meant for one key must never land on another. */
+const ballKeyOf = (m: Pick<MatchInfo, 'phase' | 'current_over' | 'current_ball'> | null): string | null =>
+  m ? `${m.phase}:${m.current_over}:${m.current_ball}` : null
+
+// Rejections that only mean "the ball moved on while your packet was in flight".
+// They are absorbed silently: the snapshot already carries the truth.
+const RESYNC_ONLY_PICK_ERRORS = new Set([
+  'ball_changed',
+  'already_submitted',
+  'delivery_already_resolved',
+  'deadline_expired',
+])
+
+// Room stages that mean "the arena is the right screen" / "the lobby is".
+const LIVE_ROOM_STATUSES = new Set(['AWAITING_FIRST_BALL', 'INNINGS_ACTIVE', 'INNINGS_BREAK', 'PAUSED'])
+const LOBBY_ROOM_STATUSES = new Set(['WAITING_FOR_PLAYERS', 'LOBBY_READY', 'RULEBOOK_REQUIRED', 'TOSS', 'MATCH_SETUP'])
+
 export default function ArenaPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
@@ -123,6 +140,10 @@ export default function ArenaPage() {
 
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  // Ball the player has submitted on but the server has not confirmed yet.
+  // The keypad stays locked for that ball only, so a retry can never leak onto
+  // the next delivery after a reconnect.
+  const submittedBallRef = useRef<string | null>(null)
 
   const match: MatchInfo | null = snapshot?.match ?? null
   const members: MemberInfo[] = snapshot?.members ?? []
@@ -151,10 +172,24 @@ export default function ArenaPage() {
   const battingTeam = match?.batting_team || 'A'
   const battingMembers = members.filter(m => m.team === battingTeam)
   const battingCaptain = battingMembers.find(m => m.is_captain) || battingMembers.find(m => m.is_host) || battingMembers[0]
-  const isBattingCaptain = (isCaptain || isHost) && myMembership?.team === battingTeam
+  // Mirrors the server rule: a team without an explicit captain lets any of its
+  // members pick the next batter/bowler, so a captainless Team B never stalls.
+  const battingHasExplicitCaptain = battingMembers.some(m => m.is_captain)
+  const bowlingHasExplicitCaptain = bowlingMembers.some(m => m.is_captain)
+  const isBattingCaptain =
+    (isCaptain || isHost || !battingHasExplicitCaptain) && myMembership?.team === battingTeam
+  const canSelectBowler =
+    (isCaptain || isHost || !bowlingHasExplicitCaptain) && myMembership?.team === bowlingTeam
 
   const dismissedBatters = battingTeam === 'A' ? (match?.dismissed_batters_a || []) : (match?.dismissed_batters_b || [])
   const eligibleBatters = battingMembers.filter(m => !dismissedBatters.includes(m.player.id))
+
+  // Wicket allowances come from the server (base setting + the smaller team's
+  // extra wicket), so the arena never shows a limit different from the engine.
+  const teamAWicketLimit = match?.team_a_wicket_limit ?? match?.wickets ?? 10
+  const teamBWicketLimit = match?.team_b_wicket_limit ?? match?.wickets ?? 10
+  const teamAWicketsLeft = Math.max(0, teamAWicketLimit - (match?.team_a_wickets ?? 0))
+  const teamBWicketsLeft = Math.max(0, teamBWicketLimit - (match?.team_b_wickets ?? 0))
 
   const isCurrentInningsAllOut = Boolean(
     match?.is_all_out && (match?.all_out_team === match?.batting_team || !match?.all_out_team)
@@ -163,6 +198,7 @@ export default function ArenaPage() {
 
   const needsBatterSelect = Boolean(
     match &&
+    snapshot?.room?.status === 'INNINGS_ACTIVE' &&
     !match.active_batter_id &&
     !match.winner &&
     !isAllOut &&
@@ -194,17 +230,28 @@ export default function ArenaPage() {
   )
 
   // SOLO matches auto-assign the bowler server-side, so the captain prompt only
-  // applies to TEAM mode and must not appear while the innings break is running.
+  // applies to TEAM mode and must not appear before the first-ball gate has
+  // activated the innings (the server rejects picks while it is still closed).
   const needsBowlerSelect = Boolean(
     match &&
     isTeamMatch &&
+    snapshot?.room?.status === 'INNINGS_ACTIVE' &&
     !match.active_bowler_id &&
     !match.winner &&
     !isAllOut &&
     !isInningsBreak &&
-    (isCaptain || isHost) &&
-    myMembership?.team === bowlingTeam
+    canSelectBowler
   )
+
+  // Close the selection dialogs as soon as their reason disappears (the other
+  // captain already picked, the innings broke, the match ended) instead of
+  // leaving them stacked on top of the next screen.
+  useEffect(() => {
+    if (!needsBowlerSelect) setShowBowlerModal(false)
+  }, [needsBowlerSelect])
+  useEffect(() => {
+    if (!needsBatterSelect || !isBattingCaptain) setShowBatterModal(false)
+  }, [needsBatterSelect, isBattingCaptain])
 
   // Handle ALL OUT declaration - 5 second transition, STRICTLY ONCE per team per match
   useEffect(() => {
@@ -295,20 +342,44 @@ export default function ArenaPage() {
     }
   }, [roomId, syncRoom, status])
 
-  // Handle match finished redirect - 2 second transition
+  // Screen selection follows the authoritative snapshot, not a single event. A
+  // missed `match:finished` or a rematch started by another player must still
+  // move this client off the arena, and a lobby stage must never leave a
+  // finished match from the previous game on screen.
   useEffect(() => {
-    if (matchFinished) {
-      sound.playWin()
-      vibration.win()
-      setCelebrationTrigger('WIN')
-      const popperTimer = setTimeout(() => setCelebrationTrigger(null), 2000)
-      const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 2000)
-      return () => {
-        clearTimeout(popperTimer)
-        clearTimeout(timer)
+    const roomStatus = snapshot?.room?.status
+    if (!roomStatus || LIVE_ROOM_STATUSES.has(roomStatus)) return
+
+    if (roomStatus === 'MATCH_COMPLETE') {
+      if (matchFinished) return // the finish event runs the 2s transition
+      if (allOutAnnouncement) return // let the ALL OUT declaration finish first
+      if (match?.winner) {
+        const timer = setTimeout(() => navigate(`/room/${roomId}/result`, { replace: true }), 1800)
+        return () => clearTimeout(timer)
       }
+      return
     }
-  }, [matchFinished, navigate, roomId])
+
+    if (LOBBY_ROOM_STATUSES.has(roomStatus)) {
+      navigate(`/room/${roomId}`, { replace: true })
+    }
+  }, [snapshot?.room?.status, matchFinished, allOutAnnouncement, match?.winner, navigate, roomId])
+
+  // Handle match finished redirect - 2 second transition, held back while the
+  // ALL OUT declaration is still on screen so two overlays never race.
+  useEffect(() => {
+    if (!matchFinished) return
+    if (allOutAnnouncement) return
+    sound.playWin()
+    vibration.win()
+    setCelebrationTrigger('WIN')
+    const popperTimer = setTimeout(() => setCelebrationTrigger(null), 2000)
+    const timer = setTimeout(() => navigate(`/room/${roomId}/result`), 2000)
+    return () => {
+      clearTimeout(popperTimer)
+      clearTimeout(timer)
+    }
+  }, [matchFinished, allOutAnnouncement, navigate, roomId])
 
   // Handle delivery reveal sound & vibration - 2s popup animation & 2s party popper
   useEffect(() => {
@@ -440,10 +511,11 @@ export default function ArenaPage() {
 
   // Handle pick submit
   function handlePickSubmit() {
-    if (selectedPick === null || pickSubmitted || !roomId || isInningsBreak || awaitingFirstBall || match?.winner) return
+    if (selectedPick === null || pickSubmitted || !roomId || !match || isInningsBreak || awaitingFirstBall || match.winner) return
     sound.playClick()
     vibration.tap()
-    submitPick(roomId, selectedPick)
+    submittedBallRef.current = ballKeyOf(match)
+    submitPick(roomId, selectedPick, match.current_over, match.current_ball, match.phase)
     setPickSubmitted(true)
   }
 
@@ -502,42 +574,85 @@ export default function ArenaPage() {
 
   const currentDelivery = snapshot?.current_delivery
 
-  // Server rejected the pick (deadline passed / already submitted): unlock the
-  // keypad instead of leaving the player stuck on "Pick Locked".
+  // Handle the server's answer to our submission. Acks carry the ball they were
+  // meant for, so a late ack from an earlier delivery is dropped instead of
+  // unlocking (or erroring on) the ball that is live now.
   useEffect(() => {
     if (!deliveryAck) return
+    const ackKey =
+      deliveryAck.over != null && deliveryAck.ball != null && deliveryAck.phase != null
+        ? `${deliveryAck.phase}:${deliveryAck.over}:${deliveryAck.ball}`
+        : null
+    const pendingKey = submittedBallRef.current
+    if (ackKey && pendingKey && ackKey !== pendingKey) return
+
     if (deliveryAck.success) {
       setPickError(null)
       return
     }
+
+    const reason = deliveryAck.error || 'pick_rejected'
+    if (RESYNC_ONLY_PICK_ERRORS.has(reason)) {
+      // The ball was already settled elsewhere; keep the pad locked until the
+      // snapshot advances the ball, then stay silent about it.
+      if (!ackKey) {
+        submittedBallRef.current = null
+        setPickSubmitted(false)
+      }
+      setPickError(null)
+      return
+    }
+
+    submittedBallRef.current = null
     setPickSubmitted(false)
     setSelectedPick(null)
-    setPickError(deliveryAck.error || 'pick_rejected')
+    setPickError(reason)
     const timer = setTimeout(() => setPickError(null), 3500)
     return () => clearTimeout(timer)
   }, [deliveryAck])
 
-  // Unlock keypad on new ball
+  // Keypad lock is derived from the authoritative ball: it unlocks the moment
+  // the delivery moves on, and re-locks after a refresh if this player already
+  // picked for the current ball.
   useEffect(() => {
-    if (isActiveBatter) {
-      if (!currentDelivery || !currentDelivery.batter_submitted) {
-        setPickSubmitted(false)
-      }
-    } else if (isActiveBowler) {
-      if (!currentDelivery || !currentDelivery.bowler_submitted) {
-        setPickSubmitted(false)
-      }
-    } else {
+    const key = ballKeyOf(match)
+    if (!key) {
+      submittedBallRef.current = null
       setPickSubmitted(false)
+      return
     }
+
+    if (submittedBallRef.current && submittedBallRef.current !== key) {
+      submittedBallRef.current = null
+      setPickSubmitted(false)
+      setSelectedPick(null)
+      setPickError(null)
+      return
+    }
+
+    if (submittedBallRef.current === key) {
+      // Submitted here and not yet settled: never fall back to "unlocked" just
+      // because a snapshot from before the submit is still in flight.
+      setPickSubmitted(true)
+      return
+    }
+
+    const serverSaysSubmitted = isActiveBatter
+      ? Boolean(currentDelivery?.batter_submitted)
+      : isActiveBowler
+        ? Boolean(currentDelivery?.bowler_submitted)
+        : false
+    setPickSubmitted(serverSaysSubmitted)
+    if (!isActivePlayer) setSelectedPick(null)
   }, [
     currentDelivery?.batter_submitted,
     currentDelivery?.bowler_submitted,
     isActiveBatter,
     isActiveBowler,
+    isActivePlayer,
+    match?.phase,
     match?.current_ball,
     match?.current_over,
-    match?.phase,
   ])
 
   // Compute Run Rates (CRR, RRR)
@@ -673,12 +788,8 @@ export default function ArenaPage() {
   }, [members, recentDeliveries, match])
 
   if (!match) {
-    const lobbyStatuses = ['WAITING_FOR_PLAYERS', 'LOBBY_READY', 'RULEBOOK_REQUIRED', 'TOSS']
-    if (snapshot?.room && lobbyStatuses.includes(snapshot.room.status)) {
-      navigate(`/room/${roomId}`, { replace: true })
-      return null
-    }
-
+    // Redirects for lobby/completed rooms are handled by the snapshot effect
+    // above; this is only the brief gap before the first authoritative state.
     return (
       <div className={styles.centered}>
         <div className={styles.loader} />
@@ -961,7 +1072,7 @@ export default function ArenaPage() {
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>
                     {match.team_a_runs}/{match.team_a_wickets}
-                    {(Boolean(match.is_all_out_a) || (match.is_all_out && match.all_out_team === 'A') || (match.team_a_wickets >= (match.wickets || 10))) && (
+                    {(Boolean(match.is_all_out_a) || (match.is_all_out && match.all_out_team === 'A') || (match.team_a_wickets >= teamAWicketLimit)) && (
                       <span className={styles.allOutBadgeHeader}>ALL OUT</span>
                     )}
                   </span>
@@ -986,6 +1097,10 @@ export default function ArenaPage() {
               <div className={styles.statItem}>
                 <span className={styles.statLabel}>Target:</span>
                 <span>{match.batting_team === 'A' && match.target ? match.target : '-'}</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statLabel}>Wkts left:</span>
+                <span>{teamAWicketsLeft}</span>
               </div>
               {match.batting_team === 'A' && match.phase === 'SECOND' && match.target && (
                 <div className={styles.statItem}>
@@ -1056,7 +1171,7 @@ export default function ArenaPage() {
               activeBowlerName={activeBowler?.player.display_name || 'Bowler'}
               isOverComplete={isOverComplete}
               bowlingCaptainName={bowlingCaptain?.player.display_name}
-              isCaptainOrHost={isCaptain || isHost}
+              isCaptainOrHost={canSelectBowler}
               onSelectBowlerClick={() => setShowBowlerModal(true)}
             />
           </div>
@@ -1072,7 +1187,7 @@ export default function ArenaPage() {
                 <div className={styles.headerScoreRow}>
                   <span className={styles.headerRunsWkts}>
                     {match.team_b_runs}/{match.team_b_wickets}
-                    {(Boolean(match.is_all_out_b) || (match.is_all_out && match.all_out_team === 'B') || (match.team_b_wickets >= (match.wickets || 10))) && (
+                    {(Boolean(match.is_all_out_b) || (match.is_all_out && match.all_out_team === 'B') || (match.team_b_wickets >= teamBWicketLimit)) && (
                       <span className={styles.allOutBadgeHeader}>ALL OUT</span>
                     )}
                   </span>
@@ -1097,6 +1212,10 @@ export default function ArenaPage() {
               <div className={styles.statItem}>
                 <span className={styles.statLabel}>Target:</span>
                 <span>{match.batting_team === 'B' && match.target ? match.target : '-'}</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statLabel}>Wkts left:</span>
+                <span>{teamBWicketsLeft}</span>
               </div>
               {match.batting_team === 'B' && match.phase === 'SECOND' && match.target && (
                 <div className={styles.statItem}>
@@ -1504,7 +1623,7 @@ export default function ArenaPage() {
       {/* ============================================================
           D. Captain Bowler Selection Modal
           ============================================================ */}
-      {(showBowlerModal || (needsBowlerSelect && !match.active_bowler_id)) && (
+      {(showBowlerModal || (needsBowlerSelect && !match.active_bowler_id && !revealAnimation)) && (
         <div className={styles.bowlerModalOverlay} role="dialog" aria-modal aria-label="Select Bowler">
           <div className={styles.bowlerModalCard}>
             <span style={{ fontSize: '2.5rem' }}>🎯</span>
@@ -1542,7 +1661,7 @@ export default function ArenaPage() {
       {/* ============================================================
           Captain Batter Selection Modal
           ============================================================ */}
-      {(showBatterModal || (needsBatterSelect && isBattingCaptain && !match.active_batter_id)) && (
+      {(showBatterModal || (needsBatterSelect && isBattingCaptain && !match.active_batter_id && !revealAnimation)) && (
         <div className={styles.bowlerModalOverlay} role="dialog" aria-modal aria-label="Select Next Batter">
           <div className={styles.bowlerModalCard}>
             <span style={{ fontSize: '2.5rem' }}>🏏</span>
@@ -1581,7 +1700,7 @@ export default function ArenaPage() {
       {/* ============================================================
           ALL OUT 5-Second Declaration Overlay
           ============================================================ */}
-      {allOutAnnouncement && (
+      {allOutAnnouncement && !superOverAnnouncement && (
         <div className={styles.allOutOverlay}>
           <div className={styles.allOutCard}>
             <div className={styles.allOutIcon}>💥</div>
@@ -1706,7 +1825,7 @@ export default function ArenaPage() {
       {/* ============================================================
           G2. Authoritative Innings Break Full Screen Overlay
           ============================================================ */}
-      {isInningsBreak && (
+      {isInningsBreak && !allOutAnnouncement && !superOverAnnouncement && (
         <div className={styles.inningsBreakOverlay} role="dialog" aria-modal="true" aria-label="First Innings Over">
           <div className={styles.inningsBreakCard}>
             <div className={styles.inningsBreakHeader}>
@@ -1748,7 +1867,7 @@ export default function ArenaPage() {
       {/* ============================================================
           H. Match Finished Overlay (Scores first, then result)
           ============================================================ */}
-      {matchFinished && (
+      {matchFinished && !allOutAnnouncement && !superOverAnnouncement && (
         <div className={styles.finishedOverlay} role="dialog" aria-modal aria-label="Match Complete">
           <div className={styles.finishedCard}>
             <span style={{ fontSize: '3.5rem' }}>🏆</span>
@@ -1766,7 +1885,7 @@ export default function ArenaPage() {
       {/* ============================================================
           I. Match Paused / Reconnecting Overlay
           ============================================================ */}
-      {isPaused && (
+      {isPaused && !matchFinished && !superOverAnnouncement && (
         <div className={styles.pausedOverlay} role="dialog" aria-modal aria-label="Match Paused">
           <div className={styles.pausedCard}>
             <span style={{ fontSize: '3rem' }}>⏸️</span>
@@ -1783,6 +1902,11 @@ export default function ArenaPage() {
                 ⏱️ Reconnection window active: {pausedInfo.grace_seconds}s
               </div>
             )}
+            {!allConnected && (
+              <p style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem', margin: 0 }}>
+                Waiting for disconnected players to return — the match resumes automatically.
+              </p>
+            )}
             <div style={{ display: 'flex', gap: '10px', width: '100%', marginTop: '8px' }}>
               <button
                 type="button"
@@ -1795,10 +1919,11 @@ export default function ArenaPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                style={{ flex: 1 }}
-                onClick={() => roomId && resumeMatch(roomId)}
+                style={{ flex: 1, opacity: allConnected ? 1 : 0.55 }}
+                disabled={!allConnected}
+                onClick={() => roomId && allConnected && resumeMatch(roomId)}
               >
-                ▶️ Resume Match
+                {allConnected ? '▶️ Resume Match' : '⏳ Waiting for players'}
               </button>
             </div>
           </div>
@@ -1948,7 +2073,11 @@ export default function ArenaPage() {
 
               {/* Network Latency & Theme Toggle Row */}
               <div className={styles.mobileMenuBottomRow}>
-                <NetworkIndicator status={status} latency={pingLatency} />
+                <NetworkIndicator
+                  status={status}
+                  latency={pingLatency}
+                  showReconnectingBanner={false}
+                />
                 <ThemeToggle />
               </div>
 

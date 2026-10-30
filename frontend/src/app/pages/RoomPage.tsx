@@ -3,7 +3,7 @@
  * Features 10-second post-toss decision announcement, dynamic team naming, and broadcast gaming UI.
  */
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../../hooks/useSocket'
 import { useNetworkQuality } from '../../hooks/useNetworkQuality'
@@ -30,6 +30,7 @@ export default function RoomPage() {
     pingLatency,
     voiceStates,
     syncRoom,
+    reconnect,
     startMatch,
     callToss,
     decideToss,
@@ -67,6 +68,10 @@ export default function RoomPage() {
   const [copiedCode, setCopiedCode] = useState(false)
   const [tossCountdown, setTossCountdown] = useState<number | null>(null)
   const [isSoundMuted, setIsSoundMuted] = useState(() => sound.isMuted())
+  // Whether this client actually watched this match's toss happen. Someone who
+  // lands on the room at the first-ball gate must never be shown "Toss
+  // Concluded" for a toss they never saw.
+  const sawTossRef = useRef(false)
 
   // Keep sound mute state in sync
   useEffect(() => {
@@ -107,7 +112,12 @@ export default function RoomPage() {
   }, [room?.overs, room?.wickets])
 
   // 10-Second Toss Conclusion Display:
-  // When toss winner makes choice, hold for exactly 10s showing the decision before moving to Arena
+  // When toss winner makes choice, hold for exactly 10s showing the decision before moving to Arena.
+  // It only belongs to the window between this match's toss decision and its arena entry.
+  useEffect(() => {
+    if (snapshot?.room?.status === 'TOSS') sawTossRef.current = true
+  }, [snapshot?.room?.status])
+
   useEffect(() => {
     const roomStatus = snapshot?.room?.status
     if (
@@ -120,18 +130,29 @@ export default function RoomPage() {
       return
     }
 
-    if (room?.toss?.elected_choice) {
-      if (tossCountdown === null) {
-        setTossCountdown(10)
-      } else if (tossCountdown > 0) {
-        const timer = setTimeout(() => {
-          setTossCountdown(prev => (prev !== null && prev > 0 ? prev - 1 : 0))
-        }, 1000)
-        return () => clearTimeout(timer)
-      } else if (tossCountdown === 0) {
-        // Arena shows the "Are you ready for the first ball?" gate
-        navigate(`/room/${roomId}/arena`, { replace: true })
-      }
+    const tossConcluded = roomStatus === 'AWAITING_FIRST_BALL' && Boolean(room?.toss?.elected_choice)
+    if (!tossConcluded) {
+      // Back in a lobby/finished room: drop any leftover countdown so a later toss starts fresh.
+      if (tossCountdown !== null && roomStatus !== 'TOSS') setTossCountdown(null)
+      return
+    }
+
+    if (!sawTossRef.current) {
+      // Joined or reloaded at the gate: no toss replay, go straight in.
+      navigate(`/room/${roomId}/arena`, { replace: true })
+      return
+    }
+
+    if (tossCountdown === null) {
+      setTossCountdown(10)
+    } else if (tossCountdown > 0) {
+      const timer = setTimeout(() => {
+        setTossCountdown(prev => (prev !== null && prev > 0 ? prev - 1 : 0))
+      }, 1000)
+      return () => clearTimeout(timer)
+    } else {
+      // Arena shows the "Are you ready for the first ball?" gate
+      navigate(`/room/${roomId}/arena`, { replace: true })
     }
   }, [room?.toss?.elected_choice, tossCountdown, snapshot?.room?.status, roomId, navigate])
 
@@ -201,7 +222,11 @@ export default function RoomPage() {
           type="button"
           className="btn btn-secondary"
           style={{ marginTop: '8px' }}
-          onClick={() => roomId && syncRoom(roomId)}
+          onClick={() => {
+            if (!roomId) return
+            reconnect()
+            syncRoom(roomId)
+          }}
         >
           🔄 Refresh Connection
         </button>
@@ -638,8 +663,13 @@ export default function RoomPage() {
         </div>
       )}
 
-      {/* 3D Animated Coin Toss Modal - runs during toss and displays for 10 seconds post-election */}
-      {(room?.status === 'TOSS' || Boolean(room?.toss?.elected_choice && tossCountdown !== null && tossCountdown > 0)) && (
+      {/* 3D Animated Coin Toss Modal - runs during the toss and shows the
+          decision for 10 seconds, only for the match that actually had it */}
+      {(room?.status === 'TOSS' ||
+        (room?.status === 'AWAITING_FIRST_BALL' &&
+          Boolean(room?.toss?.elected_choice) &&
+          tossCountdown !== null &&
+          tossCountdown > 0)) && (
         <CoinTossModal
           toss={room?.toss}
           myPlayerId={myPlayerId}

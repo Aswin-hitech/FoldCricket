@@ -122,6 +122,16 @@
 .bar3 { height: 10px; }
 .bar4 { height: 13px; }
 
+/* Neutral state while the first handshake / latency sample completes */
+.pending .barActive {
+  background: rgba(180, 180, 180, 0.6);
+}
+.pending {
+  color: var(--color-text-secondary, #9aa0a6);
+  border-color: var(--color-border, rgba(255, 255, 255, 0.12));
+  background: var(--color-surface-2, rgba(255, 255, 255, 0.08));
+}
+
 /* Colors: Green, Yellow, Red */
 .excellent .barActive,
 .good .barActive {

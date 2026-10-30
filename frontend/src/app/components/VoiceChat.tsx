@@ -20,12 +20,13 @@ import type {
 } from '../../services/types'
 import { VideoCallPanel } from './VideoCallPanel'
 import { stopVoiceSession, voiceSession } from '../../services/voiceSession'
+import { useLaptopDevice } from '../../hooks/useLaptopDevice'
 import styles from './VoiceChat.module.css'
 
-// Beta video calling is parked for now: the whole video surface (camera
-// broadcast, private calls, video panel) stays implemented but hidden.
-// Set this to true to bring the video modules back into the app.
-const VIDEO_CALLS_ENABLED = false
+// Master switch for the video surface (camera broadcast, private calls, video
+// panel). It is additionally gated to laptops/desktops so phones and tablets
+// never see a video affordance.
+const VIDEO_CALLS_ENABLED = true
 
 // The trigger lives inside the room header, which uses backdrop-filter. That
 // makes the header a containing block for position:fixed descendants, so a
@@ -171,6 +172,10 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [isSpeakingLocal, setIsSpeakingLocal] = useState(false)
 
+  // Video is a laptop/desktop-only feature.
+  const isLaptop = useLaptopDevice()
+  const videoEnabled = VIDEO_CALLS_ENABLED && isLaptop
+
   // Beta video call state: 'off' | broadcast to authorized peers | private 1:1
   const [videoMode, setVideoMode] = useState<'off' | 'broadcast' | 'call'>('off')
   const [cameraOn, setCameraOn] = useState(false)
@@ -204,6 +209,9 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   const processedSignalIdRef = useRef<number>(0)
   const offeredPeersRef = useRef<Set<string>>(voiceSession.offeredPeers)
   const readySentRef = useRef<Set<string>>(voiceSession.readySent)
+  // Timestamp of the last refresh-driven renegotiation per peer, used as a
+  // short glare cooldown when both sides turn their cameras on together.
+  const videoRenegotiatedRef = useRef<Map<string, number>>(new Map())
 
   // Transport health bookkeeping for self-healing connections.
   const disconnectedSinceRef = useRef<Map<string, number>>(new Map())
@@ -320,6 +328,25 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   useEffect(() => {
     applyVoicePermissions(blockedRecipients)
   }, [applyVoicePermissions, blockedRecipients])
+
+  // Bind the local camera to a transport's video m-line, honouring call vs
+  // broadcast targeting. Must run after the transceiver exists (offerer) or
+  // after the remote offer created it (answerer).
+  const bindVideoTrack = useCallback(
+    (pc: RTCPeerConnection, peerId: string) => {
+      if (!videoEnabled || videoMode === 'off') return
+      const sender = getSenderForKind(pc, 'video')
+      if (!sender) return
+      const track = videoStreamRef.current?.getVideoTracks()[0] ?? null
+      const shouldSend =
+        Boolean(track) &&
+        (videoMode === 'call'
+          ? videoCallPeer?.state === 'active' && videoCallPeer.peerId === peerId
+          : isMediaAuthorized(peerId) && !isVoiceBlockedFor(peerId, blockedRecipients))
+      sender.replaceTrack(shouldSend ? track : null).catch(() => {})
+    },
+    [videoEnabled, videoMode, videoCallPeer, isMediaAuthorized, isVoiceBlockedFor, blockedRecipients]
+  )
 
   // Wire a transport to this page's callbacks. Rebinding on remount keeps the
   // handlers pointed at the live page's socket helpers instead of the closures
@@ -698,7 +725,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     async (pc: RTCPeerConnection, peerId: string) => {
       if (pc.signalingState !== 'stable') return
       try {
-        ensureMediaTransceivers(pc, VIDEO_CALLS_ENABLED && videoMode !== 'off')
+        ensureMediaTransceivers(pc, videoEnabled && videoMode !== 'off')
+        bindVideoTrack(pc, peerId)
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
         // A live mic must be bound to the m-line we just created; the
@@ -710,7 +738,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         console.warn('Error creating offer:', err)
       }
     },
-    [roomId, onSendSignal, applyVoicePermissions, blockedRecipients, videoMode]
+    [roomId, onSendSignal, applyVoicePermissions, blockedRecipients, videoMode, videoEnabled, bindVideoTrack]
   )
 
   // Rebuild a transport that reported failure and renegotiate, so a network
@@ -742,6 +770,27 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     recoverRef.current = recoverPeer
   }, [recoverPeer])
 
+  // Renegotiate on the live transport so a camera change adds a video m-line
+  // without dropping healthy audio. Only the deterministic offerer (higher id)
+  // creates the offer; if a negotiation is already in flight, wait for it to
+  // settle instead of losing the change.
+  const renegotiatePeer = useCallback(
+    (peerId: string, attempt = 0) => {
+      if (!onSendSignal) return
+      const pc = getOrCreatePeerConnection(peerId)
+      if (pc.signalingState !== 'stable') {
+        if (attempt < 5) {
+          window.setTimeout(() => renegotiatePeer(peerId, attempt + 1), 800)
+        }
+        return
+      }
+      ensureMediaTransceivers(pc, true)
+      offeredPeersRef.current.add(peerId)
+      void sendOffer(pc, peerId)
+    },
+    [getOrCreatePeerConnection, sendOffer, onSendSignal]
+  )
+
   // Handle incoming WebRTC signaling from peers. Signals are processed as an
   // ordered queue because React batches state updates: a single-value slot
   // silently loses offer/answer/candidate messages that arrive together.
@@ -768,8 +817,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         }
         if (!data || !data.type) continue
 
-        let pc = getOrCreatePeerConnection(fromPlayerId)
 
+        let pc = getOrCreatePeerConnection(fromPlayerId)
         if (data.type === 'ready') {
           if (
             myPlayerId > fromPlayerId &&
@@ -799,6 +848,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             await flushCandidates(pc, fromPlayerId)
 
             ensureTransceiversSendRecv(pc)
+            // Bind our camera to the video m-line the remote offer created.
+            bindVideoTrack(pc, fromPlayerId)
             const answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
             // Bind our mic to the m-line the remote offer created.
@@ -830,6 +881,18 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             readySentRef.current.add(fromPlayerId)
             onSendSignal?.(roomId, fromPlayerId, { type: 'ready' })
           }
+        } else if (data.type === 'refresh') {
+          // The peer's media set changed (e.g. camera turned on). Renegotiate
+          // on the existing transport; tearing it down would cut live audio.
+          // The short cooldown absorbs the simultaneous camera-on case (both
+          // sides refresh at once) without blocking a later camera restart.
+          if (myPlayerId > fromPlayerId) {
+            const last = videoRenegotiatedRef.current.get(fromPlayerId) ?? 0
+            if (Date.now() - last > 1500) {
+              videoRenegotiatedRef.current.set(fromPlayerId, Date.now())
+              renegotiatePeer(fromPlayerId)
+            }
+          }
         } else if (data.type === 'candidate' && data.candidate) {
           try {
             if (pc.remoteDescription && pc.remoteDescription.type) {
@@ -847,7 +910,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     }
 
     void run()
-  }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId, applyVoicePermissions, blockedRecipients, sendOffer, destroyPeer])
+  }, [incomingVoiceSignals, getOrCreatePeerConnection, onSendSignal, roomId, myPlayerId, applyVoicePermissions, blockedRecipients, sendOffer, destroyPeer, bindVideoTrack, renegotiatePeer])
 
   // Watchdog: browsers report ICE failure lazily and can leave a transport
   // "disconnected" indefinitely after a network swap. Rebuild anything that
@@ -868,7 +931,15 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           const since = disconnectedSinceRef.current.get(peerId) ?? now
           disconnectedSinceRef.current.set(peerId, since)
           if (now - since >= 6000) recoverRef.current(peerId)
+          return
         }
+        // A dropped ready/offer signal leaves a pair stuck in `new` (no offer
+        // ever applied) or `connecting` (ICE never completes). Both sides run
+        // this watchdog, so re-running the handshake heals a lost signal
+        // without making the player reload.
+        const since = disconnectedSinceRef.current.get(peerId) ?? now
+        disconnectedSinceRef.current.set(peerId, since)
+        if (now - since >= 10000) recoverRef.current(peerId)
       })
     }, 2000)
     return () => clearInterval(timer)
@@ -994,6 +1065,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
   }, [])
 
   const ensureCamera = useCallback(async (): Promise<boolean> => {
+    if (!videoEnabled) return false
     if (videoStreamRef.current) return true
     if (!videoNetwork?.allowed) {
       setCameraError(videoNetwork?.reason || 'Network is not good enough for video right now.')
@@ -1018,7 +1090,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       setCameraError('Camera permission denied or the camera is in use by another app.')
       return false
     }
-  }, [videoNetwork?.allowed, videoNetwork?.reason])
+  }, [videoEnabled, videoNetwork?.allowed, videoNetwork?.reason])
 
   // Keep every authorized peer's video sender in sync with the current mode:
   // broadcast = everyone who may hear me, call = only the call partner.
@@ -1039,23 +1111,83 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     })
   }, [videoMode, cameraOn, videoCallPeer, isMediaAuthorized, isVoiceBlockedFor, blockedRecipients, members])
 
-  // A private call that ends (or is declined) always releases the camera.
+  // Turning the camera on after an audio-only handshake needs a video m-line.
+  // Rebuild the pair once per camera-on transition so both sides renegotiate
+  // with video; stopping the camera only needs replaceTrack(null).
+  const videoNegotiatedKeyRef = useRef<string | null>(null)
   useEffect(() => {
-    if (videoMode === 'call' && !videoCallPeer) {
-      stopCameraStream()
-      setVideoMode('off')
+    const activePeerId = videoCallPeer?.state === 'active' ? videoCallPeer.peerId : null
+    const active =
+      videoEnabled && cameraOn && videoMode !== 'off' && (videoMode === 'broadcast' || activePeerId)
+    if (!active) {
+      videoNegotiatedKeyRef.current = null
+      return
     }
-  }, [videoMode, videoCallPeer, stopCameraStream])
+    const key = videoMode === 'call' ? `call:${activePeerId}` : 'broadcast'
+    if (videoNegotiatedKeyRef.current === key) return
+    videoNegotiatedKeyRef.current = key
+    videoRenegotiatedRef.current.clear()
 
-  // Drop video immediately if the connection degrades below the beta bar.
-  const networkAllowed = videoNetwork?.allowed ?? false
+    const targets =
+      videoMode === 'call' && activePeerId
+        ? [activePeerId]
+        : Array.from(peerConnectionsRef.current.keys()).filter((id) => isMediaAuthorized(id))
+
+    targets.forEach((peerId) => {
+      // Audio is already flowing on this transport; adding the video m-line is
+      // a renegotiation, not a rebuild.
+      onSendSignal?.(roomId, peerId, { type: 'refresh' })
+      if (myPlayerId > peerId) {
+        videoRenegotiatedRef.current.set(peerId, Date.now())
+        renegotiatePeer(peerId)
+      }
+    })
+  }, [
+    videoEnabled,
+    cameraOn,
+    videoMode,
+    videoCallPeer,
+    isMediaAuthorized,
+    getOrCreatePeerConnection,
+    sendOffer,
+    onSendSignal,
+    roomId,
+    myPlayerId,
+    renegotiatePeer,
+  ])
+
+  // A private call that ends (or is declined) always releases the camera.
+  // `incomingVideoCall` stays set between accepting locally and the server's
+  // accepted event arriving; without that guard the callee tears down its
+  // camera in that gap and never transmits video.
   useEffect(() => {
-    if (!networkAllowed && videoMode !== 'off') {
+    if (videoMode === 'call' && !videoCallPeer && !incomingVideoCall) {
       stopCameraStream()
       setVideoMode('off')
-      setCameraError(videoNetwork?.reason || 'Video stopped: network quality dropped.')
     }
-  }, [networkAllowed, videoMode, stopCameraStream, videoNetwork?.reason])
+  }, [videoMode, videoCallPeer, incomingVideoCall, stopCameraStream])
+
+  // The network gate only decides whether a call may *start* (button disabled,
+  // ensureCamera refuses). Once media is live, a momentary latency spike must
+  // not tear the call down: WebRTC already adapts its bitrate, and killing the
+  // camera mid-call left the peer with a one-way (recvonly) video stream.
+  const networkAllowed = videoNetwork?.allowed ?? false
+
+  // Release the camera if the device stops qualifying as a laptop (e.g. the
+  // window is emulated as a phone) and stop any video surface from lingering.
+  useEffect(() => {
+    if (!videoEnabled && videoMode !== 'off') {
+      stopCameraStream()
+      setVideoMode('off')
+    }
+  }, [videoEnabled, videoMode, stopCameraStream])
+
+  // Phones/tablets never expose the video UI, so decline an invitation instead
+  // of leaving a laptop caller ringing until the 45s timeout.
+  useEffect(() => {
+    if (videoEnabled || !incomingVideoCall || !onRespondVideoCall) return
+    onRespondVideoCall(roomId, incomingVideoCall.from_player_id, false)
+  }, [videoEnabled, incomingVideoCall, onRespondVideoCall, roomId])
 
   const toggleBroadcastCamera = async () => {
     if (videoMode === 'broadcast') {
@@ -1087,9 +1219,16 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
 
   const acceptIncomingVideoCall = async () => {
     if (!incomingVideoCall || !onRespondVideoCall) return
+    const callerId = incomingVideoCall.from_player_id
     const started = await ensureCamera()
-    if (started) setVideoMode('call')
-    onRespondVideoCall(roomId, incomingVideoCall.from_player_id, true)
+    if (!started) {
+      // Without a working camera the caller would get a silent one-way video;
+      // decline instead and let the cameraError banner explain why.
+      onRespondVideoCall(roomId, callerId, false)
+      return
+    }
+    setVideoMode('call')
+    onRespondVideoCall(roomId, callerId, true)
   }
 
   const declineIncomingVideoCall = () => {
@@ -1321,7 +1460,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       </button>
 
       {/* Beta camera / video call toggle (hidden while VIDEO_CALLS_ENABLED is false) */}
-      {VIDEO_CALLS_ENABLED && (
+      {videoEnabled && (
       <button
         type="button"
         className={`${styles.micBtn} ${videoMode !== 'off' ? styles.videoBtnActive : ''}`}
@@ -1368,7 +1507,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       </button>
 
       {/* Incoming private video call (hidden while VIDEO_CALLS_ENABLED is false) */}
-      {VIDEO_CALLS_ENABLED && incomingVideoCall && !videoCallPeer && (
+      {videoEnabled && incomingVideoCall && !videoCallPeer && (
         <div className={styles.videoCallBanner} role="dialog" aria-label="Incoming video call">
           <span className={styles.videoCallText}>
             📹 <strong>{incomingVideoCall.from_player_name}</strong> invites you to a video call
@@ -1385,7 +1524,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       )}
 
       {/* Outgoing private video call ringing */}
-      {VIDEO_CALLS_ENABLED && videoCallPeer?.state === 'ringing' && videoCallPeer.direction === 'outgoing' && (
+      {videoEnabled && videoCallPeer?.state === 'ringing' && videoCallPeer.direction === 'outgoing' && (
         <div className={styles.videoCallBanner} role="status">
           <span className={styles.videoCallText}>
             📹 Calling <strong>{videoCallPeer.peerName}</strong>…
@@ -1396,14 +1535,14 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
         </div>
       )}
 
-      {VIDEO_CALLS_ENABLED && videoErrorText && (
+      {videoEnabled && videoErrorText && (
         <div className={styles.permError} onClick={() => onClearVideoCallError?.()}>
           ⚠️ {videoErrorText}
         </div>
       )}
 
       {/* Camera failure outside the video panel (e.g. permission denied when calling) */}
-      {VIDEO_CALLS_ENABLED && cameraError && videoMode === 'off' && !videoCallPeer && (
+      {videoEnabled && cameraError && videoMode === 'off' && !videoCallPeer && (
         <div className={styles.permError} onClick={() => setCameraError(null)}>
           ⚠️ {cameraError}
         </div>
@@ -1445,10 +1584,10 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                 <span style={{ fontSize: '1.4rem' }}>🎙️</span>
                 <div>
                   <h3 className={styles.modalTitle}>
-                    {VIDEO_CALLS_ENABLED ? 'Voice & Video Control' : 'Voice Control'}
+                    {videoEnabled ? 'Voice & Video Control' : 'Voice Control'}
                   </h3>
                   <span className={styles.modalSub}>
-                    {VIDEO_CALLS_ENABLED
+                    {videoEnabled
                       ? 'Manage who can hear you, who you hear, and start private video calls'
                       : 'Manage who can hear you and who you hear'}
                   </span>
@@ -1468,7 +1607,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
             </div>
 
             {/* Camera failure is surfaced here because the panel may be closed */}
-            {VIDEO_CALLS_ENABLED && cameraError && (
+            {videoEnabled && cameraError && (
               <div className={styles.permError} onClick={() => setCameraError(null)}>
                 ⚠️ {cameraError}
               </div>
@@ -1583,7 +1722,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                           >
                             {isListeningMuted ? '🔇' : '🔊'}
                           </button>
-                          {VIDEO_CALLS_ENABLED && (
+                          {videoEnabled && (
                             <button
                               type="button"
                               className={styles.videoCallBtn}
@@ -1705,7 +1844,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                           >
                             {isListeningMuted ? '🔇' : '🔊'}
                           </button>
-                          {VIDEO_CALLS_ENABLED && (
+                          {videoEnabled && (
                             <button
                               type="button"
                               className={styles.videoCallBtn}
@@ -1739,7 +1878,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
                 ) : (
                   <>
                     💡 <strong>Privacy:</strong> Teammates and your opponent can only hear you while you allow it.
-                    {VIDEO_CALLS_ENABLED ? ' Video requires a good connection and mutual consent.' : ''}
+                    {videoEnabled ? ' Video requires a good connection and mutual consent.' : ''}
                   </>
                 )}
               </div>
@@ -1761,7 +1900,8 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
       )}
 
       {/* Beta video surface (broadcast or private 1:1), hidden while VIDEO_CALLS_ENABLED is false */}
-      {VIDEO_CALLS_ENABLED && (
+      {videoEnabled && (
+        <ModalPortal>
         <VideoCallPanel
           isOpen={videoMode !== 'off' || Boolean(videoCallPeer)}
           onClose={closeVideoPanel}
@@ -1783,6 +1923,7 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
           onToggleCamera={toggleBroadcastCamera}
           canToggleCamera={Boolean(videoNetwork?.allowed)}
         />
+        </ModalPortal>
       )}
     </div>
   )

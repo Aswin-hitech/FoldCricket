@@ -140,3 +140,45 @@ def test_race_between_pick_and_timeout_resolution():
     assert updated_match.current_ball in (0, 1)  # if wicket (4 vs 4), ball count might reset on over/innings
     deliveries = repo.get_deliveries_for_match(match.id)
     assert len(deliveries) == 1
+
+
+def test_identical_pick_retry_is_idempotent():
+    """A retried pick for the same ball is a no-op success, not a rejection."""
+    room, match, batting_p, bowling_p = _setup_active_match()
+
+    _, first = room_service.submit_pick(room, batting_p, 4)
+    assert first is None
+
+    retry_match, retry = room_service.submit_pick(room, batting_p, 4)
+    assert retry is None
+    assert repo.get_current_delivery(match.id).batter_pick == 4
+
+    # A different pick for the same ball is a genuine conflict.
+    with pytest.raises(ValueError, match="already_submitted"):
+        room_service.submit_pick(room, batting_p, 6)
+
+
+def test_pick_buffered_from_previous_ball_is_rejected():
+    """A pick queued before a reconnect must never be applied to the next ball."""
+    room, match, batting_p, bowling_p = _setup_active_match()
+
+    room_service.submit_pick(room, batting_p, 4)
+    match, _ = room_service.submit_pick(room, bowling_p, 6)
+    assert match.current_ball == 1
+
+    # Stale packet: it was aimed at over 0, ball 0, innings FIRST.
+    with pytest.raises(ValueError, match="ball_changed"):
+        room_service.submit_pick(room, batting_p, 4, over=0, ball=0, phase="FIRST")
+
+    # Nothing was written for the new ball.
+    assert repo.get_current_delivery(match.id) is None
+
+
+def test_pick_with_wrong_innings_phase_is_rejected():
+    """Ball numbers reset between innings; the phase keeps the identity unique."""
+    room, match, batting_p, bowling_p = _setup_active_match()
+
+    with pytest.raises(ValueError, match="ball_changed"):
+        room_service.submit_pick(room, batting_p, 4, over=0, ball=0, phase="SECOND")
+
+    assert repo.get_current_delivery(match.id) is None

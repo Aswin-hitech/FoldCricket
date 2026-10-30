@@ -4,7 +4,9 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: python run.py
+    # gthread + simple-websocket gives real WebSocket upgrades. A single worker
+    # is required: live room state and the pause timers are in-process.
+    startCommand: gunicorn --worker-class gthread --threads 100 --workers 1 --timeout 120 --bind 0.0.0.0:$PORT run:app
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.10"

@@ -112,6 +112,31 @@ def test_get_match_by_room_returns_newest_match():
     assert sqlite_repo.get_match_for_room(room.id).id == newer.id
 
 
+def test_snapshot_hides_finished_match_after_rematch():
+    """Returning to the lobby must not serve the previous match as live state."""
+    from app.domain.models import Match
+
+    p1, _ = room_service.create_or_restore_player("LobbyHost", None)
+    p2, _ = room_service.create_or_restore_player("LobbyGuest", None)
+    room, _ = room_service.create_room(p1, "SOLO", 2)
+    room_service.join_room(p2, room.join_code)
+
+    old = Match(room_id=room.id, winner="A", result_summary="Old match result")
+    repo.save_match(old)
+    room.status = RoomStatus.MATCH_COMPLETE
+    repo.save_room(room)
+
+    # The result page still needs the finished match.
+    snap = room_service.get_room_snapshot(room.id, p1.id)
+    assert snap["match"] is not None
+    assert snap["match"]["id"] == old.id
+
+    room_service.reset_room_for_rematch(room, p1)
+    snap = room_service.get_room_snapshot(room.id, p1.id)
+    assert snap["match"] is None
+    assert snap["recent_deliveries"] == []
+
+
 def test_sqlite_unique_delivery_constraint():
     """Verify the database schema enforces uniqueness on (match_id, innings, over_index, ball_index)."""
     with sqlite_repo._get_connection() as conn:

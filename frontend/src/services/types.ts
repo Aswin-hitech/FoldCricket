@@ -62,6 +62,8 @@ export interface MatchInfo {
   phase: 'FIRST' | 'SECOND' | 'SUPER_OVER_FIRST' | 'SUPER_OVER_SECOND'
   overs: number
   wickets?: number
+  team_a_wicket_limit?: number
+  team_b_wicket_limit?: number
   team_a_runs: number
   team_a_wickets: number
   team_b_runs: number
@@ -120,6 +122,16 @@ export interface DeliveryInfo {
   batter_submitted: boolean
   bowler_submitted: boolean
   my_pick: number | null
+}
+
+/** Ack for `delivery:submit`, correlated to the ball the pick was aimed at. */
+export interface DeliveryAck {
+  success: boolean
+  error?: string
+  pick_received?: boolean
+  over?: number | null
+  ball?: number | null
+  phase?: string | null
 }
 
 export interface InningsBreakInfo {

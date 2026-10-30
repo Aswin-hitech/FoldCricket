@@ -108,6 +108,11 @@ class Membership:
     voice_mode: str = "EVERYONE"         # "EVERYONE" | "TEAM_ONLY" | "SELECTED_PLAYERS" | "MUTED"
     allowed_recipients: list[str] = field(default_factory=list)
 
+    @property
+    def is_spectator(self) -> bool:
+        """A member with no team never takes part in the match."""
+        return self.team is None
+
 
 # ---------------------------------------------------------------------------
 # Room

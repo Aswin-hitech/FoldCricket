@@ -34,6 +34,7 @@ export default function LandingPage() {
   const [mode, setMode] = useState<'SOLO' | 'TEAM'>('SOLO')
   const [overs, setOvers] = useState(2)
   const [wickets, setWickets] = useState(1)
+  const [joinAsSpectator, setJoinAsSpectator] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -139,15 +140,26 @@ export default function LandingPage() {
         socket.once('room:joined', (roomData: { success: boolean; room_id?: string; error?: string }) => {
           setLoading(false)
           if (!roomData.success) {
-            setError(roomData.error || 'Failed to join room')
+            if (roomData.error === 'game_in_progress' && !joinAsSpectator) {
+              setError('This match is already live. Tick “Join as spectator” to watch it.')
+            } else if (roomData.error === 'room_full' && !joinAsSpectator) {
+              setError('This room is full. Tick “Join as spectator” to watch instead.')
+            } else {
+              setError(roomData.error || 'Failed to join room')
+            }
             return
           }
           navigate(`/room/${roomData.room_id}`)
         })
-        logClientSession('join_room', { join_code: code, display_name: name })
+        logClientSession('join_room', {
+          join_code: code,
+          display_name: name,
+          as_spectator: joinAsSpectator,
+        })
         socket.emit('room:join', {
           join_code: code,
           session_token: data.session_token,
+          as_spectator: joinAsSpectator,
           ...(accountToken ? { account_token: accountToken } : {}),
         })
       }
@@ -216,7 +228,10 @@ export default function LandingPage() {
           {invitedCode && (
             <div className={styles.invitedBanner}>
               <span>🔗</span>
-              <span>Invited to join room <strong>{invitedCode.toUpperCase()}</strong>! Enter your name below to play.</span>
+              <span>
+                Invited to room <strong>{invitedCode.toUpperCase()}</strong>! Enter your name to play,
+                or tick “Join as spectator” to watch and chat.
+              </span>
             </div>
           )}
           <div className={styles.tabs}>
@@ -352,19 +367,33 @@ export default function LandingPage() {
                 </div>
               </>
             ) : (
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor="joinCode">Room Code</label>
-                <input
-                  id="joinCode"
-                  className={`input ${styles.codeInput}`}
-                  type="text"
-                  placeholder="ABC123"
-                  value={joinCode}
-                  onChange={e => setJoinCode(e.target.value.toUpperCase())}
-                  maxLength={6}
-                  autoComplete="off"
-                />
-              </div>
+              <>
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="joinCode">Room Code</label>
+                  <input
+                    id="joinCode"
+                    className={`input ${styles.codeInput}`}
+                    type="text"
+                    placeholder="ABC123"
+                    value={joinCode}
+                    onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                    maxLength={6}
+                    autoComplete="off"
+                  />
+                </div>
+                <label className={styles.spectatorToggle} htmlFor="joinAsSpectator">
+                  <input
+                    id="joinAsSpectator"
+                    type="checkbox"
+                    checked={joinAsSpectator}
+                    onChange={e => setJoinAsSpectator(e.target.checked)}
+                  />
+                  <span>
+                    <strong>👀 Join as spectator</strong>
+                    <small>Watch the match and chat with everyone. You can join at any time.</small>
+                  </span>
+                </label>
+              </>
             )}
 
             {error && <p className={styles.error}>{error}</p>}
@@ -379,6 +408,8 @@ export default function LandingPage() {
                 <span className={styles.spinner} />
               ) : tab === 'create' ? (
                 '🚀 Create Room'
+              ) : joinAsSpectator ? (
+                '👀 Watch as Spectator'
               ) : (
                 '🎯 Join Room'
               )}

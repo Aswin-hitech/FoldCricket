@@ -68,6 +68,7 @@ export default function ResultPage() {
   const members = snapshot?.members ?? []
   const myMembership = members.find(m => m.player.id === myPlayerId)
   const myTeam = myMembership?.team
+  const isSpectator = Boolean(myMembership?.is_spectator)
 
   const teamATotal = match?.team_a_runs ?? 0
   const teamBTotal = match?.team_b_runs ?? 0
@@ -124,7 +125,7 @@ export default function ResultPage() {
       <div className={styles.content}>
         {/* Outcome Trophy / Emoji */}
         <div className={styles.trophy}>
-          {isWin ? '🏆' : isLoss ? '🏏' : isTie ? '🤝' : '🏆'}
+          {isSpectator ? '👀' : isWin ? '🏆' : isLoss ? '🏏' : isTie ? '🤝' : '🏆'}
         </div>
 
         {/* 1. Mention the Match Score First */}
@@ -159,7 +160,9 @@ export default function ResultPage() {
 
         {/* Outcome Badge */}
         <div className={styles.outcomeBadge} data-type={outcomeType}>
-          {isWin
+          {isSpectator
+            ? '👀 THANKS FOR WATCHING'
+            : isWin
             ? '🎉 VICTORY'
             : isLoss
             ? '💔 MATCH OVER'
@@ -204,9 +207,13 @@ export default function ResultPage() {
         {/* Thank You Section */}
         <div className={styles.thankYouCard}>
           <div className={styles.thankYouEmoji}>🏏✨</div>
-          <h2 className={styles.thankYouTitle}>Thank You for Playing FoldCricket!</h2>
+          <h2 className={styles.thankYouTitle}>
+            {isSpectator ? 'Thanks for Watching FoldCricket!' : 'Thank You for Playing FoldCricket!'}
+          </h2>
           <p className={styles.thankYouText}>
-            Thank you for picking your vintage school memories with us today. Whether it was a thrilling boundary or a nail-biting wicket, we hope you enjoyed every delivery!
+            {isSpectator
+              ? 'Thanks for cheering from the stands! Grab a room code any time to jump in as a player — or settle into the spectator stand again.'
+              : 'Thank you for picking your vintage school memories with us today. Whether it was a thrilling boundary or a nail-biting wicket, we hope you enjoyed every delivery!'}
           </p>
         </div>
 
@@ -220,16 +227,18 @@ export default function ResultPage() {
           <button className="btn btn-primary" onClick={() => navigate('/')}>
             🏠 Return to Landing Page Now ({countdown}s)
           </button>
-          <button
-            className="btn btn-secondary"
-            onClick={() => {
-              sound.playClick()
-              if (roomId) rematchRoom(roomId)
-              navigate(`/room/${roomId}`)
-            }}
-          >
-            🔄 Rematch in Lobby
-          </button>
+          {!isSpectator && (
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                sound.playClick()
+                if (roomId) rematchRoom(roomId)
+                navigate(`/room/${roomId}`)
+              }}
+            >
+              🔄 Rematch in Lobby
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-secondary"

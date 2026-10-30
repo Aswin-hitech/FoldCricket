@@ -140,7 +140,9 @@ def create_room(host: Player, mode: str, overs: int, wickets: Optional[int] = No
     return room, membership
 
 
-def join_room(player: Player, join_code: str) -> tuple[Room, Membership]:
+def join_room(
+    player: Player, join_code: str, as_spectator: bool = False
+) -> tuple[Room, Membership]:
     room = repo.get_room_by_code(join_code)
     if not room:
         raise ValueError("room_not_found")
@@ -153,6 +155,21 @@ def join_room(player: Player, join_code: str) -> tuple[Room, Membership]:
     if room.status == RoomStatus.MATCH_COMPLETE:
         raise ValueError("room_closed")
 
+    if len(members) >= room.capacity:
+        raise ValueError("room_full")
+
+    if as_spectator:
+        # Spectators may join at any stage, including mid-innings. They never
+        # gate readiness, the toss, quorum or forfeits: team=None says so.
+        membership = Membership(
+            room_id=room.id,
+            player_id=player.id,
+            team=None,
+            role=PlayerRole.SPECTATOR,
+        )
+        repo.save_membership(membership)
+        return room, membership
+
     if room.status in (
         RoomStatus.TOSS,
         RoomStatus.AWAITING_FIRST_BALL,
@@ -161,9 +178,6 @@ def join_room(player: Player, join_code: str) -> tuple[Room, Membership]:
         RoomStatus.PAUSED,
     ):
         raise ValueError("game_in_progress")
-
-    if len(members) >= room.capacity:
-        raise ValueError("room_full")
 
     # Assign to team B by default if host is on A
     team = "B" if any(m.team == "A" for m in members) else "A"
@@ -180,9 +194,10 @@ def join_room(player: Player, join_code: str) -> tuple[Room, Membership]:
         room.team_b_name = f"{guest_name}'s Team"
         repo.save_room(room)
 
-    # If we now have 2+ players, move to LOBBY_READY
+    # If we now have 2+ players, move to LOBBY_READY. Spectators never count.
     all_members = repo.get_room_members(room.id)
-    if len(all_members) >= 2 and room.status == RoomStatus.WAITING_FOR_PLAYERS:
+    player_count = sum(1 for m in all_members if not m.is_spectator)
+    if player_count >= 2 and room.status == RoomStatus.WAITING_FOR_PLAYERS:
         room.status = RoomStatus.LOBBY_READY
         repo.save_room(room)
 
@@ -219,11 +234,16 @@ def _reconcile_lobby_after_departure(room: Room, departed: Membership) -> Option
         repo.delete_room(room.id)
         return None
 
+    players = [m for m in members if not m.is_spectator]
+
     if departed.is_host or not any(m.is_host for m in members):
-        new_host = members[0]
+        # Hosting only makes sense for someone who can actually start a match.
+        new_host = players[0] if players else members[0]
         new_host.is_host = True
         room.host_id = new_host.player_id
-        if not any(m.is_captain and m.team == new_host.team for m in members):
+        if new_host.team and not any(
+            m.is_captain and m.team == new_host.team for m in members
+        ):
             new_host.is_captain = True
         repo.save_membership(new_host)
 
@@ -233,7 +253,7 @@ def _reconcile_lobby_after_departure(room: Room, departed: Membership) -> Option
             teammates[0].is_captain = True
             repo.save_membership(teammates[0])
 
-    if len(members) < 2:
+    if len(players) < 2:
         room.status = RoomStatus.WAITING_FOR_PLAYERS
     elif room.status == RoomStatus.WAITING_FOR_PLAYERS:
         room.status = RoomStatus.LOBBY_READY
@@ -250,14 +270,26 @@ _LOBBY_STATUSES = (
 
 
 def leave_lobby(room: Room, player: Player) -> Optional[Room]:
-    """A player voluntarily exits a lobby. Returns None if the room is now empty."""
+    """
+    A member voluntarily exits. Players only leave from the lobby; spectators
+    may stop watching at any time and never disturb the live match.
+    Returns None if the room is now empty.
+    """
     with _match_lock:
         room = repo.get_room(room.id) or room
-        if room.status not in _LOBBY_STATUSES:
-            raise ValueError("cannot_leave_now")
         mem = repo.get_membership(room.id, player.id)
         if not mem:
             raise ValueError("not_in_room")
+
+        if mem.is_spectator:
+            repo.remove_membership(room.id, player.id)
+            cleanup_player_voice(room.id, player.id)
+            if room.status in _LOBBY_STATUSES:
+                return _reconcile_lobby_after_departure(room, mem)
+            return room
+
+        if room.status not in _LOBBY_STATUSES:
+            raise ValueError("cannot_leave_now")
 
         repo.remove_membership(room.id, player.id)
         cleanup_player_voice(room.id, player.id)
@@ -302,9 +334,9 @@ def ack_rules(room: Room, player: Player) -> None:
         raise ValueError("not_in_room")
     mem.rules_acked_version = room.rules_version
     repo.save_membership(mem)
-    # Check if all members have acked
-    members = repo.get_room_members(room.id)
-    if all(m.rules_acked_version == room.rules_version for m in members):
+    # Only players gate the rulebook; spectators are just watching.
+    members = [m for m in repo.get_room_members(room.id) if not m.is_spectator]
+    if members and all(m.rules_acked_version == room.rules_version for m in members):
         if room.status == RoomStatus.RULEBOOK_REQUIRED:
             room.status = RoomStatus.LOBBY_READY
             repo.save_room(room)
@@ -314,6 +346,8 @@ def set_ready(room: Room, player: Player, ready: bool) -> Membership:
     mem = repo.get_membership(room.id, player.id)
     if not mem:
         raise ValueError("not_in_room")
+    if mem.is_spectator:
+        raise ValueError("spectator_not_playing")
     mem.readiness = ReadinessState.READY if ready else ReadinessState.NOT_READY
     repo.save_membership(mem)
     return mem
@@ -325,17 +359,22 @@ def reset_room_for_rematch(room: Room, player: Player) -> Room:
         room = repo.get_room(room.id) or room
         if room.status != RoomStatus.MATCH_COMPLETE:
             raise ValueError("match_not_complete")
-        if not repo.get_membership(room.id, player.id):
+        starter = repo.get_membership(room.id, player.id)
+        if not starter:
             raise PermissionError("not_in_room")
+        if starter.is_spectator:
+            raise PermissionError("spectator_cannot_rematch")
 
         members = repo.get_room_members(room.id)
+        players = [m for m in members if not m.is_spectator]
         room.toss = None
         room.status = (
-            RoomStatus.LOBBY_READY if len(members) >= 2 else RoomStatus.WAITING_FOR_PLAYERS
+            RoomStatus.LOBBY_READY if len(players) >= 2 else RoomStatus.WAITING_FOR_PLAYERS
         )
         repo.save_room(room)
 
-        # Everyone must re-confirm readiness for the new match.
+        # Everyone must re-confirm readiness for the new match; spectators stay
+        # spectators and are never asked to ready up.
         for m in members:
             m.readiness = ReadinessState.NOT_READY
             m.role = PlayerRole.SPECTATOR
@@ -407,7 +446,9 @@ def call_toss(room: Room, player: Player, choice: str) -> dict:
         coin_result = secrets.choice(["HEADS", "TAILS"])
         members = repo.get_room_members(room.id)
         caller_mem = repo.get_membership(room.id, player.id)
-        other_mems = [m for m in members if m.team != caller_mem.team]
+        other_mems = [
+            m for m in members if not m.is_spectator and m.team != caller_mem.team
+        ]
         if not other_mems:
             raise ValueError("opponent_not_found")
         other_captain = next((m for m in other_mems if m.is_captain), other_mems[0])
@@ -535,6 +576,8 @@ def confirm_first_ball_ready(room: Room, player: Player) -> tuple[Room, Optional
         mem = repo.get_membership(room.id, player.id)
         if not mem:
             raise PermissionError("not_in_room")
+        if mem.is_spectator:
+            raise ValueError("spectator_not_playing")
 
         current = repo.get_player(player.id) or player
         if current.connection_state != ConnectionState.CONNECTED:
@@ -547,9 +590,9 @@ def confirm_first_ball_ready(room: Room, player: Player) -> tuple[Room, Optional
         if not match:
             raise ValueError("no_active_match")
 
-        members = repo.get_room_members(room.id)
-        everyone_connected = True
-        everyone_ready = True
+        members = [m for m in repo.get_room_members(room.id) if not m.is_spectator]
+        everyone_connected = bool(members)
+        everyone_ready = bool(members)
         for m in members:
             member_player = repo.get_player(m.player_id)
             if not member_player or member_player.connection_state != ConnectionState.CONNECTED:
@@ -1125,6 +1168,7 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
                 "is_host": m.is_host,
                 "role": m.role.value,
                 "readiness": m.readiness.value,
+                "is_spectator": m.is_spectator,
                 "voice_mode": getattr(m, "voice_mode", "EVERYONE"),
                 "allowed_recipients": getattr(m, "allowed_recipients", []),
             }
@@ -1209,7 +1253,7 @@ def request_cross_team_voice(room_id: str | Any, sender: Player, target_id: str)
     if not sender_mem or not target_mem or not target_player:
         raise ValueError("player_not_in_room")
 
-    if sender_mem.team == target_mem.team:
+    if sender_mem.team is not None and sender_mem.team == target_mem.team:
         raise ValueError("already_teammate")
 
     # Record pending request

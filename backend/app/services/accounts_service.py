@@ -627,7 +627,9 @@ def record_match_stats(room, match) -> int:
                 (
                     players[m.player_id].display_name
                     for m in members
-                    if m.player_id != player.id and players.get(m.player_id)
+                    if m.player_id != player.id
+                    and m.team in ("A", "B")
+                    and players.get(m.player_id)
                 ),
                 "Opponent",
             )

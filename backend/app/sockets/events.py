@@ -332,9 +332,16 @@ def _handle_player_reconnected(room_id: str, player_id: str) -> None:
     if not room:
         return
 
+    mem = repo.get_membership(room_id, player_id)
+    if mem and mem.is_spectator:
+        # A returning spectator never resumes, pauses or gates the match; just
+        # let the room see them connected again.
+        _broadcast_snapshot(room_id)
+        return
+
     if room.status == RoomStatus.PAUSED:
-        members = repo.get_room_members(room_id)
-        all_connected = all(
+        members = [m for m in repo.get_room_members(room_id) if not m.is_spectator]
+        all_connected = bool(members) and all(
             (repo.get_player(m.player_id) and repo.get_player(m.player_id).connection_state == ConnectionState.CONNECTED)
             for m in members
         )
@@ -402,6 +409,14 @@ def on_disconnect():
     # Notify rooms, pause active gameplay, and start grace timers
     for mem in _all_memberships_for_player(player.id):
         room = repo.get_room(mem.room_id)
+        if not room:
+            continue
+        # A spectator dropping out is not a reason to pause or forfeit anything.
+        if mem.is_spectator:
+            room_service.cleanup_player_voice(mem.room_id, player.id)
+            _notify_video_call_peers(mem.room_id, player.id)
+            _broadcast_snapshot(mem.room_id)
+            continue
         # The toss has no running clock: pausing it would turn the room into
         # PAUSED and the reconnect path would then resume it straight into
         # INNINGS_ACTIVE before the match has even started.
@@ -484,7 +499,7 @@ def _start_grace_timer(player_id: str, room_id: str) -> None:
                 match = repo.get_match_by_room(room_id)
                 if match:
                     mem = repo.get_membership(room_id, player_id)
-                    if mem:
+                    if mem and not mem.is_spectator:
                         winning_team = "B" if mem.team == "A" else "A"
                         match.winner = winning_team
                         winning_name = getattr(match, "team_b_name", "Team B") if winning_team == "B" else getattr(match, "team_a_name", "Team A")
@@ -618,9 +633,10 @@ def on_room_join(data):
         return emit("room:joined", _err("not_authenticated"))
 
     join_code = ((data or {}).get("join_code") or "").strip().upper()
+    as_spectator = bool((data or {}).get("as_spectator", False))
 
     try:
-        room, membership = room_service.join_room(player, join_code)
+        room, membership = room_service.join_room(player, join_code, as_spectator=as_spectator)
     except ValueError as e:
         return emit("room:joined", _err(str(e)))
 
@@ -629,6 +645,7 @@ def on_room_join(data):
         "room_id": room.id,
         "join_code": room.join_code,
         "rules_text": RULES_TEXT,
+        "is_spectator": membership.is_spectator,
     }))
     _broadcast_snapshot(room.id)
 
@@ -702,6 +719,9 @@ def on_lobby_leave(data):
     if not room:
         return emit("lobby:left", _ok())
 
+    mem = repo.get_membership(room_id, player.id)
+    was_spectator = bool(mem and mem.is_spectator)
+
     try:
         room = room_service.leave_lobby(room, player)
     except (ValueError, PermissionError) as e:
@@ -716,7 +736,11 @@ def on_lobby_leave(data):
                 "id": str(uuid.uuid4()),
                 "sender_id": "system",
                 "sender_name": "FoldCricket Umpire",
-                "text": f"👋 {player.display_name} left the lobby.",
+                "text": (
+                    f"👋 {player.display_name} stopped watching."
+                    if was_spectator
+                    else f"👋 {player.display_name} left the lobby."
+                ),
                 "timestamp": datetime.utcnow().isoformat() + "Z",
             },
             room=room_id,
@@ -1535,6 +1559,10 @@ def on_match_pause(data):
     if room.status not in (RoomStatus.INNINGS_ACTIVE, RoomStatus.TOSS):
         return emit("match:pause_ack", _err("cannot_pause_current_state"))
 
+    mem = repo.get_membership(room_id, player.id)
+    if not mem or mem.is_spectator:
+        return emit("match:pause_ack", _err("only_players_can_pause"))
+
     room.status = RoomStatus.PAUSED
     repo.save_room(room)
     _cancel_delivery_timer(room_id)
@@ -1568,12 +1596,16 @@ def on_match_resume(data):
     if room.status != RoomStatus.PAUSED:
         return emit("match:resume_ack", _err("match_not_paused"))
 
-    if not repo.get_membership(room_id, player.id):
+    mem = repo.get_membership(room_id, player.id)
+    if not mem:
         return emit("match:resume_ack", _err("not_in_room"))
+    if mem.is_spectator:
+        return emit("match:resume_ack", _err("only_players_can_resume"))
 
     # A pause caused by a disconnect must wait for that player: resuming early
     # would run their deliveries on a timeout while they are still offline.
-    members = repo.get_room_members(room_id)
+    # Spectators are never a reason for the match to be paused.
+    members = [m for m in repo.get_room_members(room_id) if not m.is_spectator]
     for m in members:
         member_player = repo.get_player(m.player_id)
         if not member_player or member_player.connection_state != ConnectionState.CONNECTED:

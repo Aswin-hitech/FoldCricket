@@ -14,6 +14,8 @@ export interface MemberInfo {
   is_captain: boolean
   is_host: boolean
   role: 'BATTER' | 'BOWLER' | 'SPECTATOR'
+  /** True for watchers who joined without a team and never take part in play. */
+  is_spectator?: boolean
   readiness: 'READY' | 'NOT_READY' | 'DISCONNECTED' | 'WAITING_FOR_BOWLER'
   voice_mode?: 'EVERYONE' | 'TEAM_ONLY' | 'SELECTED_PLAYERS' | 'MUTED'
   allowed_recipients?: string[]

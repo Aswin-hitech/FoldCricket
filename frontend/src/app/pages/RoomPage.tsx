@@ -119,6 +119,7 @@ export default function RoomPage() {
   const members: MemberInfo[] = snapshot?.members ?? []
   const myMembership = members.find(m => m.player.id === myPlayerId)
   const isHost = myMembership?.is_host ?? false
+  const isSpectator = Boolean(myMembership?.is_spectator)
   const inLobby = Boolean(
     room && ['WAITING_FOR_PLAYERS', 'LOBBY_READY', 'RULEBOOK_REQUIRED'].includes(room.status)
   )
@@ -132,8 +133,9 @@ export default function RoomPage() {
   }
 
   // Wait for a real lobby, then let players settle before the spotlight opens.
+  // Spectators are not playing, so the mic tour never applies to them.
   useEffect(() => {
-    if (!roomId || !myPlayerId) return
+    if (!roomId || !myPlayerId || isSpectator) return
     const mode = room?.mode
     if (mode !== 'TEAM' && mode !== 'SOLO') return
     if (room?.status !== 'LOBBY_READY' || voiceTourClaimedRef.current) return
@@ -141,7 +143,7 @@ export default function RoomPage() {
     if (!claimVoiceTour(myPlayerId, mode, roomId)) return
     const timer = setTimeout(() => setVoiceTourOpen(true), 1200)
     return () => clearTimeout(timer)
-  }, [roomId, myPlayerId, room?.mode, room?.status])
+  }, [roomId, myPlayerId, room?.mode, room?.status, isSpectator])
 
   // The tour belongs to the lobby; never let it follow the room into the match.
   useEffect(() => {
@@ -330,10 +332,14 @@ export default function RoomPage() {
     )
   }
 
-  const teamA = members.filter(m => m.team === 'A')
-  const teamB = members.filter(m => m.team === 'B')
-  const unassigned = members.filter(m => !m.team)
-  const allReady = members.length >= 2 && members.every(m => m.readiness === 'READY')
+  // Spectators never hold a team slot, count towards readiness, or gate the
+  // start of the match.
+  const players = members.filter(m => !m.is_spectator)
+  const spectators = members.filter(m => m.is_spectator)
+  const teamA = players.filter(m => m.team === 'A')
+  const teamB = players.filter(m => m.team === 'B')
+  const unassigned = players.filter(m => !m.team)
+  const allReady = players.length >= 2 && players.every(m => m.readiness === 'READY')
 
   // Dynamic default team naming: <Player Name>'s Team
   const defaultTeamAName = teamA[0]?.player.display_name ? `${teamA[0].player.display_name}'s Team` : 'Team A'
@@ -366,6 +372,11 @@ export default function RoomPage() {
           {room && (
             <span className={styles.statusBadge} data-status={room.status}>
               {room.status === 'LOBBY_READY' ? 'Lobby Ready' : room.status.replace(/_/g, ' ')}
+            </span>
+          )}
+          {isSpectator && (
+            <span className={styles.statusBadge} data-status="SPECTATOR">
+              👀 Spectator
             </span>
           )}
         </div>
@@ -686,22 +697,83 @@ export default function RoomPage() {
                 </div>
               </div>
             )}
+
+            {/* Spectator Gallery */}
+            {spectators.length > 0 && (
+              <div className={styles.unassigned}>
+                <p className={styles.unassignedLabel}>👀 Spectators ({spectators.length})</p>
+                <div className={styles.unassignedList}>
+                  {spectators.map(m => (
+                    <div key={m.player.id} className={styles.unassignedPlayer}>
+                      <span className={styles.playerName}>
+                        {m.player.display_name}{m.player.id === myPlayerId ? ' (You)' : ''}
+                      </span>
+                      {isHost && (
+                        <div className={styles.assignBtns}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                            onClick={() => handleAssignTeam(m.player.id, 'A')}
+                            title="Move this spectator into a team"
+                          >
+                            → {displayTeamAName}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                            onClick={() => handleAssignTeam(m.player.id, 'B')}
+                            title="Move this spectator into a team"
+                          >
+                            → {displayTeamBName}
+                          </button>
+                        </div>
+                      )}
+                      {canRemoveMember(m) && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '0.78rem',
+                            borderColor: 'rgba(239, 68, 68, 0.5)',
+                            color: '#ef4444',
+                          }}
+                          onClick={() => setRemoveTarget(m)}
+                          title="Remove this spectator from the room"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Lower Action Row: Ready Toggle and Start Match Button */}
           <div className={styles.actionsBar}>
-            <div className={styles.readyControl}>
-              <button
-                type="button"
-                className={`${styles.readyBtn} ${myMembership?.readiness === 'READY' ? styles.readyBtnActive : ''}`}
-                onClick={handleReadyToggle}
-              >
-                {myMembership?.readiness === 'READY' ? '✅ You are Ready' : '🟢 Click to Get Ready'}
-              </button>
-              <span className={styles.readyHint}>
-                {myMembership?.readiness === 'READY' ? 'Waiting for host to start the toss' : 'Mark yourself ready to begin'}
-              </span>
-            </div>
+            {isSpectator ? (
+              <div className={styles.spectatorNotice}>
+                <span>👀 You are watching as a spectator</span>
+                <small>You can chat with everyone. The host can move you into a team if a slot opens.</small>
+              </div>
+            ) : (
+              <div className={styles.readyControl}>
+                <button
+                  type="button"
+                  className={`${styles.readyBtn} ${myMembership?.readiness === 'READY' ? styles.readyBtnActive : ''}`}
+                  onClick={handleReadyToggle}
+                >
+                  {myMembership?.readiness === 'READY' ? '✅ You are Ready' : '🟢 Click to Get Ready'}
+                </button>
+                <span className={styles.readyHint}>
+                  {myMembership?.readiness === 'READY' ? 'Waiting for host to start the toss' : 'Mark yourself ready to begin'}
+                </span>
+              </div>
+            )}
 
             {isHost && (
               <button
@@ -717,7 +789,7 @@ export default function RoomPage() {
             )}
           </div>
 
-          {members.length < 2 && (
+          {players.length < 2 && (
             <div className={styles.waitingBanner}>
               <span className={styles.pulseDot} />
               <span>Invite an opponent or share the room link above to start playing!</span>
@@ -802,10 +874,13 @@ export default function RoomPage() {
       {showExitConfirm && (
         <div className={styles.modalOverlay} role="dialog" aria-modal aria-label="Exit lobby">
           <div className={styles.modal}>
-            <h2 className={styles.modalTitle}>🚪 Exit Lobby?</h2>
+            <h2 className={styles.modalTitle}>
+              {isSpectator ? '👀 Stop Watching?' : '🚪 Exit Lobby?'}
+            </h2>
             <p className={styles.modalText}>
-              You will leave this room. The remaining players stay in the lobby, and you can
-              rejoin later with the room code.
+              {isSpectator
+                ? 'You will leave the spectator stand. The players stay in the lobby, and you can rejoin at any time with the room code.'
+                : 'You will leave this room. The remaining players stay in the lobby, and you can rejoin later with the room code.'}
             </p>
             {exitError && <p className={styles.modalError}>{exitError}</p>}
             <div className={styles.modalActions}>
@@ -826,7 +901,7 @@ export default function RoomPage() {
                 style={{ flex: 1, padding: '12px', fontWeight: 700 }}
                 onClick={handleLeaveLobby}
               >
-                Exit Lobby
+                {isSpectator ? 'Stop Watching' : 'Exit Lobby'}
               </button>
             </div>
           </div>

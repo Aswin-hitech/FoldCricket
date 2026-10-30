@@ -84,7 +84,7 @@ interface UseSocketReturn {
 
   register: (displayName: string, sessionToken?: string) => void
   createRoom: (mode: string, overs: number) => void
-  joinRoom: (joinCode: string) => void
+  joinRoom: (joinCode: string, asSpectator?: boolean) => void
   syncRoom: (roomId: string) => void
   reconnect: () => void
   startMatch: (roomId: string) => void
@@ -585,11 +585,12 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     socketRef.current.emit('room:create', { mode, overs, session_token: token, ...accountField() })
   }, [sessionToken])
 
-  const joinRoom = useCallback((joinCode: string) => {
+  const joinRoom = useCallback((joinCode: string, asSpectator = false) => {
     const token = sessionToken || localStorage.getItem('hcl_session') || ''
     socketRef.current.emit('room:join', {
       join_code: joinCode,
       session_token: token,
+      as_spectator: asSpectator,
       ...accountField(),
     })
   }, [sessionToken])

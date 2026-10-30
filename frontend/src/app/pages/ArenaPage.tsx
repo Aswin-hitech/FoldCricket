@@ -89,6 +89,7 @@ export default function ArenaPage() {
     firstBallAck,
     deliveryAck,
     serverNow,
+    leaveLobby,
   } = useSocket(sessionToken)
 
   const videoNetwork = useNetworkQuality(pingLatency)
@@ -149,6 +150,11 @@ export default function ArenaPage() {
   const members: MemberInfo[] = snapshot?.members ?? []
   const recentDeliveries: ResolvedDelivery[] = snapshot?.recent_deliveries ?? []
   const myMembership = members.find(m => m.player.id === myPlayerId)
+  // Spectators joined without a team: they watch, react in chat and never take
+  // part in the delivery flow.
+  const isSpectator = Boolean(myMembership?.is_spectator)
+  const players = members.filter(m => !m.is_spectator)
+  const spectatorCount = members.filter(m => m.is_spectator).length
   const isActiveBatter = match?.active_batter_id === myPlayerId
   const isActiveBowler = match?.active_bowler_id === myPlayerId
   const isActivePlayer = isActiveBatter || isActiveBowler
@@ -161,9 +167,11 @@ export default function ArenaPage() {
   // explicitly confirms they are ready for the first ball.
   const awaitingFirstBall = snapshot?.room?.status === 'AWAITING_FIRST_BALL'
   const myFirstBallReady = myMembership?.readiness === 'READY'
-  const connectedMembers = members.filter(m => m.player.connection_state === 'CONNECTED')
-  const allConnected = members.length > 0 && connectedMembers.length === members.length
-  const readyCount = members.filter(m => m.readiness === 'READY').length
+  // Only players gate the match: a spectator who is offline or not ready must
+  // never hold the first ball, the resume button or the quorum hostage.
+  const connectedPlayers = players.filter(m => m.player.connection_state === 'CONNECTED')
+  const allConnected = players.length > 0 && connectedPlayers.length === players.length
+  const readyCount = players.filter(m => m.readiness === 'READY').length
 
   const bowlingTeam = match?.batting_team === 'A' ? 'B' : 'A'
   const bowlingMembers = members.filter(m => m.team === bowlingTeam)
@@ -322,8 +330,10 @@ export default function ArenaPage() {
     return () => clearTimeout(timer)
   }, [superOverAnnouncement])
 
-  // "Are you sure you want to quit?" warning on browser navigation / tab close
+  // "Are you sure you want to quit?" warning on browser navigation / tab close.
+  // A spectator leaving loses nothing, so the warning is skipped for them.
   useEffect(() => {
+    if (isSpectator) return
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (match && !match.winner) {
         e.preventDefault()
@@ -333,7 +343,7 @@ export default function ArenaPage() {
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [match])
+  }, [match, isSpectator])
 
   // Sync room on mount
   useEffect(() => {
@@ -890,7 +900,9 @@ export default function ArenaPage() {
             <span className={styles.liveBadge}>LIVE</span>
           </div>
           <span className={styles.matchSubtitle}>
-            {isActiveBatter
+            {isSpectator
+              ? `👀 Spectating${spectatorCount > 1 ? ` · ${spectatorCount} watching` : ''}`
+              : isActiveBatter
               ? '🏏 You are Batting'
               : isActiveBowler
               ? '🎯 You are Bowling'
@@ -960,15 +972,17 @@ export default function ArenaPage() {
               {isMuted ? '🔇 Sound Off' : '🔊 Sound On'}
             </button>
 
-            {/* Pause / Resume match */}
-            <button
-              type="button"
-              className={styles.navBtn}
-              onClick={() => roomId && (isPaused ? resumeMatch(roomId) : pauseMatch(roomId))}
-              title={isPaused ? 'Resume Match' : 'Pause Match'}
-            >
-              {isPaused ? '▶️ Resume' : '⏸️ Pause'}
-            </button>
+            {/* Pause / Resume match (players only) */}
+            {!isSpectator && (
+              <button
+                type="button"
+                className={styles.navBtn}
+                onClick={() => roomId && (isPaused ? resumeMatch(roomId) : pauseMatch(roomId))}
+                title={isPaused ? 'Resume Match' : 'Pause Match'}
+              >
+                {isPaused ? '▶️ Resume' : '⏸️ Pause'}
+              </button>
+            )}
 
             {/* Chat Drawer Toggle with unread counter */}
             <button
@@ -991,9 +1005,9 @@ export default function ArenaPage() {
               type="button"
               className={`${styles.navBtn} ${styles.quitBtn}`}
               onClick={() => setShowQuitModal(true)}
-              title="Quit Match"
+              title={isSpectator ? 'Stop Watching' : 'Quit Match'}
             >
-              🚪 Quit
+              🚪 {isSpectator ? 'Leave' : 'Quit'}
             </button>
           </div>
 
@@ -1016,7 +1030,7 @@ export default function ArenaPage() {
       {/* ============================================================
           B. Entry Toast Pop-Up: "Click mic to speak with the team"
           ============================================================ */}
-      {showMicPrompt && (
+      {showMicPrompt && !isSpectator && (
         <div className={styles.micPromptBanner} role="alert">
           <span className={styles.micPromptIcon}>🎙️</span>
           <div className={styles.micPromptText}>
@@ -1351,11 +1365,13 @@ export default function ArenaPage() {
             {/* Dynamic Real-time Gameplay Role Banner */}
             <div className={`${styles.roleStatusBanner} ${isActiveBatter || myMembership?.team === match.batting_team ? styles.roleBatting : styles.roleBowling}`}>
               <span className={styles.roleIcon}>
-                {isActiveBatter || myMembership?.team === match.batting_team ? '🏏' : '🎯'}
+                {isSpectator ? '👀' : isActiveBatter || myMembership?.team === match.batting_team ? '🏏' : '🎯'}
               </span>
               <div className={styles.roleTextGroup}>
                 <span className={styles.roleMainText}>
-                  {isActiveBatter
+                  {isSpectator
+                    ? 'YOU ARE SPECTATING'
+                    : isActiveBatter
                     ? 'YOU ARE BATTING'
                     : isActiveBowler
                     ? 'YOU ARE BOWLING'
@@ -1364,7 +1380,9 @@ export default function ArenaPage() {
                     : 'YOUR TEAM IS BOWLING'}
                 </span>
                 <span className={styles.roleSubText}>
-                  {isActiveBatter
+                  {isSpectator
+                    ? `${activeBatter?.player.display_name || 'The batter'} vs ${activeBowler?.player.display_name || 'the bowler'} — cheer them on in chat!`
+                    : isActiveBatter
                     ? 'Choose your shot (1 to 6) to score runs. If bowler matches your pick, you are OUT!'
                     : isActiveBowler
                     ? 'Choose your delivery (1 to 6). Match the batter’s pick to take a WICKET!'
@@ -1458,7 +1476,9 @@ export default function ArenaPage() {
                 </>
               ) : (
                 <div className={styles.spectatorDeliveryBanner}>
-                  {needsBatterSelect ? (
+                  {isSpectator ? (
+                    <span>👀 You’re watching as a spectator — cheer in chat!</span>
+                  ) : needsBatterSelect ? (
                     isBattingCaptain ? (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                         <span>🏏 Batter dismissed! You are the batting captain.</span>
@@ -1562,7 +1582,7 @@ export default function ArenaPage() {
       {/* ============================================================
           C2. Arena Entry Gate: "Are you ready for the first ball?"
           ============================================================ */}
-      {awaitingFirstBall && !isPaused && (
+      {awaitingFirstBall && !isPaused && !isSpectator && (
         <div className={styles.pausedOverlay} role="dialog" aria-modal="true" aria-label="Ready for the first ball">
           <div className={styles.pausedCard}>
             <span style={{ fontSize: '3rem' }}>🏏</span>
@@ -1574,7 +1594,7 @@ export default function ArenaPage() {
             </p>
 
             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
-              {members.map(m => {
+              {players.map(m => {
                 const isMe = m.player.id === myPlayerId
                 const isConnected = m.player.connection_state === 'CONNECTED'
                 const isReady = m.readiness === 'READY'
@@ -1620,7 +1640,7 @@ export default function ArenaPage() {
             </button>
 
             <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-              {readyCount} of {members.length} player{members.length !== 1 ? 's' : ''} ready
+              {readyCount} of {players.length} player{players.length !== 1 ? 's' : ''} ready
             </span>
 
             {firstBallAck && !firstBallAck.success && (
@@ -1928,15 +1948,17 @@ export default function ArenaPage() {
               >
                 🔄 Refresh
               </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ flex: 1, opacity: allConnected ? 1 : 0.55 }}
-                disabled={!allConnected}
-                onClick={() => roomId && allConnected && resumeMatch(roomId)}
-              >
-                {allConnected ? '▶️ Resume Match' : '⏳ Waiting for players'}
-              </button>
+              {!isSpectator && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ flex: 1, opacity: allConnected ? 1 : 0.55 }}
+                  disabled={!allConnected}
+                  onClick={() => roomId && allConnected && resumeMatch(roomId)}
+                >
+                  {allConnected ? '▶️ Resume Match' : '⏳ Waiting for players'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1948,10 +1970,14 @@ export default function ArenaPage() {
       {showQuitModal && (
         <div className={styles.quitModalOverlay} role="dialog" aria-modal="true" aria-labelledby="quit-title">
           <div className={styles.quitModalCard}>
-            <div className={styles.quitModalIcon}>⚠️</div>
-            <h3 id="quit-title" className={styles.quitModalTitle}>Are you sure you want to quit?</h3>
+            <div className={styles.quitModalIcon}>{isSpectator ? '👀' : '⚠️'}</div>
+            <h3 id="quit-title" className={styles.quitModalTitle}>
+              {isSpectator ? 'Stop watching this match?' : 'Are you sure you want to quit?'}
+            </h3>
             <p className={styles.quitModalText}>
-              If you leave now, you will forfeit or disconnect from the active live match.
+              {isSpectator
+                ? 'You will leave the spectator stand and can rejoin at any time with the room code.'
+                : 'If you leave now, you will forfeit or disconnect from the active live match.'}
             </p>
             <div className={styles.quitModalActions}>
               <button
@@ -1959,7 +1985,7 @@ export default function ArenaPage() {
                 className="btn btn-secondary"
                 onClick={() => setShowQuitModal(false)}
               >
-                Cancel / Stay
+                {isSpectator ? 'Keep Watching' : 'Cancel / Stay'}
               </button>
               <button
                 type="button"
@@ -1967,10 +1993,11 @@ export default function ArenaPage() {
                 style={{ background: '#ef4444', color: '#fff', fontWeight: 700 }}
                 onClick={() => {
                   setShowQuitModal(false)
+                  if (isSpectator && roomId) leaveLobby(roomId)
                   navigate('/')
                 }}
               >
-                Yes, Quit Game
+                {isSpectator ? 'Yes, Stop Watching' : 'Yes, Quit Game'}
               </button>
             </div>
           </div>
@@ -2068,20 +2095,22 @@ export default function ArenaPage() {
                 <span>{isMuted ? '🔇 Sound Off' : '🔊 Sound On'}</span>
               </button>
 
-              {/* Pause/Resume */}
-              <button
-                type="button"
-                className={styles.mobileMenuItem}
-                onClick={() => {
-                  if (roomId) {
-                    if (isPaused) resumeMatch(roomId)
-                    else pauseMatch(roomId)
-                  }
-                  setIsMobileMenuOpen(false)
-                }}
-              >
-                <span>{isPaused ? '▶️ Resume Match' : '⏸️ Pause Match'}</span>
-              </button>
+              {/* Pause/Resume (players only) */}
+              {!isSpectator && (
+                <button
+                  type="button"
+                  className={styles.mobileMenuItem}
+                  onClick={() => {
+                    if (roomId) {
+                      if (isPaused) resumeMatch(roomId)
+                      else pauseMatch(roomId)
+                    }
+                    setIsMobileMenuOpen(false)
+                  }}
+                >
+                  <span>{isPaused ? '▶️ Resume Match' : '⏸️ Pause Match'}</span>
+                </button>
+              )}
 
               {/* Network Latency & Theme Toggle Row */}
               <div className={styles.mobileMenuBottomRow}>
@@ -2102,7 +2131,7 @@ export default function ArenaPage() {
                   setShowQuitModal(true)
                 }}
               >
-                🚪 Quit Match
+                🚪 {isSpectator ? 'Stop Watching' : 'Quit Match'}
               </button>
             </div>
           </div>

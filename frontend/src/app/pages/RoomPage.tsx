@@ -23,7 +23,6 @@ export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const sessionToken = localStorage.getItem('hcl_session') || undefined
-  const myPlayerId = localStorage.getItem('hcl_player_id') || ''
 
   const {
     status,
@@ -66,6 +65,10 @@ export default function RoomPage() {
     clearLobbyRemoved,
     clearLobbyRemoveAck,
   } = useSocket(sessionToken)
+
+  // Follow the server's identity: it recovers a signed-in player's game
+  // identity even when the browser lost the guest token.
+  const myPlayerId = snapshot?.self_player_id || localStorage.getItem('hcl_player_id') || ''
 
   const videoNetwork = useNetworkQuality(pingLatency)
 

@@ -302,32 +302,81 @@ def on_connect(auth=None):
     # Account rooms must work even before a game identity exists, so a signed-in
     # player who is only browsing social pages still receives DMs and invites.
     _join_user_room(account)
-    if not token:
+    if not token and not account:
         # Allow connection; player must register/restore before acting
         return
 
-    player = repo.get_player_by_session(token)
-    if player:
-        if account and player.user_id != account["id"]:
-            player.user_id = account["id"]
-        repo.update_player_socket(player.id, request.sid)
-        player.connection_state = ConnectionState.CONNECTED
-        repo.save_player(player)
+    player = repo.get_player_by_session(token) if token else None
+    recovered = False
+    if not player and account:
+        # The browser may have lost the guest token (login reset, storage
+        # purge). A signed-in player still owns the game identity sitting in
+        # the live room, so pick it back up instead of starting over.
+        player = _recover_account_player(account)
+        recovered = player is not None
+    if not player:
+        # Allow connection; player must register/restore before acting
+        return
 
-        # Rejoin live rooms only. Completed rooms keep the player's membership
-        # forever; joining them would replay old match events into whatever page
-        # is open and let a stale room unpause itself.
-        for mem in _all_memberships_for_player(player.id):
-            mem_room = repo.get_room(mem.room_id)
-            if not mem_room or mem_room.status == RoomStatus.MATCH_COMPLETE:
-                continue
-            join_room(mem.room_id)
-            _handle_player_reconnected(mem.room_id, player.id)
+    _attach_player_to_socket(player)
+    if recovered:
+        emit(
+            "player:restored",
+            _ok({
+                "player_id": player.id,
+                "display_name": player.display_name,
+                "session_token": player.session_token,
+            }),
+        )
 
 
 def _all_memberships_for_player(player_id: str):
     """Scan all rooms for this player's memberships."""
     return repo.get_memberships_for_player(player_id)
+
+
+def _attach_player_to_socket(player) -> None:
+    """Bind a player to this socket and rejoin every live room it belongs to.
+
+    Every identity entry point (connect, register, restore, room sync) funnels
+    through here, so a signed-in client that re-registers on reconnect rejoins
+    and resumes exactly like a guest that restores.
+    """
+    repo.update_player_socket(player.id, request.sid)
+    player.connection_state = ConnectionState.CONNECTED
+    repo.save_player(player)
+
+    # Rejoin live rooms only. Completed rooms keep the player's membership
+    # forever; joining them would replay old match events into whatever page
+    # is open and let a stale room unpause itself.
+    for mem in _all_memberships_for_player(player.id):
+        mem_room = repo.get_room(mem.room_id)
+        if not mem_room or mem_room.status == RoomStatus.MATCH_COMPLETE:
+            continue
+        join_room(mem.room_id)
+        _handle_player_reconnected(mem.room_id, player.id)
+
+
+def _recover_account_player(account, room_id: str | None = None, allow_takeover: bool = False):
+    """Find the game identity an account already owns.
+
+    Used when the guest token is missing or unknown. An identity that another
+    live socket still owns is left alone unless ``allow_takeover`` is set, so a
+    second tab/device cannot silently steal the player the first one is using.
+    """
+    if not account:
+        return None
+    player = repo.get_player_for_user(account["id"], room_id=room_id)
+    if not player:
+        return None
+    if (
+        not allow_takeover
+        and player.connection_state == ConnectionState.CONNECTED
+        and player.socket_id
+        and player.socket_id != request.sid
+    ):
+        return None
+    return player
 
 
 def _cancel_delivery_timer(room_id: str) -> None:
@@ -560,14 +609,13 @@ def on_register(data):
             display_name,
             session_token,
             user_id=account["id"] if account else None,
+            current_socket_id=request.sid,
         )
     except ValueError as e:
         return emit("player:registered", _err(str(e)))
 
     _join_user_room(account)
-    repo.update_player_socket(player.id, request.sid)
-    player.connection_state = ConnectionState.CONNECTED
-    repo.save_player(player)
+    _attach_player_to_socket(player)
 
     headers = {k.lower(): v for k, v in request.headers.items()}
     client_ip = get_client_ip(headers, request.remote_addr)
@@ -589,22 +637,18 @@ def on_register(data):
 @socketio.on("player:restore")
 def on_player_restore(data):
     """Restore an existing session on a fresh socket (page reload / reconnect)."""
-    token = ((data or {}).get("session_token") or "").strip()
+    data = data if isinstance(data, dict) else {}
+    token = (data.get("session_token") or "").strip()
     player = repo.get_player_by_session(token) if token else None
+    if not player:
+        # Same recovery as connect: a signed-in player whose guest token was
+        # lost still gets the identity that belongs to their live room.
+        player = _recover_account_player(_resolve_account(data))
     if not player:
         return emit("player:restored", _err("not_authenticated"))
 
     _link_player_account(player, data)
-    repo.update_player_socket(player.id, request.sid)
-    player.connection_state = ConnectionState.CONNECTED
-    repo.save_player(player)
-
-    for mem in repo.get_memberships_for_player(player.id):
-        mem_room = repo.get_room(mem.room_id)
-        if not mem_room or mem_room.status == RoomStatus.MATCH_COMPLETE:
-            continue
-        join_room(mem.room_id)
-        _handle_player_reconnected(mem.room_id, player.id)
+    _attach_player_to_socket(player)
     # Snapshots are pushed only for the room a page explicitly syncs. Echoing
     # every historical membership here leaks stale rooms (old tosses/matches)
     # into the page that is currently displayed.
@@ -612,6 +656,7 @@ def on_player_restore(data):
     emit("player:restored", _ok({
         "player_id": player.id,
         "display_name": player.display_name,
+        "session_token": player.session_token,
     }))
 
 
@@ -692,6 +737,14 @@ def on_room_sync(data):
         return emit("room:error", _err("room_not_found"))
 
     player = repo.get_player_by_session(token) if token else _require_player()
+    recovered = False
+    if not player:
+        # A signed-in client whose guest token is gone still owns whatever
+        # identity this account holds in this exact room.
+        player = _recover_account_player(
+            _resolve_account(data), room_id=room_id, allow_takeover=True
+        )
+        recovered = player is not None
     if not player:
         return emit("room:error", _err("not_authenticated"))
 
@@ -706,12 +759,16 @@ def on_room_sync(data):
         return emit("room:error", _err("not_in_room"))
 
     _link_player_account(player, data)
-    repo.update_player_socket(player.id, request.sid)
-    player.connection_state = ConnectionState.CONNECTED
-    repo.save_player(player)
+    _attach_player_to_socket(player)
+    if recovered:
+        # Hand the identity (and its guest token) back to the client so later
+        # reconnects restore it without another lookup.
+        emit("player:restored", _ok({
+            "player_id": player.id,
+            "display_name": player.display_name,
+            "session_token": player.session_token,
+        }))
 
-    join_room(room.id)
-    _handle_player_reconnected(room.id, player.id)
     snapshot = room_service.get_room_snapshot(room.id, player.id)
     emit("room:snapshot", snapshot)
 

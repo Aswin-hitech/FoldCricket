@@ -19,10 +19,10 @@ export default function ResultPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const sessionToken = localStorage.getItem('hcl_session') || undefined
-  const myPlayerId = localStorage.getItem('hcl_player_id') || ''
   const { snapshot, syncRoom, rematchRoom, updateVoiceState } = useSocket(sessionToken)
+  const myPlayerId = snapshot?.self_player_id || localStorage.getItem('hcl_player_id') || ''
 
-  const [countdown, setCountdown] = useState(25)
+  const [countdown, setCountdown] = useState(30)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
 
   // The match is over: release the microphone and every voice transport, and

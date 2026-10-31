@@ -67,12 +67,16 @@ def create_or_restore_player(
     display_name: str,
     session_token: Optional[str] = None,
     user_id: Optional[str] = None,
+    current_socket_id: Optional[str] = None,
 ) -> tuple[Player, bool]:
     """
     Returns (player, is_new).
     If a valid session_token is provided and matches an existing player, restore.
     A logged-in account links its profile to the game identity so finished
-    matches can be credited to that account.
+    matches can be credited to that account. An account only ever owns one
+    game identity: if the guest token was lost, the existing identity is
+    returned instead of creating a second player, unless a different live
+    socket is still using it.
     """
     if session_token:
         existing = repo.get_player_by_session(session_token)
@@ -81,6 +85,17 @@ def create_or_restore_player(
                 existing.user_id = user_id
                 repo.save_player(existing)
             return existing, False
+
+    if user_id:
+        existing = repo.get_player_for_user(user_id)
+        if existing:
+            owned_by_live_socket = (
+                existing.connection_state == ConnectionState.CONNECTED
+                and existing.socket_id
+                and existing.socket_id != current_socket_id
+            )
+            if not owned_by_live_socket:
+                return existing, False
 
     ok, reason = validate_display_name(display_name)
     if not ok:
@@ -1159,6 +1174,7 @@ def get_room_snapshot(room_id: str, requesting_player_id: str = "") -> dict:
 
     return {
         "server_time": datetime.utcnow().isoformat() + "Z",
+        "self_player_id": requesting_player_id or None,
         "room": room.to_public_dict(),
         "members": [
             {

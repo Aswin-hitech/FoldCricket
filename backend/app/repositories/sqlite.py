@@ -454,6 +454,50 @@ def get_connected_player_for_user(user_id: str) -> Optional[Player]:
             return p
 
 
+def get_player_for_user(user_id: str, room_id: Optional[str] = None) -> Optional[Player]:
+    """Newest player linked to an account, preferring one still in a live room.
+
+    ``room_id`` narrows the lookup to the identity that account holds in that
+    room, which is how a reconnecting signed-in client recovers its player
+    when its guest token is gone.
+    """
+    if not user_id:
+        return None
+    with _lock, _get_connection() as conn:
+        if room_id:
+            row = conn.execute(
+                """
+                SELECT p.* FROM players p
+                JOIN memberships m ON m.player_id = p.id
+                WHERE p.user_id = ? AND m.room_id = ?
+                ORDER BY p.created_at DESC LIMIT 1
+                """,
+                (user_id, room_id),
+            ).fetchone()
+            if row:
+                p = _row_to_player(row)
+                _players_cache[p.id] = p
+                return p
+        row = conn.execute(
+            """
+            SELECT p.* FROM players p
+            WHERE p.user_id = ?
+            ORDER BY (
+                SELECT COUNT(*) FROM memberships m
+                JOIN rooms r ON r.id = m.room_id
+                WHERE m.player_id = p.id AND r.status != ?
+            ) DESC, p.created_at DESC
+            LIMIT 1
+            """,
+            (user_id, RoomStatus.MATCH_COMPLETE.value),
+        ).fetchone()
+        if not row:
+            return None
+        p = _row_to_player(row)
+        _players_cache[p.id] = p
+        return p
+
+
 def update_player_socket(player_id: str, socket_id: Optional[str]) -> None:
     with _lock:
         p = _players_cache.get(player_id)

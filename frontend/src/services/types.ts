@@ -194,6 +194,8 @@ export interface VideoCallSession {
 
 export interface RoomSnapshot {
   server_time?: string
+  /** The player this snapshot was built for (the server's view of "you"). */
+  self_player_id?: string | null
   room: RoomInfo
   members: MemberInfo[]
   match: MatchInfo | null

@@ -171,7 +171,9 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
     }
 
     const sessionTokenNow = () =>
-      sessionToken || (typeof window !== 'undefined' ? localStorage.getItem('hcl_session') || '' : '')
+      (typeof window !== 'undefined' ? localStorage.getItem('hcl_session') || '' : '') ||
+      sessionToken ||
+      ''
 
     const onConnect = () => {
       everConnected = true
@@ -242,6 +244,19 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
         const parsed = Date.parse(data.server_time)
         if (!Number.isNaN(parsed)) {
           serverOffsetRef.current = parsed - Date.now()
+        }
+      }
+
+      // The server tells us which player this snapshot describes. If it
+      // recovered an identity we had lost, adopt it so page reloads and later
+      // reconnects use the same player.
+      if (data?.self_player_id) {
+        try {
+          if (localStorage.getItem('hcl_player_id') !== data.self_player_id) {
+            localStorage.setItem('hcl_player_id', data.self_player_id)
+          }
+        } catch {
+          // Storage unavailable: the snapshot still drives this render.
         }
       }
 
@@ -581,12 +596,12 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
   }, [])
 
   const createRoom = useCallback((mode: string, overs: number) => {
-    const token = sessionToken || localStorage.getItem('hcl_session') || ''
+    const token = localStorage.getItem('hcl_session') || sessionToken || ''
     socketRef.current.emit('room:create', { mode, overs, session_token: token, ...accountField() })
   }, [sessionToken])
 
   const joinRoom = useCallback((joinCode: string, asSpectator = false) => {
-    const token = sessionToken || localStorage.getItem('hcl_session') || ''
+    const token = localStorage.getItem('hcl_session') || sessionToken || ''
     socketRef.current.emit('room:join', {
       join_code: joinCode,
       session_token: token,
@@ -597,7 +612,7 @@ export function useSocket(sessionToken?: string): UseSocketReturn {
 
   const syncRoom = useCallback((roomId: string) => {
     activeRoomIdRef.current = roomId
-    const token = sessionToken || localStorage.getItem('hcl_session') || ''
+    const token = localStorage.getItem('hcl_session') || sessionToken || ''
     socketRef.current.emit('room:sync', {
       room_id: roomId,
       session_token: token,

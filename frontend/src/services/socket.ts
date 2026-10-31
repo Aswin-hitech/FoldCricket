@@ -39,8 +39,38 @@ function buildHandshake(token?: string): { token?: string; account_token?: strin
  * cancels any pending backoff timer, so the new handshake starts immediately.
  */
 function hardRestart(s: Socket): void {
+  // Rebuild the handshake first: a recovered or refreshed identity must travel
+  // on the next connect, otherwise the server keeps seeing the stale token.
+  const handshake = buildHandshake()
+  s.auth = handshake ?? {}
+  s.io.opts.query = handshake ?? {}
   s.disconnect()
   s.connect()
+}
+
+/**
+ * Identity responses are the single source of truth for the guest token and
+ * player id. Persisting them here (once per socket) keeps every consumer in
+ * sync, including a player identity the server recovered after the token was
+ * lost.
+ */
+function persistIdentity(data: {
+  success?: boolean
+  player_id?: string
+  session_token?: string
+  display_name?: string
+}): void {
+  if (!data?.success || !data.player_id) return
+  try {
+    if (data.session_token) {
+      localStorage.setItem('hcl_session', data.session_token)
+      sessionStorage.setItem('hcl_session_token', data.session_token)
+    }
+    localStorage.setItem('hcl_player_id', data.player_id)
+    if (data.display_name) localStorage.setItem('hcl_display_name', data.display_name)
+  } catch {
+    // Storage unavailable (private mode): the in-memory socket still works.
+  }
 }
 
 /**
@@ -90,6 +120,8 @@ export function getSocket(sessionToken?: string): Socket {
       auth: handshake,
       query: handshake,
     })
+    socket.on('player:registered', persistIdentity)
+    socket.on('player:restored', persistIdentity)
     bindLifecycleWake(socket)
   } else {
     socket.auth = handshake ?? {}

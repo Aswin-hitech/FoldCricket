@@ -48,7 +48,6 @@ export default function ArenaPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const sessionToken = localStorage.getItem('hcl_session') || undefined
-  const myPlayerId = localStorage.getItem('hcl_player_id') || ''
 
   const {
     status,
@@ -91,6 +90,10 @@ export default function ArenaPage() {
     serverNow,
     leaveLobby,
   } = useSocket(sessionToken)
+
+  // The server's view of "you" wins over storage: if it recovered this
+  // player's identity after a reconnect, the arena must follow it.
+  const myPlayerId = snapshot?.self_player_id || localStorage.getItem('hcl_player_id') || ''
 
   const videoNetwork = useNetworkQuality(pingLatency)
 

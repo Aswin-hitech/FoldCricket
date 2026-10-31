@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..repositories.insights import get_creator_insights
 from ..security.utils import SimpleRateLimiter
+from ..services.platform_analytics import get_platform_analytics
 
 bp = Blueprint("creator", __name__)
 
@@ -149,4 +150,12 @@ def insights():
     payload = get_creator_insights(
         days, mode=mode, date=request.args.get("date") or None
     )
+    # Lifetime feedback and visit records live in Supabase Storage; the SQLite
+    # aggregates above cannot see them. This is cached in-process and returns an
+    # empty payload when Supabase is not configured or unreachable.
+    analytics = get_platform_analytics()
+    payload["feedback"] = analytics["feedback"]
+    payload["visits"] = analytics["visits"]
+    payload["analytics_source"] = analytics["source"]
+    payload["analytics_updated_at"] = analytics["updated_at"]
     return jsonify(payload)

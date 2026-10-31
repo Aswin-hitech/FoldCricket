@@ -1578,3 +1578,429 @@ button.legendRow:hover {
 .drillDayBtn:hover {
   background: color-mix(in srgb, var(--color-team-a) 18%, transparent);
 }
+
+/* ---------------- All-time sections ---------------- */
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 18px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--color-border-subtle);
+}
+
+.sectionEyebrow {
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.sectionTitle {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sectionSub {
+  margin-top: 3px;
+  max-width: 64ch;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.sourceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sourceBadge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-warning);
+}
+
+.sourceBadge[data-source="supabase"] {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+}
+
+.sourceBadge[data-source="supabase"]::before {
+  background: var(--color-success);
+}
+
+.sourceBadge[data-source="unavailable"] {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+.sourceBadge[data-source="unavailable"]::before {
+  background: var(--color-danger);
+}
+
+/* ---------------- Visitors ---------------- */
+
+.visitPlot {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 118px;
+  margin-top: 14px;
+  padding: 0 2px;
+}
+
+.visitSlot {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 4px;
+  transition: background 160ms ease;
+}
+
+.visitSlot:hover {
+  background: color-mix(in srgb, var(--color-team-a) 6%, transparent);
+}
+
+.visitBar {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, var(--color-info) 0%, rgba(37, 99, 235, 0.5) 100%);
+  transition: height 300ms ease, filter 160ms ease;
+}
+
+.visitSlot:hover .visitBar {
+  filter: brightness(1.15);
+}
+
+.visitBar[data-zero="true"] {
+  background: var(--color-border);
+}
+
+.visitFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.visitFoot b {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.actionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+  text-transform: capitalize;
+}
+
+.actionChip b {
+  color: var(--color-team-a);
+  font-variant-numeric: tabular-nums;
+}
+
+.sourceNote {
+  margin-top: 10px;
+  font-size: 0.72rem;
+  color: var(--color-warning);
+}
+
+/* ---------------- Feedback ---------------- */
+
+.ratingBadge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ratingBadge em {
+  font-style: normal;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.ratingSummary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-2);
+}
+
+.ratingBig {
+  font-family: var(--font-display);
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.ratingMeta {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.stars {
+  display: inline-flex;
+  gap: 2px;
+  line-height: 1;
+  font-size: 0.82rem;
+}
+
+.stars[data-size="lg"] {
+  font-size: 1.05rem;
+}
+
+.star {
+  color: var(--color-border);
+  transition: color 160ms ease;
+}
+
+.star[data-filled="true"] {
+  color: var(--color-warning);
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-team-a) 28%, transparent);
+  background: color-mix(in srgb, var(--color-team-a) 8%, transparent);
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+}
+
+.tag b {
+  color: var(--color-team-a);
+  font-variant-numeric: tabular-nums;
+}
+
+.feedbackList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.feedbackItem {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-surface-2) 65%, transparent);
+}
+
+.feedbackHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.feedbackName {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.feedbackText {
+  margin: 5px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--color-text-dim);
+  overflow-wrap: anywhere;
+}
+
+.feedbackMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+}
+
+/* ---------------- Score records ---------------- */
+
+.records {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.recordRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 14px;
+  row-gap: 2px;
+  padding: 11px 0;
+  border-bottom: 1px dashed var(--color-border-subtle);
+}
+
+.recordRow:last-child {
+  border-bottom: none;
+}
+
+.recordLabel {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.recordValue {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recordDetail {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  color: var(--color-text-dim);
+  overflow-wrap: anywhere;
+}
+
+.recordMeta {
+  grid-column: 1 / -1;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.recordFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.recordFoot b {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- Community ---------------- */
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+@media (min-width: 520px) {
+  .statGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.statTile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-2);
+}
+
+.statLabel {
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statValue {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.statHint {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+}

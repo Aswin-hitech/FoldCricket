@@ -176,6 +176,185 @@ def _totals_for_window(
     }
 
 
+def _score_record(row) -> Optional[dict]:
+    if row is None:
+        return None
+    return {key: row[key] for key in row.keys()}
+
+
+def _lifetime_stats(conn) -> dict:
+    """All-time totals from the non-purging match_history table."""
+    totals = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS games_started,
+            COALESCE(SUM(CASE WHEN winner IS NOT NULL THEN 1 ELSE 0 END), 0) AS games_completed,
+            COALESCE(SUM(CASE WHEN winner = 'TIE' THEN 1 ELSE 0 END), 0) AS ties,
+            COALESCE(SUM(CASE WHEN winner IS NOT NULL AND mode = 'SOLO' THEN 1 ELSE 0 END), 0) AS solo_games,
+            COALESCE(SUM(CASE WHEN winner IS NOT NULL AND mode = 'TEAM' THEN 1 ELSE 0 END), 0) AS team_games,
+            COALESCE(SUM(CASE WHEN winner IS NOT NULL
+                THEN team_a_runs + team_b_runs ELSE 0 END), 0) AS runs,
+            COALESCE(SUM(CASE WHEN winner IS NOT NULL THEN
+                CASE WHEN EXISTS(SELECT 1 FROM deliveries d
+                                 WHERE d.match_id = match_history.match_id)
+                    THEN (SELECT COUNT(*) FROM deliveries d
+                          WHERE d.match_id = match_history.match_id)
+                    ELSE deliveries END
+                ELSE 0 END), 0) AS deliveries,
+            COALESCE(SUM(CASE WHEN winner IS NOT NULL THEN
+                CASE WHEN EXISTS(SELECT 1 FROM deliveries d
+                                 WHERE d.match_id = match_history.match_id)
+                    THEN (SELECT COUNT(*) FROM deliveries d
+                          WHERE d.match_id = match_history.match_id
+                            AND d.result = 'TIMEOUT')
+                    ELSE dead_balls END
+                ELSE 0 END), 0) AS dead_balls,
+            MIN(started_at) AS first_game_at,
+            MAX(COALESCE(completed_at, started_at)) AS last_game_at
+        FROM match_history
+        """
+    ).fetchone()
+
+    duration = conn.execute(
+        """
+        SELECT AVG((julianday(completed_at) - julianday(started_at)) * 1440.0)
+        FROM match_history
+        WHERE winner IS NOT NULL AND completed_at IS NOT NULL
+        """
+    ).fetchone()[0]
+
+    play_ph = ",".join("?" for _ in IN_PLAY_STATUSES)
+    live_games = _scalar(
+        conn,
+        f"""
+        SELECT COUNT(*) FROM matches m JOIN rooms r ON r.id = m.room_id
+        WHERE m.winner IS NULL AND r.status IN ({play_ph})
+        """,
+        tuple(s.value for s in IN_PLAY_STATUSES),
+    )
+
+    highest_team = conn.execute(
+        """
+        SELECT team, runs, wickets, opponent, join_code, mode, played_at FROM (
+            SELECT team_a_name AS team, team_a_runs AS runs, team_a_wickets AS wickets,
+                   team_b_name AS opponent, join_code, mode,
+                   COALESCE(completed_at, started_at) AS played_at
+            FROM match_history WHERE winner IS NOT NULL
+            UNION ALL
+            SELECT team_b_name AS team, team_b_runs AS runs, team_b_wickets AS wickets,
+                   team_a_name AS opponent, join_code, mode,
+                   COALESCE(completed_at, started_at) AS played_at
+            FROM match_history WHERE winner IS NOT NULL
+        )
+        ORDER BY runs DESC, wickets ASC LIMIT 1
+        """
+    ).fetchone()
+
+    highest_total = conn.execute(
+        """
+        SELECT team_a_name, team_b_name, team_a_runs, team_a_wickets,
+               team_b_runs, team_b_wickets,
+               team_a_runs + team_b_runs AS total,
+               join_code, mode, COALESCE(completed_at, started_at) AS played_at
+        FROM match_history
+        WHERE winner IS NOT NULL
+        ORDER BY total DESC LIMIT 1
+        """
+    ).fetchone()
+
+    margin_sql = """
+        SELECT
+            CASE WHEN winner = 'A' THEN team_a_name ELSE team_b_name END AS winner_name,
+            CASE WHEN winner = 'A' THEN team_b_name ELSE team_a_name END AS loser_name,
+            team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
+            ABS(team_a_runs - team_b_runs) AS margin,
+            join_code, mode, COALESCE(completed_at, started_at) AS played_at
+        FROM match_history
+        WHERE winner IN ('A', 'B')
+    """
+    biggest_win = conn.execute(
+        margin_sql + " ORDER BY margin DESC, played_at DESC LIMIT 1"
+    ).fetchone()
+    closest_game = conn.execute(
+        margin_sql + " AND ABS(team_a_runs - team_b_runs) > 0 ORDER BY margin ASC, played_at DESC LIMIT 1"
+    ).fetchone()
+
+    recent_rows = conn.execute(
+        """
+        SELECT match_id, join_code, mode, team_a_name, team_b_name,
+               team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
+               winner, result_summary, COALESCE(completed_at, started_at) AS played_at
+        FROM match_history
+        WHERE winner IS NOT NULL
+        ORDER BY played_at DESC LIMIT 5
+        """
+    ).fetchall()
+
+    return {
+        "games_started": int(totals["games_started"] or 0),
+        "games_completed": int(totals["games_completed"] or 0),
+        "in_progress": live_games,
+        "ties": int(totals["ties"] or 0),
+        "solo_games": int(totals["solo_games"] or 0),
+        "team_games": int(totals["team_games"] or 0),
+        "runs": int(totals["runs"] or 0),
+        "deliveries": int(totals["deliveries"] or 0),
+        "dead_balls": int(totals["dead_balls"] or 0),
+        "avg_match_minutes": _float_or_none(duration),
+        "first_game_at": totals["first_game_at"],
+        "last_game_at": totals["last_game_at"],
+        "highest_team_score": _score_record(highest_team),
+        "highest_total": _score_record(highest_total),
+        "biggest_win": _score_record(biggest_win),
+        "closest_game": _score_record(closest_game),
+        "recent_completed": [
+            {
+                "id": row["match_id"],
+                "join_code": row["join_code"],
+                "mode": row["mode"],
+                "team_a": row["team_a_name"],
+                "team_b": row["team_b_name"],
+                "team_a_score": f"{row['team_a_runs']}/{row['team_a_wickets']}",
+                "team_b_score": f"{row['team_b_runs']}/{row['team_b_wickets']}",
+                "winner": row["winner"],
+                "result_summary": row["result_summary"],
+                "played_at": row["played_at"],
+            }
+            for row in recent_rows
+        ],
+    }
+
+
+def _community_stats(conn) -> dict:
+    """Account, social and achievement totals that never expire."""
+    now = datetime.utcnow()
+    day_ago = (now - timedelta(hours=24)).isoformat()
+    week_ago = (now - timedelta(days=7)).isoformat()
+    online_cutoff = (now - timedelta(minutes=15)).isoformat()
+
+    return {
+        "accounts": _scalar(conn, "SELECT COUNT(*) FROM users"),
+        "new_accounts_24h": _scalar(
+            conn, "SELECT COUNT(*) FROM users WHERE created_at >= ?", (day_ago,)
+        ),
+        "new_accounts_7d": _scalar(
+            conn, "SELECT COUNT(*) FROM users WHERE created_at >= ?", (week_ago,)
+        ),
+        "online_accounts": _scalar(
+            conn,
+            "SELECT COUNT(DISTINCT user_id) FROM user_sessions "
+            "WHERE last_used_at >= ? AND expires_at > ?",
+            (online_cutoff, now.isoformat()),
+        ),
+        "friendships": _scalar(
+            conn, "SELECT COUNT(*) FROM friendships WHERE status = 'ACCEPTED'"
+        ),
+        "direct_messages": _scalar(conn, "SELECT COUNT(*) FROM direct_messages"),
+        "achievements": _scalar(conn, "SELECT COUNT(*) FROM user_achievements"),
+        "play_requests": _scalar(conn, "SELECT COUNT(*) FROM play_requests"),
+    }
+
+
 def get_creator_insights(
     days: int = 7, mode: Optional[str] = None, date: Optional[str] = None
 ) -> dict:
@@ -490,6 +669,9 @@ def get_creator_insights(
             tuple(delivery_params),
         ).fetchall()
 
+        lifetime = _lifetime_stats(conn)
+        community = _community_stats(conn)
+
     # Zero-fill every day in the window (including today).
     activity = []
     cursor = window_start
@@ -625,4 +807,6 @@ def get_creator_insights(
         "top_bowlers": [
             {"name": r[0] or "Unknown", "wickets": int(r[1])} for r in top_bowlers
         ],
+        "lifetime": lifetime,
+        "community": community,
     }

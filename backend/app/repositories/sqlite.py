@@ -281,6 +281,30 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            -- Durable lifetime history. Rooms, matches and deliveries are purged
+            -- an hour after they are created, so completed games are snapshotted
+            -- here to keep all-time counts and score records available.
+            CREATE TABLE IF NOT EXISTS match_history (
+                match_id TEXT PRIMARY KEY,
+                room_id TEXT NOT NULL,
+                join_code TEXT NOT NULL DEFAULT '',
+                mode TEXT NOT NULL DEFAULT '',
+                team_a_name TEXT NOT NULL,
+                team_b_name TEXT NOT NULL,
+                team_a_runs INTEGER NOT NULL,
+                team_a_wickets INTEGER NOT NULL,
+                team_b_runs INTEGER NOT NULL,
+                team_b_wickets INTEGER NOT NULL,
+                winner TEXT,
+                result_summary TEXT,
+                overs INTEGER NOT NULL,
+                target INTEGER,
+                deliveries INTEGER NOT NULL DEFAULT 0,
+                dead_balls INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_memberships_room ON memberships(room_id);
             CREATE INDEX IF NOT EXISTS idx_matches_room ON matches(room_id);
             CREATE INDEX IF NOT EXISTS idx_deliveries_match ON deliveries(match_id);
@@ -296,6 +320,8 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_dm_recipient_unread ON direct_messages(recipient_id, read_at);
             CREATE INDEX IF NOT EXISTS idx_play_requests_recipient ON play_requests(recipient_id, status);
             CREATE INDEX IF NOT EXISTS idx_play_requests_requester ON play_requests(requester_id, status);
+            CREATE INDEX IF NOT EXISTS idx_match_history_started ON match_history(started_at);
+            CREATE INDEX IF NOT EXISTS idx_match_history_completed ON match_history(completed_at);
             """
         )
         try:
@@ -308,6 +334,128 @@ def init_db() -> None:
             pass
 
     _migrate_deliveries_rebowl()
+    _backfill_match_history()
+
+
+def _backfill_match_history() -> None:
+    """Seed lifetime history from matches that still exist on disk."""
+    with _lock, _get_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO match_history (
+                match_id, room_id, join_code, mode, team_a_name, team_b_name,
+                team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
+                winner, result_summary, overs, target, deliveries, dead_balls,
+                started_at, completed_at
+            )
+            SELECT
+                m.id, m.room_id, r.join_code, r.mode,
+                m.team_a_name, m.team_b_name,
+                m.team_a_runs, m.team_a_wickets, m.team_b_runs, m.team_b_wickets,
+                m.winner, m.result_summary, m.overs, m.target,
+                CASE WHEN m.winner IS NOT NULL
+                    THEN (SELECT COUNT(*) FROM deliveries d WHERE d.match_id = m.id)
+                    ELSE 0 END,
+                CASE WHEN m.winner IS NOT NULL
+                    THEN (SELECT COUNT(*) FROM deliveries d
+                          WHERE d.match_id = m.id AND d.result = 'TIMEOUT')
+                    ELSE 0 END,
+                m.created_at,
+                CASE WHEN m.winner IS NOT NULL
+                    THEN COALESCE(
+                        (SELECT MAX(d.created_at) FROM deliveries d WHERE d.match_id = m.id),
+                        m.created_at
+                    )
+                    ELSE NULL END
+            FROM matches m JOIN rooms r ON r.id = m.room_id
+            """
+        )
+
+
+def _upsert_match_history(conn: sqlite3.Connection, match: Match) -> None:
+    """Snapshot a match (and its final scoreline) outside the hourly purge."""
+    room_row = conn.execute(
+        "SELECT join_code, mode FROM rooms WHERE id = ?", (match.room_id,)
+    ).fetchone()
+    join_code = room_row["join_code"] if room_row else ""
+    mode = room_row["mode"] if room_row else ""
+
+    completed = match.winner is not None
+    deliveries = 0
+    dead_balls = 0
+    last_delivery_at = None
+    if completed:
+        counts = conn.execute(
+            """
+            SELECT COUNT(*) AS n,
+                   COALESCE(SUM(CASE WHEN result = 'TIMEOUT' THEN 1 ELSE 0 END), 0) AS dead,
+                   MAX(created_at) AS last_at
+            FROM deliveries WHERE match_id = ?
+            """,
+            (match.id,),
+        ).fetchone()
+        deliveries = int(counts["n"] or 0)
+        dead_balls = int(counts["dead"] or 0)
+        last_delivery_at = counts["last_at"]
+
+    started_at = (
+        match.created_at.isoformat()
+        if hasattr(match.created_at, "isoformat")
+        else str(match.created_at)
+    )
+    completed_at = None
+    if completed:
+        completed_at = last_delivery_at or datetime.utcnow().isoformat()
+
+    conn.execute(
+        """
+        INSERT INTO match_history (
+            match_id, room_id, join_code, mode, team_a_name, team_b_name,
+            team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
+            winner, result_summary, overs, target, deliveries, dead_balls,
+            started_at, completed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(match_id) DO UPDATE SET
+            join_code=excluded.join_code,
+            mode=excluded.mode,
+            team_a_name=excluded.team_a_name,
+            team_b_name=excluded.team_b_name,
+            team_a_runs=excluded.team_a_runs,
+            team_a_wickets=excluded.team_a_wickets,
+            team_b_runs=excluded.team_b_runs,
+            team_b_wickets=excluded.team_b_wickets,
+            winner=excluded.winner,
+            result_summary=excluded.result_summary,
+            overs=excluded.overs,
+            target=excluded.target,
+            deliveries=CASE WHEN excluded.winner IS NOT NULL
+                THEN excluded.deliveries ELSE match_history.deliveries END,
+            dead_balls=CASE WHEN excluded.winner IS NOT NULL
+                THEN excluded.dead_balls ELSE match_history.dead_balls END,
+            completed_at=COALESCE(match_history.completed_at, excluded.completed_at)
+        """,
+        (
+            match.id,
+            match.room_id,
+            join_code,
+            mode,
+            match.team_a_name,
+            match.team_b_name,
+            match.team_a_runs,
+            match.team_a_wickets,
+            match.team_b_runs,
+            match.team_b_wickets,
+            match.winner,
+            match.result_summary,
+            match.overs,
+            match.target,
+            deliveries,
+            dead_balls,
+            started_at,
+            completed_at,
+        ),
+    )
 
 
 def _migrate_deliveries_rebowl() -> None:
@@ -889,6 +1037,7 @@ def save_match(match: Match) -> Match:
                     match.created_at.isoformat() if hasattr(match.created_at, "isoformat") else str(match.created_at),
                 ),
             )
+            _upsert_match_history(conn, match)
     return match
 
 
@@ -1175,6 +1324,13 @@ def purge_stale_data(max_age_seconds: int = 3600) -> int:
 
         if stale_room_ids:
             placeholders = ",".join("?" * len(stale_room_ids))
+            # Refresh the lifetime snapshot (delivery counts included) while the
+            # rows still exist, then let the purge below remove the live data.
+            for row in conn.execute(
+                f"SELECT * FROM matches WHERE room_id IN ({placeholders})",
+                stale_room_ids,
+            ).fetchall():
+                _upsert_match_history(conn, _row_to_match(row))
             conn.execute(f"DELETE FROM voice_permissions WHERE room_id IN ({placeholders});", stale_room_ids)
             conn.execute(f"DELETE FROM deliveries WHERE match_id IN (SELECT id FROM matches WHERE room_id IN ({placeholders}));", stale_room_ids)
             conn.execute(f"DELETE FROM matches WHERE room_id IN ({placeholders});", stale_room_ids)
@@ -1216,6 +1372,7 @@ def clear_all() -> None:
         _matches_cache.clear()
         _deliveries_cache.clear()
         with _get_connection() as conn:
+            conn.execute("DELETE FROM match_history;")
             conn.execute("DELETE FROM voice_permissions;")
             conn.execute("DELETE FROM deliveries;")
             conn.execute("DELETE FROM matches;")

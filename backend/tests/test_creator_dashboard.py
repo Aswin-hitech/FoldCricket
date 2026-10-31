@@ -2,7 +2,7 @@
 Creator dashboard: aggregate insights and access control.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -11,6 +11,7 @@ from app.api import creator as creator_api
 from app.domain.models import Delivery, DeliveryResult, InningsPhase, Match
 from app.repositories import memory as repo
 from app.repositories.insights import get_creator_insights
+from app.repositories.sqlite import _get_connection
 from app.services import room_service
 
 
@@ -165,6 +166,41 @@ def test_insights_aggregate_players_matches_and_deliveries():
     assert data["recent_matches"][0]["duration_minutes"] is not None
     assert [b["name"] for b in data["top_batters"]] == ["DashHost"]
 
+    lifetime = data["lifetime"]
+    assert lifetime["games_started"] == 1
+    assert lifetime["games_completed"] == 1
+    assert lifetime["team_games"] == 1
+    assert lifetime["solo_games"] == 0
+    assert lifetime["runs"] == 12
+    assert lifetime["deliveries"] == 3
+    assert lifetime["dead_balls"] == 1
+    assert lifetime["highest_team_score"]["runs"] == 7
+    assert lifetime["highest_team_score"]["team"] == "DashHost's Team"
+    assert lifetime["highest_total"]["total"] == 12
+    assert lifetime["biggest_win"]["margin"] == 2
+    assert lifetime["closest_game"]["margin"] == 2
+    assert lifetime["recent_completed"][0]["join_code"]
+    assert data["community"]["accounts"] == 0
+
+
+def test_lifetime_stats_survive_the_hourly_purge():
+    _seed_finished_match()
+
+    repo.purge_stale_data(max_age_seconds=0)
+
+    data = get_creator_insights(7)
+    # The live report is empty because rooms/matches were purged…
+    assert data["totals"]["matches"] == 0
+    assert data["totals"]["deliveries"] == 0
+    # …but the all-time history keeps the completed game and its scoreline.
+    lifetime = data["lifetime"]
+    assert lifetime["games_started"] == 1
+    assert lifetime["games_completed"] == 1
+    assert lifetime["runs"] == 12
+    assert lifetime["deliveries"] == 3
+    assert lifetime["dead_balls"] == 1
+    assert lifetime["highest_team_score"]["runs"] == 7
+
 
 def test_mode_filter_narrows_matches_deliveries_and_leaderboards():
     _seed_finished_match()
@@ -242,7 +278,45 @@ def test_api_requires_a_login_even_from_loopback(client):
 
     authed = client.get("/api/creator/insights", headers=_bearer(client))
     assert authed.status_code == 200
-    assert authed.get_json()["totals"]["matches"] == 1
+    body = authed.get_json()
+    assert body["totals"]["matches"] == 1
+    assert body["analytics_source"] == "not_configured"
+    assert body["feedback"]["total"] == 0
+    assert body["visits"]["total_visits"] == 0
+
+
+def test_community_stats_count_accounts_and_live_sessions():
+    now = datetime.utcnow()
+    with _get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (
+                id, username, display_name, password_hash, friend_code, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("u1", "creator_fan", "Creator Fan", "hash", "ABC234", now.isoformat(), now.isoformat()),
+        )
+        conn.execute(
+            """
+            INSERT INTO user_sessions (
+                id, user_id, token_hash, created_at, last_used_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "s1",
+                "u1",
+                "token-hash",
+                now.isoformat(),
+                now.isoformat(),
+                (now + timedelta(days=1)).isoformat(),
+            ),
+        )
+
+    community = get_creator_insights(7)["community"]
+    assert community["accounts"] == 1
+    assert community["new_accounts_24h"] == 1
+    assert community["new_accounts_7d"] == 1
+    assert community["online_accounts"] == 1
 
 
 def test_login_rejects_wrong_credentials_without_leaking_which_field(client):

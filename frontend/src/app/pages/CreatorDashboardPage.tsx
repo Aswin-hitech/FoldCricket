@@ -14,12 +14,17 @@ import {
   fetchCreatorInsights,
   loginCreator,
   type ActivityPoint,
+  type AnalyticsSource,
+  type CommunityStats,
   type CreatorFilters,
   type CreatorInsights,
   type CreatorMode,
+  type FeedbackSummary,
   type HourlyPoint,
+  type LifetimeStats,
   type LiveRoom,
   type RecentMatch,
+  type VisitStats,
 } from '../../services/creator'
 import styles from './CreatorDashboardPage.module.css'
 
@@ -494,6 +499,316 @@ const Leaderboard: React.FC<{
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// All-time panels
+// ---------------------------------------------------------------------------
+
+const sourceNote = (source: AnalyticsSource): string | null => {
+  if (source === 'not_configured') {
+    return 'Feedback and visit logs are not configured on this server.'
+  }
+  if (source === 'unavailable') {
+    return 'Feedback and visit logs are temporarily unreachable.'
+  }
+  return null
+}
+
+const Stars: React.FC<{ rating: number | null; size?: 'sm' | 'lg' }> = ({ rating, size = 'sm' }) => {
+  const filled = Math.max(0, Math.min(5, Math.round(rating ?? 0)))
+  return (
+    <span className={styles.stars} data-size={size} aria-label={`${rating ?? 0} out of 5`}>
+      {[1, 2, 3, 4, 5].map(star => (
+        <span key={star} className={styles.star} data-filled={star <= filled ? 'true' : undefined}>
+          ★
+        </span>
+      ))}
+    </span>
+  )
+}
+
+const VisitTrend: React.FC<{ visits: VisitStats; source: AnalyticsSource }> = ({ visits, source }) => {
+  const max = Math.max(1, ...visits.activity.map(point => point.visits))
+  const note = sourceNote(source)
+  const hasActivity = visits.activity.some(point => point.visits > 0)
+  const first = visits.activity[0]?.date
+  const last = visits.activity[visits.activity.length - 1]?.date
+
+  return (
+    <div className={`${styles.card} ${styles.chart}`}>
+      <div className={styles.cardHeadRow}>
+        <div>
+          <h3 className={styles.cardTitle}>Visitors</h3>
+          <p className={styles.cardSub}>
+            {visits.total_visits.toLocaleString()} visits ·{' '}
+            {visits.unique_visitors.toLocaleString()} unique visitors all-time
+          </p>
+        </div>
+        <span className={styles.chartPeak}>{visits.visits_today.toLocaleString()} today</span>
+      </div>
+
+      {hasActivity ? (
+        <>
+          <div className={styles.visitPlot} role="img" aria-label="Visits over the last 30 days">
+            {visits.activity.map(point => (
+              <div
+                key={point.date}
+                className={styles.visitSlot}
+                title={`${formatWeekday(point.date)} — ${point.visits.toLocaleString()} visits · ${point.visitors.toLocaleString()} unique`}
+              >
+                <span
+                  className={styles.visitBar}
+                  data-zero={point.visits === 0 ? 'true' : undefined}
+                  style={{
+                    height: point.visits ? `${Math.max(4, (point.visits / max) * 100)}%` : '2%',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          <div className={styles.axis}>
+            <span>{first ? formatDay(first) : ''}</span>
+            <span>{last ? formatDay(last) : ''}</span>
+          </div>
+        </>
+      ) : (
+        <p className={styles.empty}>No visits have been recorded yet.</p>
+      )}
+
+      <div className={styles.visitFoot}>
+        <span>
+          <b>{visits.unique_today.toLocaleString()}</b> unique today
+        </span>
+        <span>
+          <b>{visits.days_covered}</b> {visits.days_covered === 1 ? 'day' : 'days'} recorded
+        </span>
+        <span>
+          <b>{visits.total_events.toLocaleString()}</b> events
+        </span>
+      </div>
+
+      {visits.actions.length > 0 && (
+        <div className={styles.actionRow}>
+          {visits.actions.map(item => (
+            <span key={item.action} className={styles.actionChip}>
+              {item.action.replace(/_/g, ' ')}
+              <b>{item.count.toLocaleString()}</b>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {visits.truncated && (
+        <p className={styles.sourceNote}>
+          Counts may be partial while older visit logs are still being scanned.
+        </p>
+      )}
+
+      {note && <p className={styles.sourceNote}>{note}</p>}
+    </div>
+  )
+}
+
+const FeedbackPanel: React.FC<{ feedback: FeedbackSummary; source: AnalyticsSource }> = ({
+  feedback,
+  source,
+}) => {
+  const note = sourceNote(source)
+  const ratings = feedback.rating_distribution
+  const maxRating = Math.max(1, ...Object.values(ratings))
+  const average = feedback.average_rating
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeadRow}>
+        <div>
+          <h3 className={styles.cardTitle}>Player feedback</h3>
+          <p className={styles.cardSub}>
+            {feedback.total.toLocaleString()} {feedback.total === 1 ? 'report' : 'reports'} from
+            first-time players
+          </p>
+        </div>
+        <span className={styles.ratingBadge}>
+          {average !== null ? average.toFixed(1) : '—'} <em>/ 5</em>
+        </span>
+      </div>
+
+      {feedback.total === 0 ? (
+        <p className={styles.empty}>No feedback has been submitted yet.</p>
+      ) : (
+        <>
+          <div className={styles.ratingSummary}>
+            <span className={styles.ratingBig}>{average !== null ? average.toFixed(1) : '—'}</span>
+            <div>
+              <Stars rating={average} size="lg" />
+              <span className={styles.ratingMeta}>
+                {feedback.total.toLocaleString()} {feedback.total === 1 ? 'rating' : 'ratings'}
+                {feedback.sampled ? ' · sampled' : ''}
+              </span>
+            </div>
+          </div>
+
+          <div className={styles.mixRows}>
+            {[5, 4, 3, 2, 1].map(rating => {
+              const count = ratings[String(rating)] ?? 0
+              const share = feedback.total ? Math.round((count / feedback.total) * 100) : 0
+              return (
+                <div
+                  key={rating}
+                  className={styles.mixRow}
+                  title={`${count} of ${feedback.total} reports gave ${rating} stars`}
+                >
+                  <span className={styles.mixLabel}>{rating}★</span>
+                  <div className={styles.mixTrack}>
+                    <div className={styles.mixBar} style={{ width: `${(count / maxRating) * 100}%` }} />
+                  </div>
+                  <span className={styles.mixValue}>
+                    {count.toLocaleString()} · {share}%
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {feedback.categories.length > 0 && (
+            <div className={styles.tagRow}>
+              {feedback.categories.map(category => (
+                <span key={category.name} className={styles.tag}>
+                  {category.name}
+                  <b>{category.count}</b>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {feedback.recent.length > 0 && (
+            <div className={styles.feedbackList}>
+              {feedback.recent.map((entry, index) => (
+                <article key={`${entry.player_name}-${index}`} className={styles.feedbackItem}>
+                  <div className={styles.feedbackHead}>
+                    <span className={styles.feedbackName}>{entry.player_name}</span>
+                    <Stars rating={entry.rating} />
+                  </div>
+                  {entry.feedback_text && (
+                    <p className={styles.feedbackText}>{entry.feedback_text}</p>
+                  )}
+                  <div className={styles.feedbackMeta}>
+                    {entry.room_code && <span>Room {entry.room_code}</span>}
+                    {entry.created_at && <span>{formatWhen(entry.created_at)}</span>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {note && <p className={styles.sourceNote}>{note}</p>}
+    </div>
+  )
+}
+
+const ScoreRecords: React.FC<{ lifetime: LifetimeStats }> = ({ lifetime }) => {
+  const team = lifetime.highest_team_score
+  const total = lifetime.highest_total
+  const biggest = lifetime.biggest_win
+  const closest = lifetime.closest_game
+
+  const records = [
+    {
+      label: 'Highest team total',
+      value: team ? `${team.runs}/${team.wickets}` : '—',
+      detail: team ? `${team.team} vs ${team.opponent}` : 'No completed games',
+      meta: team ? `Room ${team.join_code} · ${team.mode}` : '',
+    },
+    {
+      label: 'Highest match aggregate',
+      value: total ? `${total.total} runs` : '—',
+      detail: total
+        ? `${total.team_a_name} ${total.team_a_runs}/${total.team_a_wickets} vs ${total.team_b_name} ${total.team_b_runs}/${total.team_b_wickets}`
+        : 'No completed games',
+      meta: total ? `Room ${total.join_code}` : '',
+    },
+    {
+      label: 'Biggest win',
+      value: biggest ? `${biggest.margin} runs` : '—',
+      detail: biggest ? `${biggest.winner_name} beat ${biggest.loser_name}` : 'No completed games',
+      meta: biggest ? `Room ${biggest.join_code} · ${biggest.mode}` : '',
+    },
+    {
+      label: 'Closest game',
+      value: closest ? `${closest.margin} run${closest.margin === 1 ? '' : 's'}` : '—',
+      detail: closest ? `${closest.winner_name} edged ${closest.loser_name}` : 'No completed games',
+      meta: closest ? `Room ${closest.join_code}` : '',
+    },
+  ]
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeadRow}>
+        <div>
+          <h3 className={styles.cardTitle}>Score records</h3>
+          <p className={styles.cardSub}>All-time bests from completed games</p>
+        </div>
+      </div>
+
+      {lifetime.games_completed === 0 ? (
+        <p className={styles.empty}>A score record appears after the first completed game.</p>
+      ) : (
+        <div className={styles.records}>
+          {records.map(record => (
+            <div key={record.label} className={styles.recordRow}>
+              <span className={styles.recordLabel}>{record.label}</span>
+              <span className={styles.recordValue}>{record.value}</span>
+              <span className={styles.recordDetail}>{record.detail}</span>
+              <span className={styles.recordMeta}>{record.meta}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className={styles.recordFoot}>
+        <span>
+          <b>{lifetime.games_completed.toLocaleString()}</b> completed
+        </span>
+        <span>
+          <b>{lifetime.ties.toLocaleString()}</b> ties
+        </span>
+        <span>
+          <b>{lifetime.avg_match_minutes !== null ? `${lifetime.avg_match_minutes}m` : '—'}</b>{' '}
+          average game
+        </span>
+      </div>
+    </div>
+  )
+}
+
+const CommunityPanel: React.FC<{ community: CommunityStats }> = ({ community }) => (
+  <div className={styles.card}>
+    <div className={styles.cardHeadRow}>
+      <div>
+        <h3 className={styles.cardTitle}>Community</h3>
+        <p className={styles.cardSub}>Accounts and social activity across the platform</p>
+      </div>
+    </div>
+    <div className={styles.statGrid}>
+      {[
+        { label: 'Accounts', value: community.accounts, hint: 'registered players' },
+        { label: 'Online now', value: community.online_accounts, hint: 'active in 15 min' },
+        { label: 'New accounts', value: community.new_accounts_7d, hint: 'last 7 days' },
+        { label: 'Friendships', value: community.friendships, hint: 'accepted' },
+        { label: 'Direct messages', value: community.direct_messages, hint: 'sent all-time' },
+        { label: 'Achievements', value: community.achievements, hint: 'earned' },
+      ].map(item => (
+        <div key={item.label} className={styles.statTile}>
+          <span className={styles.statLabel}>{item.label}</span>
+          <span className={styles.statValue}>{item.value.toLocaleString()}</span>
+          <span className={styles.statHint}>{item.hint}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+)
 
 const SortHeader: React.FC<{
   label: string
@@ -1301,6 +1616,66 @@ export default function CreatorDashboardPage() {
     ]
   }, [totals, previous, data])
 
+  const lifetimeKpis = useMemo(() => {
+    if (!data) return []
+    const { lifetime, community, feedback, visits } = data
+    const highest = lifetime.highest_team_score
+    return [
+      {
+        label: 'Total games',
+        value: lifetime.games_started.toLocaleString(),
+        hint: `${lifetime.games_completed} completed · ${lifetime.in_progress} live`,
+        accent: 'var(--color-team-a)',
+      },
+      {
+        label: 'Total runs',
+        value: lifetime.runs.toLocaleString(),
+        hint: `${lifetime.deliveries.toLocaleString()} deliveries · ${lifetime.dead_balls} dead`,
+        accent: 'var(--color-warning)',
+      },
+      {
+        label: 'Registered players',
+        value: community.accounts.toLocaleString(),
+        hint: `${community.new_accounts_7d} new in the last 7 days`,
+        accent: 'var(--color-info)',
+      },
+      {
+        label: 'Feedback',
+        value: feedback.total.toLocaleString(),
+        hint:
+          feedback.average_rating !== null
+            ? `${feedback.average_rating.toFixed(1)} / 5 average rating`
+            : 'No ratings yet',
+        accent: 'var(--color-success)',
+      },
+      {
+        label: 'Total visits',
+        value: visits.total_visits.toLocaleString(),
+        hint: `${visits.unique_visitors.toLocaleString()} unique visitors`,
+        accent: 'var(--color-team-b)',
+        spark: visits.activity.map(point => point.visits),
+      },
+      {
+        label: 'Visits today',
+        value: visits.visits_today.toLocaleString(),
+        hint: `${visits.unique_today.toLocaleString()} unique today`,
+        accent: 'var(--color-success)',
+      },
+      {
+        label: 'Highest score',
+        value: highest ? `${highest.runs}/${highest.wickets}` : '—',
+        hint: highest ? highest.team : 'Waiting for the first game',
+        accent: 'var(--color-warning)',
+      },
+      {
+        label: 'Online now',
+        value: community.online_accounts.toLocaleString(),
+        hint: 'accounts active in the last 15 min',
+        accent: 'var(--color-info)',
+      },
+    ]
+  }, [data])
+
   const activeFilterCount = (mode ? 1 : 0) + (date ? 1 : 0)
 
   return (
@@ -1411,27 +1786,6 @@ export default function CreatorDashboardPage() {
           </form>
         )}
 
-        {gate === 'ok' && activeFilterCount > 0 && (
-          <div className={styles.filterBar}>
-            <span className={styles.filterLead}>Filters</span>
-            {mode && (
-              <button type="button" className={styles.filterChip} onClick={() => setMode(null)}>
-                Mode · {mode}
-                <span aria-hidden="true">✕</span>
-              </button>
-            )}
-            {date && (
-              <button type="button" className={styles.filterChip} onClick={clearDate}>
-                Day · {formatDay(date)}
-                <span aria-hidden="true">✕</span>
-              </button>
-            )}
-            <button type="button" className={styles.filterReset} onClick={resetFilters}>
-              Reset all
-            </button>
-          </div>
-        )}
-
         {gate === 'ok' && error && (
           <div className={styles.errorBanner} role="alert">
             <span>{error}</span>
@@ -1443,6 +1797,72 @@ export default function CreatorDashboardPage() {
 
         {gate === 'ok' && data && totals && previous && (
           <>
+            <div className={styles.sectionHead}>
+              <div>
+                <span className={styles.sectionEyebrow}>All-time</span>
+                <h2 className={styles.sectionTitle}>Since launch</h2>
+                <p className={styles.sectionSub}>
+                  Durably recorded games, scores, feedback and visitors — unaffected by the date
+                  range below.
+                </p>
+              </div>
+              <span className={styles.sourceBadge} data-source={data.analytics_source}>
+                {data.analytics_source === 'supabase'
+                  ? 'Logs connected'
+                  : data.analytics_source === 'not_configured'
+                    ? 'Logs not configured'
+                    : 'Logs unavailable'}
+              </span>
+            </div>
+
+            <section className={styles.kpiGrid}>
+              {lifetimeKpis.map(kpi => (
+                <KpiCard key={kpi.label} {...kpi} />
+              ))}
+            </section>
+
+            <section className={styles.gridTwo}>
+              <VisitTrend visits={data.visits} source={data.analytics_source} />
+              <FeedbackPanel feedback={data.feedback} source={data.analytics_source} />
+            </section>
+
+            <section className={styles.gridTwo}>
+              <ScoreRecords lifetime={data.lifetime} />
+              <CommunityPanel community={data.community} />
+            </section>
+
+            <div className={styles.sectionHead}>
+              <div>
+                <span className={styles.sectionEyebrow}>Live report</span>
+                <h2 className={styles.sectionTitle}>Last {days} days</h2>
+                <p className={styles.sectionSub}>
+                  Cross-filterable view of the selected range, including live rooms and recent
+                  fixtures.
+                </p>
+              </div>
+            </div>
+
+            {activeFilterCount > 0 && (
+              <div className={styles.filterBar}>
+                <span className={styles.filterLead}>Filters</span>
+                {mode && (
+                  <button type="button" className={styles.filterChip} onClick={() => setMode(null)}>
+                    Mode · {mode}
+                    <span aria-hidden="true">✕</span>
+                  </button>
+                )}
+                {date && (
+                  <button type="button" className={styles.filterChip} onClick={clearDate}>
+                    Day · {formatDay(date)}
+                    <span aria-hidden="true">✕</span>
+                  </button>
+                )}
+                <button type="button" className={styles.filterReset} onClick={resetFilters}>
+                  Reset all
+                </button>
+              </div>
+            )}
+
             <section className={styles.kpiGrid}>
               {kpis.map(kpi => (
                 <KpiCard key={kpi.label} {...kpi} />

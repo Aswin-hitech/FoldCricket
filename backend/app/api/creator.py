@@ -2,7 +2,7 @@
 Creator dashboard API.
 
 Insights are read-only and gated behind a signed-in creator session.
-Credentials live only on the server (CREATOR_USERNAME / CREATOR_PASSWORD);
+Credentials live only on the server (CREATOR_USERNAME / CREATOR_PASSWORD_HASH);
 a successful login returns a signed, expiring bearer token that the
 dashboard sends as ``Authorization: Bearer``. The optional
 ``X-Creator-Key`` header stays available for automation.
@@ -12,6 +12,7 @@ import hmac
 
 from flask import Blueprint, current_app, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..repositories.insights import get_creator_insights
 from ..security.utils import SimpleRateLimiter
@@ -23,6 +24,10 @@ _login_limiter = SimpleRateLimiter(max_tokens=10, refill_per_second=0.1)
 
 _TOKEN_SALT = "hcl-creator-dashboard"
 
+# Verified for unknown usernames too, so login latency does not reveal
+# whether the username exists.
+_DUMMY_HASH = generate_password_hash("creator-timing-equalizer")
+
 
 def _configured_key() -> str:
     return current_app.config.get("CREATOR_DASHBOARD_KEY", "") or ""
@@ -32,8 +37,8 @@ def _configured_username() -> str:
     return current_app.config.get("CREATOR_USERNAME", "") or ""
 
 
-def _configured_password() -> str:
-    return current_app.config.get("CREATOR_PASSWORD", "") or ""
+def _configured_password_hash() -> str:
+    return current_app.config.get("CREATOR_PASSWORD_HASH", "") or ""
 
 
 def _session_seconds() -> int:
@@ -45,7 +50,7 @@ def _session_seconds() -> int:
 
 
 def _credentials_configured() -> bool:
-    return bool(_configured_username()) and bool(_configured_password())
+    return bool(_configured_username()) and bool(_configured_password_hash())
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -103,9 +108,12 @@ def login():
         return jsonify({"error": "invalid_credentials"}), 401
 
     # Compare both fields so a wrong username and a wrong password take the
-    # same path; never reveal which one failed.
+    # same path; never reveal which one failed. The password is verified
+    # against a scrypt hash, and the hash check runs even for a wrong username
+    # so response timing stays uniform.
+    password_hash = _configured_password_hash() or _DUMMY_HASH
     user_ok = hmac.compare_digest(username.strip(), _configured_username())
-    pass_ok = hmac.compare_digest(password, _configured_password())
+    pass_ok = check_password_hash(password_hash, password)
     if not (user_ok and pass_ok):
         return jsonify({"error": "invalid_credentials"}), 401
 

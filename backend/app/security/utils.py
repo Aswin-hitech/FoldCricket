@@ -105,3 +105,17 @@ chat_rate_limiter = SimpleRateLimiter(max_tokens=10, refill_per_second=2.0)
 join_rate_limiter = SimpleRateLimiter(max_tokens=5, refill_per_second=0.2)
 create_rate_limiter = SimpleRateLimiter(max_tokens=3, refill_per_second=0.1)
 video_call_rate_limiter = SimpleRateLimiter(max_tokens=6, refill_per_second=0.5)
+# ICE trickle sends a short burst of candidates per peer, so the bucket is
+# generous while still capping a runaway client at ~20 signals/second.
+voice_signal_rate_limiter = SimpleRateLimiter(max_tokens=120, refill_per_second=20.0)
+voice_request_rate_limiter = SimpleRateLimiter(max_tokens=6, refill_per_second=0.2)
+register_rate_limiter = SimpleRateLimiter(max_tokens=10, refill_per_second=0.2)
+feedback_rate_limiter = SimpleRateLimiter(max_tokens=3, refill_per_second=0.02)
+room_lookup_rate_limiter = SimpleRateLimiter(max_tokens=60, refill_per_second=1.0)
+
+
+def sanitize_text(value, limit: int) -> str:
+    """Coerce arbitrary client input to a printable string of bounded length."""
+    if not isinstance(value, str):
+        return ""
+    return "".join(ch for ch in value if ch == "\n" or ch == "\t" or ch >= " ").strip()[:limit]

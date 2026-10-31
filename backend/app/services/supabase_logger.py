@@ -18,6 +18,47 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger("supabase_logger")
 
+# Headers that must never reach external storage: credentials, cookies and
+# any key whose name hints at a secret.
+_SENSITIVE_HEADER_PARTS = (
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "token",
+    "api-key",
+    "apikey",
+    "secret",
+    "password",
+    "x-creator",
+)
+
+MAX_HEADER_VALUE_LENGTH = 512
+MAX_METADATA_BYTES = 8192
+
+
+def _clean_headers(headers: Optional[Dict[str, str]]) -> Dict[str, str]:
+    safe: Dict[str, str] = {}
+    for raw_key, raw_value in (headers or {}).items():
+        key = str(raw_key).lower()
+        if any(part in key for part in _SENSITIVE_HEADER_PARTS):
+            continue
+        if len(safe) >= 64:
+            break
+        safe[key] = str(raw_value)[:MAX_HEADER_VALUE_LENGTH]
+    return safe
+
+
+def _clean_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    try:
+        encoded = json.dumps(metadata)
+    except (TypeError, ValueError):
+        return {}
+    if len(encoded.encode("utf-8")) > MAX_METADATA_BYTES:
+        return {"truncated": True}
+    return metadata
+
 
 def get_client_ip(headers: Dict[str, str], remote_addr: Optional[str] = None) -> str:
     """
@@ -131,11 +172,8 @@ def log_ip_event_async(
         # Supabase credentials not configured yet; skip quietly
         return
 
-    safe_headers = dict(headers or {})
-    # Strip any sensitive auth tokens from logged headers
-    for sensitive in ["authorization", "cookie", "token", "x-auth-token"]:
-        safe_headers.pop(sensitive, None)
-        safe_headers.pop(sensitive.upper(), None)
+    safe_headers = _clean_headers(headers)
+    client_metadata = _clean_metadata(client_metadata)
 
     now = datetime.utcnow()
     date_str = now.strftime("%Y-%m-%d")
@@ -149,7 +187,7 @@ def log_ip_event_async(
         "timestamp_utc": now.isoformat() + "Z",
         "date": date_str,
         "headers": safe_headers,
-        "metadata": client_metadata or {},
+        "metadata": client_metadata,
         "geo": {
             "country": safe_headers.get("x-vercel-ip-country"),
             "region": safe_headers.get("x-vercel-ip-country-region"),
@@ -197,10 +235,8 @@ def log_feedback_to_supabase_async(
         logger.info("Supabase not configured for feedback logging, skipping upload.")
         return
 
-    safe_headers = dict(headers or {})
-    for sensitive in ["authorization", "cookie", "token", "x-auth-token"]:
-        safe_headers.pop(sensitive, None)
-        safe_headers.pop(sensitive.upper(), None)
+    safe_headers = _clean_headers(headers)
+    metadata = _clean_metadata(metadata)
 
     now = datetime.utcnow()
     date_str = now.strftime("%Y-%m-%d")

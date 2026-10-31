@@ -26,6 +26,7 @@ from ..domain.models import DeliveryResult, GameMode
 from ..repositories import accounts as accounts_repo
 from ..repositories import memory as repo
 from ..repositories import social as social_repo
+from ..repositories.account_store import UserStoreConflict
 from ..security.utils import validate_display_name
 
 SESSION_DAYS = max(1, int(getattr(Config, "ACCOUNT_SESSION_DAYS", 30)))
@@ -59,7 +60,12 @@ class AccountError(Exception):
 # ---------------------------------------------------------------------------
 
 def validate_username(username: str) -> str:
-    value = (username or "").strip()
+    if not isinstance(username, str):
+        raise AccountError(
+            "username_invalid",
+            message="Username must be 3-20 characters: letters, numbers or underscore.",
+        )
+    value = username.strip()
     if not USERNAME_RE.match(value):
         raise AccountError(
             "username_invalid",
@@ -171,7 +177,8 @@ def register(
     username = validate_username(username)
     password = validate_password(password)
 
-    display_name = (display_name or "").strip() or username
+    display_name = display_name.strip() if isinstance(display_name, str) else ""
+    display_name = display_name or username
     ok, reason = validate_display_name(display_name)
     if not ok:
         raise AccountError(reason, message="Display name must be 1-24 letters, numbers, spaces or . _ -")
@@ -188,7 +195,7 @@ def register(
             friend_code=_generate_friend_code(),
             avatar=avatar,
         )
-    except sqlite3.IntegrityError:
+    except (sqlite3.IntegrityError, UserStoreConflict):
         raise AccountError("username_taken", message="That username is already taken.") from None
 
     accounts_repo.purge_expired_sessions()
@@ -197,7 +204,7 @@ def register(
 
 
 def login(username: str, password: str, user_agent: str = "") -> tuple[dict, str]:
-    username = (username or "").strip()
+    username = username.strip() if isinstance(username, str) else ""
     password = password if isinstance(password, str) else ""
     user = accounts_repo.get_user_by_username(username)
 
@@ -488,8 +495,9 @@ def find_user(identifier: str) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 def _friend_row_payload(row: dict, presence: Optional[dict] = None) -> dict:
-    user = accounts_repo.get_user_by_id(row["id"])
-    summary = _public_summary(user) if user else {}
+    # The list queries already join the account columns _public_summary needs;
+    # reusing them avoids one account lookup per friend.
+    summary = _public_summary(row)
     summary["user_id"] = row["id"]
     summary["friendship_id"] = row.get("friendship_id")
     summary["presence"] = (presence or {}).get(row["id"], {"status": "offline"})
@@ -598,6 +606,12 @@ def record_match_stats(room, match) -> int:
     members = repo.get_room_members(room.id)
     deliveries = [d for d in repo.get_deliveries(match.id) if d.committed]
     players = {m.player_id: repo.get_player(m.player_id) for m in members}
+    user_ids = {
+        getattr(player, "user_id", None)
+        for player in players.values()
+        if player and getattr(player, "user_id", None)
+    }
+    users_by_id = accounts_repo.get_users_by_ids(sorted(user_ids))
 
     recorded = 0
     seen_users: set[str] = set()
@@ -608,7 +622,7 @@ def record_match_stats(room, match) -> int:
         user_id = getattr(player, "user_id", None) if player else None
         if not user_id or user_id in seen_users:
             continue
-        user = accounts_repo.get_user_by_id(user_id)
+        user = users_by_id.get(user_id)
         if not user:
             continue
 

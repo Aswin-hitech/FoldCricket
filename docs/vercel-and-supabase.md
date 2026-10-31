@@ -55,6 +55,34 @@ The feedback is saved asynchronously to:
 
 ---
 
+## 2.1 Player Accounts in Neon Postgres
+
+Player accounts are created and stored by the backend only; the browser keeps
+just an opaque bearer token. Passwords are hashed with Werkzeug (scrypt) and
+session tokens are stored only as SHA-256 hashes. Supabase is still used for
+IP/feedback Storage logs, but account rows live in Neon.
+
+1. In the [Neon dashboard](https://console.neon.tech) copy the **pooled**
+   connection string (it already contains `sslmode=require`).
+2. Set `DATABASE_URL` in the backend environment. Leave `USER_STORE=auto`
+   (the default). The backend creates the account tables on first boot, so no
+   manual SQL step is required.
+   Optional: run
+   [`backend/neon/accounts_schema.sql`](../backend/neon/accounts_schema.sql)
+   once in the Neon SQL Editor if you also want the full user-data schema
+   (friendships, match stats, achievements, DMs, play invites).
+3. Restart the backend and check `GET /health`. `"account_store": "postgres"`
+   confirms the durable store is active.
+
+In `auto` mode the backend probes the two account tables at boot, creates them
+when they are missing, and stays on SQLite only when `DATABASE_URL` is absent or
+the database is unreachable, so sign-in never breaks. Postgres is authoritative;
+the local SQLite file is kept as a mirror so friend lists and user search keep
+working, and both stores are reconciled on every boot. Existing local accounts
+are pushed to Neon on the first boot.
+
+---
+
 ## 3. Deploying the Frontend to Vercel
 
 The frontend is a React + Vite SPA with built-in Vercel serverless functions (`api/log-ip.js`) and SPA rewrite routing (`vercel.json`).
@@ -88,12 +116,14 @@ Because HandCricket Live relies on stateful real-time Socket.IO connections (15s
    - **Root Directory**: `backend`
    - **Environment**: Python 3
    - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn -k eventlet -w 1 run:app --bind 0.0.0.0:$PORT` (or `python run.py`)
+   - **Start Command**: `gunicorn --worker-class gthread --threads 100 --workers 1 --timeout 120 --bind 0.0.0.0:$PORT run:app` (or `python run.py`)
 4. Add Environment Variables:
+   - `DATABASE_URL`: your Neon pooled connection string (`postgresql://...?sslmode=require`)
    - `CORS_ORIGINS`: `https://your-app.vercel.app`
    - `SUPABASE_URL`: `https://your-id.supabase.co`
-   - `SUPABASE_KEY`: `your-supabase-key`
+   - `SUPABASE_SECRET_KEY`: `your-supabase-secret-key` (Storage logs only)
    - `SUPABASE_BUCKET_NAME`: `ip-logs`
+   - `USER_STORE`: `auto` (Postgres when Neon is reachable, SQLite otherwise)
 5. Copy your Render web service URL (e.g. `https://handcricket-live-api.onrender.com`) and paste it as `VITE_BACKEND_URL` in your Vercel project settings!
 
 ---

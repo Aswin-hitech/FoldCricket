@@ -6,6 +6,27 @@ from __future__ import annotations
 
 import os
 
+from werkzeug.security import generate_password_hash
+
+# Werkzeug scrypt hash of the built-in dashboard password. The plaintext is
+# never stored in code or config; override with CREATOR_PASSWORD_HASH (preferred)
+# or the legacy CREATOR_PASSWORD, which is hashed in memory at startup.
+_DEFAULT_CREATOR_PASSWORD_HASH = (
+    "scrypt:32768:8:1$qcVqYTV2asJy7AQX$"
+    "df7d9c50a0f712065bfdd4c3e8ab084ddaca2537ae7f3a1615ea2569e81c79be"
+    "36dcd8e70cd72dcff570f9003ded774a056070f0d28be0bde9a2e58df9b82d96"
+)
+
+_creator_password_env = os.getenv("CREATOR_PASSWORD", "")
+_creator_password_hash_env = os.getenv("CREATOR_PASSWORD_HASH", "").strip()
+if _creator_password_hash_env:
+    _CREATOR_PASSWORD_HASH = _creator_password_hash_env
+elif _creator_password_env:
+    _CREATOR_PASSWORD_HASH = generate_password_hash(_creator_password_env)
+else:
+    _CREATOR_PASSWORD_HASH = _DEFAULT_CREATOR_PASSWORD_HASH
+del _creator_password_env
+
 
 class Config:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-change-in-production")
@@ -41,11 +62,12 @@ class Config:
     SOCKETIO_ASYNC_MODE: str = os.getenv("SOCKETIO_ASYNC_MODE", "threading")
 
     # Creator dashboard. The creator signs in with these credentials; the
-    # server issues a signed, expiring bearer token. Override both values
-    # in the environment for any real deployment. The optional
-    # CREATOR_DASHBOARD_KEY remains an automation-only bypass header.
+    # server issues a signed, expiring bearer token. Only a password hash is
+    # kept (never the plaintext). Override both values in the environment for
+    # any real deployment. The optional CREATOR_DASHBOARD_KEY remains an
+    # automation-only bypass header.
     CREATOR_USERNAME: str = os.getenv("CREATOR_USERNAME", "aswin_dashboard")
-    CREATOR_PASSWORD: str = os.getenv("CREATOR_PASSWORD", "12345678")
+    CREATOR_PASSWORD_HASH: str = _CREATOR_PASSWORD_HASH
     CREATOR_SESSION_HOURS: int = int(os.getenv("CREATOR_SESSION_HOURS", "12"))
     CREATOR_DASHBOARD_KEY: str = os.getenv("CREATOR_DASHBOARD_KEY", "")
 
@@ -54,6 +76,19 @@ class Config:
     # Bearer. 30 days of inactivity expires a session.
     ACCOUNT_SESSION_DAYS: int = int(os.getenv("ACCOUNT_SESSION_DAYS", "30"))
 
+    # Account storage. "sqlite" keeps accounts in the local file, "postgres"
+    # stores them in Neon Postgres (tables are created automatically on first
+    # boot; see neon/accounts_schema.sql for the full user-data schema), and
+    # "auto" uses Postgres when DATABASE_URL is set, otherwise the local file.
+    USER_STORE: str = os.getenv("USER_STORE", "auto").strip().lower()
+
+    # Neon Postgres connection string used for player accounts. Neon provides
+    # this in the dashboard; keep the pooled URL if available.
+    DATABASE_URL: str = (
+        os.getenv("DATABASE_URL", "").strip()
+        or os.getenv("NEON_DATABASE_URL", "").strip()
+    )
+
     # Game rules (20-second authoritative server deadline per delivery)
     DELIVERY_TIMEOUT_SECONDS: int = int(os.getenv("DELIVERY_TIMEOUT_SECONDS", "20"))
     INNINGS_BREAK_SECONDS: int = int(os.getenv("INNINGS_BREAK_SECONDS", "10"))
@@ -61,7 +96,7 @@ class Config:
     ALLOWED_OVERS: list[int] = [int(x) for x in os.getenv("ALLOWED_OVERS", "1,2,5,10").split(",")]
     ROOM_CAPACITY: int = int(os.getenv("ROOM_CAPACITY", "20"))
 
-    # Supabase IP Logging
+    # Supabase IP Logging & Storage
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = (
         os.getenv("SUPABASE_SECRET_KEY")

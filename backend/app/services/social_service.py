@@ -121,10 +121,7 @@ def _message_payload(message: dict, viewer_id: str) -> dict:
 def thread_list(user: dict) -> dict:
     rows = social_repo.list_threads(user["id"])
     unread = social_repo.unread_counts(user["id"])
-    peers = {
-        row["peer_id"]: accounts_repo.get_user_by_id(row["peer_id"])
-        for row in rows
-    }
+    peers = accounts_repo.get_users_by_ids([row["peer_id"] for row in rows])
     presence = _presence_for([pid for pid in peers if pid])
 
     threads = []

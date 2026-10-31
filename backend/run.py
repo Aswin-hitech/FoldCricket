@@ -1,4 +1,11 @@
 import os
+
+from dotenv import load_dotenv
+
+# Load .env before Config is evaluated so DATABASE_URL and the other settings
+# apply locally and on hosts that inject environment variables.
+load_dotenv()
+
 from app import create_app
 from app.extensions import socketio
 

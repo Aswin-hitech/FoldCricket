@@ -39,14 +39,27 @@ _memberships_cache: dict[str, list[Membership]] = {}
 _matches_cache: dict[str, Match] = {}
 _deliveries_cache: dict[str, list[Delivery]] = {}
 
-# Database path configurable via SQLITE_PATH or DATABASE_URL
+# Database path configurable via SQLITE_PATH (or a legacy sqlite:/// DATABASE_URL).
+# A Postgres DATABASE_URL must never be mistaken for a local file path.
 DEFAULT_DB_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "handcricket.db",
 )
-DB_PATH = os.getenv("SQLITE_PATH", os.getenv("DATABASE_URL", DEFAULT_DB_PATH))
-if DB_PATH.startswith("sqlite:///"):
-    DB_PATH = DB_PATH.replace("sqlite:///", "")
+
+
+def _resolve_db_path() -> str:
+    explicit = os.getenv("SQLITE_PATH", "").strip()
+    if explicit:
+        return explicit[len("sqlite:///"):] if explicit.startswith("sqlite:///") else explicit
+    legacy = os.getenv("DATABASE_URL", "").strip()
+    if legacy.startswith("sqlite:///"):
+        return legacy[len("sqlite:///"):]
+    if legacy and "://" not in legacy:
+        return legacy
+    return DEFAULT_DB_PATH
+
+
+DB_PATH = _resolve_db_path()
 
 
 @contextlib.contextmanager

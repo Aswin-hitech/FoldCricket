@@ -14,9 +14,20 @@ services:
         value: "false"
       - key: CORS_ORIGINS
         sync: false
+      # Neon Postgres connection string for player accounts, e.g.
+      # postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require
+      - key: DATABASE_URL
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SECRET_KEY
         sync: false
       - key: SUPABASE_BUCKET_NAME
         value: "ip-logs"
+      # Account storage: "auto" activates Neon Postgres as soon as DATABASE_URL
+      # is set (the account tables are created automatically on first boot)
+      # and otherwise falls back to the local SQLite file so sign-in never breaks.
+      - key: USER_STORE
+        value: "auto"
+      # Optional: set CREATOR_PASSWORD_HASH (scrypt hash) instead of a
+      # plaintext CREATOR_PASSWORD in the Render dashboard.

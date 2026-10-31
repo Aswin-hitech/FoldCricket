@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 
 from .config import Config
 from .extensions import cors, socketio
@@ -15,6 +15,29 @@ def create_app(config: type = Config) -> Flask:
     # every deep link (e.g. /room/<id>/arena) on refresh, so it is disabled.
     app = Flask(__name__, static_folder=None)
     app.config.from_object(config)
+
+    if (
+        not app.config.get("DEBUG")
+        and app.config.get("SECRET_KEY") == "dev-secret-change-in-production"
+    ):
+        app.logger.warning(
+            "SECRET_KEY is still the development default; set SECRET_KEY before deploying."
+        )
+
+    # Account rows live in Neon Postgres when DATABASE_URL is configured and
+    # provisioned; otherwise they stay in the local SQLite file. The local
+    # mirror is synced once at boot so friend lists and user search keep working.
+    from .repositories import account_store
+
+    account_store.configure(app.config)
+    app.logger.info("Account store: %s", account_store.active_backend())
+    if account_store.is_postgres():
+        try:
+            account_store.reconcile()
+        except Exception:
+            app.logger.exception(
+                "Postgres account sync failed; continuing with the local mirror."
+            )
 
     # Extensions
     if config.CORS_ORIGINS == "*":
@@ -48,6 +71,21 @@ def create_app(config: type = Config) -> Flask:
     app.register_blueprint(accounts_bp, url_prefix="/api")
     app.register_blueprint(social_bp, url_prefix="/api")
 
+    from .repositories.postgres_accounts import PostgresStoreError
+
+    @app.errorhandler(PostgresStoreError)
+    def _account_store_unavailable(error):
+        app.logger.error("Account store unavailable: %s", error)
+        return (
+            jsonify(
+                {
+                    "error": "account_store_unavailable",
+                    "message": "Sign-in is temporarily unavailable. Please try again.",
+                }
+            ),
+            503,
+        )
+
     # Socket handlers
     from .sockets import events  # noqa: F401 – registers handlers as a side effect
 
@@ -57,6 +95,18 @@ def create_app(config: type = Config) -> Flask:
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+        # Baseline browser hardening. HSTS is only meaningful (and only safe)
+        # when the request actually arrived over TLS.
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(self), microphone=(self), geolocation=()"
+        )
+        if request.is_secure:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
         return response
 
     # Serve React SPA if dist exists

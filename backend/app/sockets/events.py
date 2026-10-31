@@ -6,6 +6,7 @@ All game logic is delegated to the service layer.
 from __future__ import annotations
 
 import html
+import json
 import logging
 import threading
 import time
@@ -23,10 +24,15 @@ from ..repositories import memory as repo
 from ..security.utils import (
     chat_rate_limiter,
     create_rate_limiter,
+    feedback_rate_limiter,
     join_rate_limiter,
+    register_rate_limiter,
+    sanitize_text,
     validate_chat_message,
     validate_display_name,
     video_call_rate_limiter,
+    voice_request_rate_limiter,
+    voice_signal_rate_limiter,
 )
 from ..services import room_service
 from ..services import accounts_service
@@ -536,8 +542,15 @@ def _start_grace_timer(player_id: str, room_id: str) -> None:
 
 @socketio.on("player:register")
 def on_register(data):
-    display_name = (data or {}).get("display_name", "").strip()
-    session_token = (data or {}).get("session_token", "").strip() or None
+    if not register_rate_limiter.allow(request.sid):
+        return emit("player:registered", _err("rate_limited"))
+    data = data if isinstance(data, dict) else {}
+    raw_name = data.get("display_name", "")
+    display_name = raw_name.strip() if isinstance(raw_name, str) else ""
+    raw_token = data.get("session_token", "")
+    if not isinstance(raw_token, str) or len(raw_token) > 128:
+        return emit("player:registered", _err("invalid_session_token"))
+    session_token = raw_token.strip() or None
     account = _resolve_account(data)
     if not display_name and account:
         display_name = account["display_name"]
@@ -610,14 +623,20 @@ def on_player_restore(data):
 def on_room_create(data):
     if not create_rate_limiter.allow(request.sid):
         return emit("room:created", _err("rate_limited"))
+    data = data if isinstance(data, dict) else {}
 
     player = _get_or_register_player(data)
     if not player:
         return emit("room:created", _err("not_authenticated"))
 
-    mode = (data or {}).get("mode", "SOLO")
-    overs = int((data or {}).get("overs", 2))
-    wickets = (data or {}).get("wickets")
+    mode = data.get("mode", "SOLO")
+    if not isinstance(mode, str):
+        mode = "SOLO"
+    try:
+        overs = int(data.get("overs", 2))
+    except (TypeError, ValueError):
+        return emit("room:created", _err("overs_not_allowed"))
+    wickets = data.get("wickets")
 
     try:
         room, membership = room_service.create_room(player, mode, overs, wickets)
@@ -638,13 +657,15 @@ def on_room_create(data):
 def on_room_join(data):
     if not join_rate_limiter.allow(request.sid):
         return emit("room:joined", _err("rate_limited"))
+    data = data if isinstance(data, dict) else {}
 
     player = _get_or_register_player(data)
     if not player:
         return emit("room:joined", _err("not_authenticated"))
 
-    join_code = ((data or {}).get("join_code") or "").strip().upper()
-    as_spectator = bool((data or {}).get("as_spectator", False))
+    raw_code = data.get("join_code")
+    join_code = raw_code.strip().upper() if isinstance(raw_code, str) else ""
+    as_spectator = bool(data.get("as_spectator", False))
 
     try:
         room, membership = room_service.join_room(player, join_code, as_spectator=as_spectator)
@@ -663,24 +684,36 @@ def on_room_join(data):
 
 @socketio.on("room:sync")
 def on_room_sync(data):
-    token = ((data or {}).get("session_token") or "").strip()
-    room_id = (data or {}).get("room_id", "")
+    data = data if isinstance(data, dict) else {}
+    raw_token = data.get("session_token")
+    token = raw_token.strip() if isinstance(raw_token, str) else ""
+    room_id = data.get("room_id", "")
+    if not isinstance(room_id, str):
+        return emit("room:error", _err("room_not_found"))
 
     player = repo.get_player_by_session(token) if token else _require_player()
     if not player:
         return emit("room:error", _err("not_authenticated"))
+
+    room = repo.get_room(room_id)
+    if not room:
+        return emit("room:error", _err("room_not_found"))
+
+    # Snapshots and live room events are only for members. Without this check
+    # any player could subscribe to a room and watch its chat/voice traffic.
+    mem = repo.get_membership(room.id, player.id)
+    if not mem:
+        return emit("room:error", _err("not_in_room"))
 
     _link_player_account(player, data)
     repo.update_player_socket(player.id, request.sid)
     player.connection_state = ConnectionState.CONNECTED
     repo.save_player(player)
 
-    room = repo.get_room(room_id)
-    if room:
-        join_room(room.id)
-        _handle_player_reconnected(room.id, player.id)
-        snapshot = room_service.get_room_snapshot(room.id, player.id)
-        emit("room:snapshot", snapshot)
+    join_room(room.id)
+    _handle_player_reconnected(room.id, player.id)
+    snapshot = room_service.get_room_snapshot(room.id, player.id)
+    emit("room:snapshot", snapshot)
 
 
 def _get_or_register_player(data: dict | None):
@@ -1138,13 +1171,29 @@ def on_voice_mode(data):
     if not player:
         return emit("voice:mode_ack", _err("not_authenticated"))
 
-    room_id = (data or {}).get("room_id", "")
-    mode = (data or {}).get("mode", "EVERYONE")
-    allowed = (data or {}).get("allowed_recipients", [])
+    data = data if isinstance(data, dict) else {}
+    room_id = data.get("room_id", "")
+    mode = data.get("mode", "EVERYONE")
+    allowed = data.get("allowed_recipients", [])
+
+    # Current clients send EVERYONE / CUSTOM / TEAM_ONLY; MUTED and
+    # SELECTED_PLAYERS are kept for older clients and the stored defaults.
+    if mode not in ("EVERYONE", "CUSTOM", "TEAM_ONLY", "MUTED", "SELECTED_PLAYERS"):
+        return emit("voice:mode_ack", _err("invalid_voice_mode"))
+    if not isinstance(allowed, list):
+        allowed = []
 
     mem = repo.get_membership(room_id, player.id)
     if not mem:
         return emit("voice:mode_ack", _err("not_in_room"))
+
+    # A recipient list can only name current members of this room.
+    member_ids = {m.player_id for m in repo.get_room_members(room_id)}
+    allowed = [
+        pid
+        for pid in dict.fromkeys(allowed)
+        if isinstance(pid, str) and pid in member_ids and pid != player.id
+    ][:64]
 
     mem.voice_mode = mode
     mem.allowed_recipients = allowed
@@ -1159,9 +1208,28 @@ def on_voice_signal(data):
     if not player:
         return
 
-    room_id = (data or {}).get("room_id", "")
-    target_id = (data or {}).get("target_player_id") or (data or {}).get("target_id")
-    if not room_id or not target_id:
+    data = data if isinstance(data, dict) else {}
+    room_id = data.get("room_id", "")
+    target_id = data.get("target_player_id") or data.get("target_id")
+    if not room_id or not target_id or not isinstance(target_id, str):
+        return
+
+    if not voice_signal_rate_limiter.allow(player.id):
+        emit("voice:error", _err("rate_limited"))
+        return
+
+    signal = data.get("signal")
+    if not isinstance(signal, (dict, str)):
+        emit("voice:error", _err("invalid_signal"))
+        return
+    try:
+        signal_size = len(json.dumps(signal))
+    except (TypeError, ValueError):
+        emit("voice:error", _err("invalid_signal"))
+        return
+    # SDP offers/answers are a few KB; anything larger is not a real signal.
+    if signal_size > 65536:
+        emit("voice:error", _err("signal_too_large"))
         return
 
     # Authoritative server-side routing & permission enforcement
@@ -1175,7 +1243,7 @@ def on_voice_signal(data):
             "voice:signal",
             {
                 "from_player_id": player.id,
-                "signal": (data or {}).get("signal"),
+                "signal": signal,
                 "timestamp": int(datetime.utcnow().timestamp() * 1000),
             },
             to=target_player.socket_id,
@@ -1187,6 +1255,8 @@ def on_voice_cross_team_request(data):
     player = _require_player()
     if not player:
         return emit("voice:cross_team_ack", _err("not_authenticated"))
+    if not voice_request_rate_limiter.allow(player.id):
+        return emit("voice:cross_team_ack", _err("rate_limited"))
 
     room_id = (data or {}).get("room_id", "")
     target_id = (data or {}).get("target_id", "")
@@ -1380,17 +1450,23 @@ def on_match_settings(data):
     if room.status not in ("LOBBY_READY", "WAITING_FOR_PLAYERS", "RULEBOOK_REQUIRED"):
         return emit("settings:updated", _err("match_already_started"))
 
-    overs = (data or {}).get("overs")
+    overs = data.get("overs") if isinstance(data, dict) else None
     if overs is not None:
-        overs_int = int(overs)
+        try:
+            overs_int = int(overs)
+        except (TypeError, ValueError):
+            return emit("settings:updated", _err("overs_must_be_between_1_and_10"))
         if not (1 <= overs_int <= 10):
             return emit("settings:updated", _err("overs_must_be_between_1_and_10"))
         room.overs = overs_int
 
-    wickets = (data or {}).get("wickets")
+    wickets = data.get("wickets") if isinstance(data, dict) else None
     if wickets is not None:
         max_wickets = 5 if room.mode == GameMode.SOLO else 10
-        w_int = int(wickets)
+        try:
+            w_int = int(wickets)
+        except (TypeError, ValueError):
+            return emit("settings:updated", _err(f"wickets_must_be_between_1_and_{max_wickets}"))
         if not (1 <= w_int <= max_wickets):
             return emit("settings:updated", _err(f"wickets_must_be_between_1_and_{max_wickets}"))
         room.wickets = w_int
@@ -1441,9 +1517,13 @@ def on_voice_state(data):
     player = _require_player()
     if not player:
         return
-    room_id = (data or {}).get("room_id", "")
-    is_speaking = bool((data or {}).get("is_speaking", False))
-    is_muted = bool((data or {}).get("is_muted", True))
+    data = data if isinstance(data, dict) else {}
+    room_id = data.get("room_id", "")
+    mem = repo.get_membership(room_id, player.id)
+    if not mem:
+        return
+    is_speaking = bool(data.get("is_speaking", False))
+    is_muted = bool(data.get("is_muted", True))
     socketio.emit(
         "voice:state_changed",
         {
@@ -1639,8 +1719,29 @@ def on_match_resume(data):
 @socketio.on("feedback:submit")
 def on_feedback_submit(data):
     player = _require_player()
-    player_id = player.id if player else (data or {}).get("player_id", "unknown")
-    player_name = player.display_name if player else (data or {}).get("player_name", "Anonymous Player")
+    data = data if isinstance(data, dict) else {}
+    player_id = player.id if player else (sanitize_text(data.get("player_id"), 64) or "unknown")
+    player_name = sanitize_text(
+        player.display_name if player else data.get("player_name"), 48
+    ) or "Anonymous Player"
+
+    if not feedback_rate_limiter.allow(player.id if player else f"sid:{request.sid}"):
+        return emit("feedback:ack", _err("rate_limited"))
+
+    raw_rating = data.get("rating", 5)
+    try:
+        rating = int(raw_rating)
+    except (TypeError, ValueError):
+        rating = 5
+    rating = max(1, min(5, rating))
+
+    raw_categories = data.get("categories", [])
+    categories = (
+        [sanitize_text(c, 32) for c in raw_categories if isinstance(c, str)][:10]
+        if isinstance(raw_categories, list)
+        else []
+    )
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
 
     headers = {k.lower(): v for k, v in request.headers.items()}
     client_ip = get_client_ip(headers, request.remote_addr)
@@ -1648,13 +1749,13 @@ def on_feedback_submit(data):
     log_feedback_to_supabase_async(
         player_id=player_id,
         player_name=player_name,
-        rating=int((data or {}).get("rating", 5)),
-        feedback_text=(data or {}).get("feedback_text", "").strip(),
-        categories=(data or {}).get("categories", []),
-        room_code=(data or {}).get("room_code"),
+        rating=rating,
+        feedback_text=sanitize_text(data.get("feedback_text", ""), 2000),
+        categories=categories,
+        room_code=sanitize_text(data.get("room_code"), 16) or None,
         client_ip=client_ip,
         headers=headers,
-        metadata=(data or {}).get("metadata", {}),
+        metadata=metadata,
     )
     emit("feedback:ack", _ok({"message": "feedback_saved"}))
 

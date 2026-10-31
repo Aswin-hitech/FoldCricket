@@ -1,220 +1,40 @@
 """
 Account, session, friendship, match-stat and achievement persistence.
 
-Kept separate from the gameplay repository: these rows are durable and are
-never purged with finished rooms/players, so profile stats survive room
-cleanup and process restarts.
+User and session rows are owned by ``account_store`` so they can live in the
+Neon Postgres database; everything below (friendships, stats, achievements)
+stays in the local repository and is keyed by the same user id.
+These rows are durable and are never purged with finished rooms/players, so
+profile stats survive room cleanup and process restarts.
 """
 
 from __future__ import annotations
 
-import sqlite3
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from .sqlite import _get_connection, _lock
-
-_USER_COLUMNS = (
-    "id, username, display_name, password_hash, friend_code, avatar, bio, "
-    "default_mode, default_overs, default_wickets, created_at, updated_at"
+from .account_store import (
+    create_session,
+    create_user,
+    delete_other_sessions,
+    delete_session,
+    friend_code_exists,
+    get_session,
+    get_user_by_friend_code,
+    get_user_by_id,
+    get_user_by_username,
+    get_users_by_ids,
+    purge_expired_sessions,
+    touch_session,
+    update_user,
+    username_exists,
 )
+from .sqlite import _get_connection, _lock
 
 
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
-
-
-def _row_to_user(row: sqlite3.Row) -> dict:
-    return {
-        "id": row["id"],
-        "username": row["username"],
-        "display_name": row["display_name"],
-        "password_hash": row["password_hash"],
-        "friend_code": row["friend_code"],
-        "avatar": row["avatar"],
-        "bio": row["bio"],
-        "default_mode": row["default_mode"],
-        "default_overs": row["default_overs"],
-        "default_wickets": row["default_wickets"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-    }
-
-
-# ---------------------------------------------------------------------------
-# Users
-# ---------------------------------------------------------------------------
-
-def create_user(
-    *,
-    username: str,
-    display_name: str,
-    password_hash: str,
-    friend_code: str,
-    avatar: str,
-) -> dict:
-    user_id = str(uuid.uuid4())
-    now = _now_iso()
-    with _lock, _get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO users (
-                id, username, display_name, password_hash, friend_code, avatar,
-                bio, default_mode, default_overs, default_wickets, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, '', 'SOLO', 2, 1, ?, ?)
-            """,
-            (user_id, username, display_name, password_hash, friend_code, avatar, now, now),
-        )
-        row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _row_to_user(row)
-
-
-def get_user_by_id(user_id: str) -> Optional[dict]:
-    if not user_id:
-        return None
-    with _lock, _get_connection() as conn:
-        row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _row_to_user(row) if row else None
-
-
-def get_user_by_username(username: str) -> Optional[dict]:
-    if not username:
-        return None
-    with _lock, _get_connection() as conn:
-        row = conn.execute(
-            f"SELECT {_USER_COLUMNS} FROM users WHERE username = ? COLLATE NOCASE",
-            (username.strip(),),
-        ).fetchone()
-    return _row_to_user(row) if row else None
-
-
-def get_user_by_friend_code(code: str) -> Optional[dict]:
-    if not code:
-        return None
-    with _lock, _get_connection() as conn:
-        row = conn.execute(
-            f"SELECT {_USER_COLUMNS} FROM users WHERE friend_code = ?",
-            (code.strip().upper(),),
-        ).fetchone()
-    return _row_to_user(row) if row else None
-
-
-def friend_code_exists(code: str) -> bool:
-    with _lock, _get_connection() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM users WHERE friend_code = ?", (code.upper(),)
-        ).fetchone()
-    return row is not None
-
-
-def username_exists(username: str) -> bool:
-    with _lock, _get_connection() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM users WHERE username = ? COLLATE NOCASE", (username,)
-        ).fetchone()
-    return row is not None
-
-
-def update_user(user_id: str, fields: dict) -> Optional[dict]:
-    allowed = {
-        "display_name",
-        "avatar",
-        "bio",
-        "default_mode",
-        "default_overs",
-        "default_wickets",
-        "password_hash",
-    }
-    updates = {k: v for k, v in fields.items() if k in allowed}
-    if not updates:
-        return get_user_by_id(user_id)
-    updates["updated_at"] = _now_iso()
-    assignments = ", ".join(f"{key} = ?" for key in updates)
-    values = list(updates.values()) + [user_id]
-    with _lock, _get_connection() as conn:
-        conn.execute(f"UPDATE users SET {assignments} WHERE id = ?", values)
-        row = conn.execute(f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _row_to_user(row) if row else None
-
-
-# ---------------------------------------------------------------------------
-# Sessions
-# ---------------------------------------------------------------------------
-
-def create_session(
-    *,
-    user_id: str,
-    token_hash: str,
-    user_agent: str,
-    expires_at: str,
-) -> dict:
-    session_id = str(uuid.uuid4())
-    now = _now_iso()
-    with _lock, _get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO user_sessions (
-                id, user_id, token_hash, user_agent, created_at, last_used_at, expires_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (session_id, user_id, token_hash, user_agent[:255], now, now, expires_at),
-        )
-    return {"id": session_id, "user_id": user_id, "expires_at": expires_at}
-
-
-def get_session(token_hash: str) -> Optional[dict]:
-    if not token_hash:
-        return None
-    with _lock, _get_connection() as conn:
-        row = conn.execute(
-            """
-            SELECT s.id AS session_id, s.user_id AS session_user_id,
-                   s.expires_at AS session_expires_at, s.last_used_at AS session_last_used_at,
-                   u.id, u.username, u.display_name, u.password_hash, u.friend_code,
-                   u.avatar, u.bio, u.default_mode, u.default_overs, u.default_wickets,
-                   u.created_at, u.updated_at
-            FROM user_sessions s
-            JOIN users u ON u.id = s.user_id
-            WHERE s.token_hash = ?
-            """,
-            (token_hash,),
-        ).fetchone()
-    if not row:
-        return None
-    user = _row_to_user(row)
-    user["session_id"] = row["session_id"]
-    user["session_expires_at"] = row["session_expires_at"]
-    user["session_last_used_at"] = row["session_last_used_at"]
-    return user
-
-
-def touch_session(session_id: str, expires_at: str) -> None:
-    with _lock, _get_connection() as conn:
-        conn.execute(
-            "UPDATE user_sessions SET last_used_at = ?, expires_at = ? WHERE id = ?",
-            (_now_iso(), expires_at, session_id),
-        )
-
-
-def delete_session(token_hash: str) -> None:
-    with _lock, _get_connection() as conn:
-        conn.execute("DELETE FROM user_sessions WHERE token_hash = ?", (token_hash,))
-
-
-def delete_other_sessions(user_id: str, keep_session_id: str) -> None:
-    with _lock, _get_connection() as conn:
-        conn.execute(
-            "DELETE FROM user_sessions WHERE user_id = ? AND id != ?",
-            (user_id, keep_session_id),
-        )
-
-
-def purge_expired_sessions() -> None:
-    with _lock, _get_connection() as conn:
-        conn.execute("DELETE FROM user_sessions WHERE expires_at < ?", (_now_iso(),))
 
 
 # ---------------------------------------------------------------------------

@@ -202,6 +202,86 @@ def test_lifetime_stats_survive_the_hourly_purge():
     assert lifetime["highest_team_score"]["runs"] == 7
 
 
+def _insert_stats_only_match(match_id="legacy-match", room_id="legacy-room"):
+    """A completed game that survives only in the per-player stats rows."""
+    now = datetime.utcnow()
+    with _get_connection() as conn:
+        for index, (runs, balls) in enumerate(((6, 2), (2, 1))):
+            conn.execute(
+                """
+                INSERT INTO user_match_stats (
+                    id, user_id, match_id, room_id, mode, team, result, opponent_name,
+                    runs_scored, wickets_taken, wickets_lost, balls_faced, balls_bowled,
+                    dead_balls, super_over, overs, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"stat-{index}",
+                    f"user-{index}",
+                    match_id,
+                    room_id,
+                    "SOLO",
+                    "A" if index == 0 else "B",
+                    "WIN" if index == 0 else "LOSS",
+                    "Opponent",
+                    runs,
+                    0,
+                    0,
+                    balls,
+                    0,
+                    0,
+                    0,
+                    2,
+                    (now - timedelta(minutes=5 - index)).isoformat(),
+                ),
+            )
+
+
+def test_stats_only_completed_games_are_counted_without_inventing_a_scorecard():
+    _insert_stats_only_match()
+
+    from app.repositories import sqlite as sqlite_repo
+
+    sqlite_repo.backfill_match_history()
+    # Re-running the backfill must not double-count the recovered match.
+    sqlite_repo.backfill_match_history()
+
+    lifetime = get_creator_insights(7)["lifetime"]
+    assert lifetime["games_started"] == 1
+    assert lifetime["games_completed"] == 1
+    assert lifetime["unfinished"] == 0
+    assert lifetime["legacy_games"] == 1
+    assert lifetime["solo_games"] == 1
+    assert lifetime["ties"] == 0
+    assert lifetime["runs"] == 8
+    assert lifetime["deliveries"] == 3
+    # No scoreline exists for this game, so nothing may be presented as one.
+    assert lifetime["highest_team_score"] is None
+    assert lifetime["highest_total"] is None
+    assert lifetime["biggest_win"] is None
+    assert lifetime["closest_game"] is None
+    assert lifetime["recent_completed"] == []
+
+
+def test_unfinished_matches_are_counted_separately_from_completed_games():
+    room, _, _, _ = _seed_finished_match()
+    abandoned = Match(
+        room_id=room.id,
+        overs=2,
+        wickets=2,
+        team_a_name="Half Team",
+        team_b_name="Other Half",
+    )
+    repo.save_match(abandoned)
+
+    lifetime = get_creator_insights(7)["lifetime"]
+    assert lifetime["games_started"] == 2
+    assert lifetime["games_completed"] == 1
+    assert lifetime["unfinished"] == 1
+    assert lifetime["legacy_games"] == 0
+    assert lifetime["runs"] == 12
+
+
 def test_mode_filter_narrows_matches_deliveries_and_leaderboards():
     _seed_finished_match()
     _seed_solo_match()

@@ -152,6 +152,8 @@ export interface CompletedGame {
 export interface LifetimeStats {
   games_started: number
   games_completed: number
+  unfinished: number
+  legacy_games: number
   in_progress: number
   ties: number
   solo_games: number

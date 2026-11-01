@@ -183,25 +183,37 @@ def _score_record(row) -> Optional[dict]:
 
 
 def _lifetime_stats(conn) -> dict:
-    """All-time totals from the non-purging match_history table."""
+    """All-time totals from the non-purging match_history table.
+
+    ``completed_at`` marks a finished match: a row recovered from per-player
+    stats has no scorecard (``score_known = 0``) but is still a real completed
+    game and must be counted. Score records only ever come from rows that kept
+    their full scorecard.
+    """
     totals = conn.execute(
         """
         SELECT
             COUNT(*) AS games_started,
-            COALESCE(SUM(CASE WHEN winner IS NOT NULL THEN 1 ELSE 0 END), 0) AS games_completed,
-            COALESCE(SUM(CASE WHEN winner = 'TIE' THEN 1 ELSE 0 END), 0) AS ties,
-            COALESCE(SUM(CASE WHEN winner IS NOT NULL AND mode = 'SOLO' THEN 1 ELSE 0 END), 0) AS solo_games,
-            COALESCE(SUM(CASE WHEN winner IS NOT NULL AND mode = 'TEAM' THEN 1 ELSE 0 END), 0) AS team_games,
-            COALESCE(SUM(CASE WHEN winner IS NOT NULL
-                THEN team_a_runs + team_b_runs ELSE 0 END), 0) AS runs,
-            COALESCE(SUM(CASE WHEN winner IS NOT NULL THEN
+            COALESCE(SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS games_completed,
+            COALESCE(SUM(CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END), 0) AS unfinished,
+            COALESCE(SUM(CASE WHEN score_known = 0 AND completed_at IS NOT NULL
+                THEN 1 ELSE 0 END), 0) AS legacy_games,
+            COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND winner = 'TIE'
+                THEN 1 ELSE 0 END), 0) AS ties,
+            COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND mode = 'SOLO'
+                THEN 1 ELSE 0 END), 0) AS solo_games,
+            COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND mode = 'TEAM'
+                THEN 1 ELSE 0 END), 0) AS team_games,
+            COALESCE(SUM(CASE WHEN completed_at IS NOT NULL
+                THEN total_runs ELSE 0 END), 0) AS runs,
+            COALESCE(SUM(CASE WHEN completed_at IS NOT NULL THEN
                 CASE WHEN EXISTS(SELECT 1 FROM deliveries d
                                  WHERE d.match_id = match_history.match_id)
                     THEN (SELECT COUNT(*) FROM deliveries d
                           WHERE d.match_id = match_history.match_id)
                     ELSE deliveries END
                 ELSE 0 END), 0) AS deliveries,
-            COALESCE(SUM(CASE WHEN winner IS NOT NULL THEN
+            COALESCE(SUM(CASE WHEN completed_at IS NOT NULL THEN
                 CASE WHEN EXISTS(SELECT 1 FROM deliveries d
                                  WHERE d.match_id = match_history.match_id)
                     THEN (SELECT COUNT(*) FROM deliveries d
@@ -219,7 +231,8 @@ def _lifetime_stats(conn) -> dict:
         """
         SELECT AVG((julianday(completed_at) - julianday(started_at)) * 1440.0)
         FROM match_history
-        WHERE winner IS NOT NULL AND completed_at IS NOT NULL
+        WHERE completed_at IS NOT NULL AND duration_known = 1
+          AND julianday(completed_at) > julianday(started_at)
         """
     ).fetchone()[0]
 
@@ -239,12 +252,12 @@ def _lifetime_stats(conn) -> dict:
             SELECT team_a_name AS team, team_a_runs AS runs, team_a_wickets AS wickets,
                    team_b_name AS opponent, join_code, mode,
                    COALESCE(completed_at, started_at) AS played_at
-            FROM match_history WHERE winner IS NOT NULL
+            FROM match_history WHERE winner IS NOT NULL AND score_known = 1
             UNION ALL
             SELECT team_b_name AS team, team_b_runs AS runs, team_b_wickets AS wickets,
                    team_a_name AS opponent, join_code, mode,
                    COALESCE(completed_at, started_at) AS played_at
-            FROM match_history WHERE winner IS NOT NULL
+            FROM match_history WHERE winner IS NOT NULL AND score_known = 1
         )
         ORDER BY runs DESC, wickets ASC LIMIT 1
         """
@@ -257,7 +270,7 @@ def _lifetime_stats(conn) -> dict:
                team_a_runs + team_b_runs AS total,
                join_code, mode, COALESCE(completed_at, started_at) AS played_at
         FROM match_history
-        WHERE winner IS NOT NULL
+        WHERE winner IS NOT NULL AND score_known = 1
         ORDER BY total DESC LIMIT 1
         """
     ).fetchone()
@@ -270,7 +283,7 @@ def _lifetime_stats(conn) -> dict:
             ABS(team_a_runs - team_b_runs) AS margin,
             join_code, mode, COALESCE(completed_at, started_at) AS played_at
         FROM match_history
-        WHERE winner IN ('A', 'B')
+        WHERE winner IN ('A', 'B') AND score_known = 1
     """
     biggest_win = conn.execute(
         margin_sql + " ORDER BY margin DESC, played_at DESC LIMIT 1"
@@ -285,7 +298,7 @@ def _lifetime_stats(conn) -> dict:
                team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
                winner, result_summary, COALESCE(completed_at, started_at) AS played_at
         FROM match_history
-        WHERE winner IS NOT NULL
+        WHERE completed_at IS NOT NULL AND score_known = 1
         ORDER BY played_at DESC LIMIT 5
         """
     ).fetchall()
@@ -293,6 +306,8 @@ def _lifetime_stats(conn) -> dict:
     return {
         "games_started": int(totals["games_started"] or 0),
         "games_completed": int(totals["games_completed"] or 0),
+        "unfinished": int(totals["unfinished"] or 0),
+        "legacy_games": int(totals["legacy_games"] or 0),
         "in_progress": live_games,
         "ties": int(totals["ties"] or 0),
         "solo_games": int(totals["solo_games"] or 0),

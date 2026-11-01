@@ -609,6 +609,26 @@ const VisitTrend: React.FC<{ visits: VisitStats; source: AnalyticsSource }> = ({
   )
 }
 
+const VisitsHero: React.FC<{ visits: VisitStats }> = ({ visits }) => (
+  <section className={styles.visitsHero} aria-label="Total visits all-time">
+    <div className={styles.visitsHeroMain}>
+      <span className={styles.visitsHeroLabel}>Total visits · all-time</span>
+      <span className={styles.visitsHeroValue}>{visits.total_visits.toLocaleString()}</span>
+      <span className={styles.visitsHeroHint}>
+        {visits.unique_visitors.toLocaleString()} unique visitors ·{' '}
+        {visits.total_events.toLocaleString()} events · {visits.visits_today.toLocaleString()} today
+      </span>
+    </div>
+    <div className={styles.visitsHeroAside}>
+      <Sparkline
+        values={visits.activity.map(point => point.visits)}
+        color="var(--color-team-b)"
+      />
+      <span className={styles.visitsHeroCaption}>{visits.activity.length}-day trend</span>
+    </div>
+  </section>
+)
+
 const FeedbackPanel: React.FC<{ feedback: FeedbackSummary; source: AnalyticsSource }> = ({
   feedback,
   source,
@@ -718,7 +738,7 @@ const ScoreRecords: React.FC<{ lifetime: LifetimeStats }> = ({ lifetime }) => {
     {
       label: 'Highest team total',
       value: team ? `${team.runs}/${team.wickets}` : '—',
-      detail: team ? `${team.team} vs ${team.opponent}` : 'No completed games',
+      detail: team ? `${team.team} vs ${team.opponent}` : 'No scorecard yet',
       meta: team ? `Room ${team.join_code} · ${team.mode}` : '',
     },
     {
@@ -726,22 +746,25 @@ const ScoreRecords: React.FC<{ lifetime: LifetimeStats }> = ({ lifetime }) => {
       value: total ? `${total.total} runs` : '—',
       detail: total
         ? `${total.team_a_name} ${total.team_a_runs}/${total.team_a_wickets} vs ${total.team_b_name} ${total.team_b_runs}/${total.team_b_wickets}`
-        : 'No completed games',
+        : 'No scorecard yet',
       meta: total ? `Room ${total.join_code}` : '',
     },
     {
       label: 'Biggest win',
       value: biggest ? `${biggest.margin} runs` : '—',
-      detail: biggest ? `${biggest.winner_name} beat ${biggest.loser_name}` : 'No completed games',
+      detail: biggest ? `${biggest.winner_name} beat ${biggest.loser_name}` : 'No scorecard yet',
       meta: biggest ? `Room ${biggest.join_code} · ${biggest.mode}` : '',
     },
     {
       label: 'Closest game',
       value: closest ? `${closest.margin} run${closest.margin === 1 ? '' : 's'}` : '—',
-      detail: closest ? `${closest.winner_name} edged ${closest.loser_name}` : 'No completed games',
+      detail: closest ? `${closest.winner_name} edged ${closest.loser_name}` : 'No scorecard yet',
       meta: closest ? `Room ${closest.join_code}` : '',
     },
   ]
+
+  const hasRecords = Boolean(team || total || biggest || closest)
+  const legacy = lifetime.legacy_games
 
   return (
     <div className={styles.card}>
@@ -752,8 +775,14 @@ const ScoreRecords: React.FC<{ lifetime: LifetimeStats }> = ({ lifetime }) => {
         </div>
       </div>
 
-      {lifetime.games_completed === 0 ? (
-        <p className={styles.empty}>A score record appears after the first completed game.</p>
+      {!hasRecords ? (
+        <p className={styles.empty}>
+          {legacy > 0
+            ? `${legacy.toLocaleString()} completed game${
+                legacy === 1 ? ' was' : 's were'
+              } recorded without a scorecard, so no score records can be shown yet.`
+            : 'A score record appears after the first completed game.'}
+        </p>
       ) : (
         <div className={styles.records}>
           {records.map(record => (
@@ -778,6 +807,11 @@ const ScoreRecords: React.FC<{ lifetime: LifetimeStats }> = ({ lifetime }) => {
           <b>{lifetime.avg_match_minutes !== null ? `${lifetime.avg_match_minutes}m` : '—'}</b>{' '}
           average game
         </span>
+        {legacy > 0 && (
+          <span>
+            <b>{legacy.toLocaleString()}</b> without scorecard
+          </span>
+        )}
       </div>
     </div>
   )
@@ -1624,7 +1658,7 @@ export default function CreatorDashboardPage() {
       {
         label: 'Total games',
         value: lifetime.games_started.toLocaleString(),
-        hint: `${lifetime.games_completed} completed · ${lifetime.in_progress} live`,
+        hint: `${lifetime.games_completed} completed · ${lifetime.unfinished} unfinished`,
         accent: 'var(--color-team-a)',
       },
       {
@@ -1649,13 +1683,6 @@ export default function CreatorDashboardPage() {
         accent: 'var(--color-success)',
       },
       {
-        label: 'Total visits',
-        value: visits.total_visits.toLocaleString(),
-        hint: `${visits.unique_visitors.toLocaleString()} unique visitors`,
-        accent: 'var(--color-team-b)',
-        spark: visits.activity.map(point => point.visits),
-      },
-      {
         label: 'Visits today',
         value: visits.visits_today.toLocaleString(),
         hint: `${visits.unique_today.toLocaleString()} unique today`,
@@ -1664,7 +1691,11 @@ export default function CreatorDashboardPage() {
       {
         label: 'Highest score',
         value: highest ? `${highest.runs}/${highest.wickets}` : '—',
-        hint: highest ? highest.team : 'Waiting for the first game',
+        hint: highest
+          ? highest.team
+          : lifetime.legacy_games > 0
+            ? 'No scorecard recorded yet'
+            : 'Waiting for the first game',
         accent: 'var(--color-warning)',
       },
       {
@@ -1814,6 +1845,8 @@ export default function CreatorDashboardPage() {
                     : 'Logs unavailable'}
               </span>
             </div>
+
+            <VisitsHero visits={data.visits} />
 
             <section className={styles.kpiGrid}>
               {lifetimeKpis.map(kpi => (

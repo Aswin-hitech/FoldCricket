@@ -185,9 +185,42 @@ create index if not exists idx_app_play_requests_recipient
 create index if not exists idx_app_play_requests_requester
     on public.app_play_requests (requester_id, status);
 
+-- ---------------------------------------------------------------------------
+-- 8. Lifetime match history (one durable row per match, never purged)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.app_match_history (
+    match_id       text primary key,
+    room_id        text not null default '',
+    join_code      text not null default '',
+    mode           text not null default '',        -- SOLO / TEAM
+    team_a_name    text not null default '',
+    team_b_name    text not null default '',
+    team_a_runs    integer not null default 0,
+    team_a_wickets integer not null default 0,
+    team_b_runs    integer not null default 0,
+    team_b_wickets integer not null default 0,
+    winner         text,                            -- 'A', 'B', 'TIE' or null
+    result_summary text,
+    overs          integer not null default 0,
+    target         integer,
+    deliveries     integer not null default 0,
+    dead_balls     integer not null default 0,
+    total_runs     integer not null default 0,
+    score_known    boolean not null default true,   -- false: recovered from stats only
+    duration_known boolean not null default true,
+    started_at     timestamptz not null,
+    completed_at   timestamptz
+);
+
+create index if not exists idx_app_match_history_started
+    on public.app_match_history (started_at);
+create index if not exists idx_app_match_history_completed
+    on public.app_match_history (completed_at);
+
 commit;
 
--- Sanity check: should return 7.
+-- Sanity check: should return 8.
 select count(*) as account_tables
 from information_schema.tables
 where table_schema = 'public'
@@ -198,5 +231,6 @@ where table_schema = 'public'
       'app_user_match_stats',
       'app_user_achievements',
       'app_direct_messages',
-      'app_play_requests'
+      'app_play_requests',
+      'app_match_history'
   );

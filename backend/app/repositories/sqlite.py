@@ -301,6 +301,9 @@ def init_db() -> None:
                 target INTEGER,
                 deliveries INTEGER NOT NULL DEFAULT 0,
                 dead_balls INTEGER NOT NULL DEFAULT 0,
+                total_runs INTEGER NOT NULL DEFAULT 0,
+                score_known INTEGER NOT NULL DEFAULT 1,
+                duration_known INTEGER NOT NULL DEFAULT 1,
                 started_at TEXT NOT NULL,
                 completed_at TEXT
             );
@@ -332,24 +335,46 @@ def init_db() -> None:
             conn.execute("ALTER TABLE players ADD COLUMN user_id TEXT;")
         except Exception:
             pass
+        for column, definition in (
+            ("total_runs", "INTEGER NOT NULL DEFAULT 0"),
+            ("score_known", "INTEGER NOT NULL DEFAULT 1"),
+            ("duration_known", "INTEGER NOT NULL DEFAULT 1"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE match_history ADD COLUMN {column} {definition};")
+            except Exception:
+                pass
+        conn.execute(
+            """
+            UPDATE match_history
+            SET total_runs = team_a_runs + team_b_runs
+            WHERE total_runs = 0 AND score_known = 1
+              AND team_a_runs + team_b_runs > 0
+            """
+        )
 
     _migrate_deliveries_rebowl()
     _backfill_match_history()
 
 
 def _backfill_match_history() -> None:
-    """Seed lifetime history from matches that still exist on disk."""
+    """Seed lifetime history from every durable record on disk.
+
+    Matches that still exist get their full scorecard. Completed matches whose
+    room and match rows were already purged are recovered from the per-player
+    match stats, with ``score_known = 0`` because no detailed scorecard remains.
+    """
     with _lock, _get_connection() as conn:
         conn.execute(
             """
-            INSERT OR IGNORE INTO match_history (
+            INSERT INTO match_history (
                 match_id, room_id, join_code, mode, team_a_name, team_b_name,
                 team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
                 winner, result_summary, overs, target, deliveries, dead_balls,
-                started_at, completed_at
+                total_runs, score_known, duration_known, started_at, completed_at
             )
             SELECT
-                m.id, m.room_id, r.join_code, r.mode,
+                m.id, m.room_id, COALESCE(r.join_code, ''), COALESCE(r.mode, ''),
                 m.team_a_name, m.team_b_name,
                 m.team_a_runs, m.team_a_wickets, m.team_b_runs, m.team_b_wickets,
                 m.winner, m.result_summary, m.overs, m.target,
@@ -360,6 +385,8 @@ def _backfill_match_history() -> None:
                     THEN (SELECT COUNT(*) FROM deliveries d
                           WHERE d.match_id = m.id AND d.result = 'TIMEOUT')
                     ELSE 0 END,
+                m.team_a_runs + m.team_b_runs,
+                1, 1,
                 m.created_at,
                 CASE WHEN m.winner IS NOT NULL
                     THEN COALESCE(
@@ -367,7 +394,54 @@ def _backfill_match_history() -> None:
                         m.created_at
                     )
                     ELSE NULL END
-            FROM matches m JOIN rooms r ON r.id = m.room_id
+            FROM matches m LEFT JOIN rooms r ON r.id = m.room_id
+            ON CONFLICT(match_id) DO UPDATE SET
+                room_id=excluded.room_id,
+                join_code=excluded.join_code,
+                mode=excluded.mode,
+                team_a_name=excluded.team_a_name,
+                team_b_name=excluded.team_b_name,
+                team_a_runs=excluded.team_a_runs,
+                team_a_wickets=excluded.team_a_wickets,
+                team_b_runs=excluded.team_b_runs,
+                team_b_wickets=excluded.team_b_wickets,
+                winner=excluded.winner,
+                result_summary=excluded.result_summary,
+                overs=excluded.overs,
+                target=excluded.target,
+                deliveries=excluded.deliveries,
+                dead_balls=excluded.dead_balls,
+                total_runs=excluded.total_runs,
+                score_known=1,
+                duration_known=1,
+                started_at=excluded.started_at,
+                completed_at=excluded.completed_at
+            WHERE match_history.score_known = 0
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO match_history (
+                match_id, room_id, join_code, mode, team_a_name, team_b_name,
+                team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
+                winner, result_summary, overs, target, deliveries, dead_balls,
+                total_runs, score_known, duration_known, started_at, completed_at
+            )
+            SELECT
+                s.match_id, MAX(s.room_id), '', COALESCE(MAX(s.mode), ''),
+                '', '', 0, 0, 0, 0,
+                CASE WHEN MAX(CASE WHEN s.result = 'TIE' THEN 1 ELSE 0 END) = 1
+                    THEN 'TIE' ELSE NULL END,
+                NULL, MAX(s.overs), NULL,
+                COALESCE(SUM(s.balls_faced), 0) + COALESCE(MAX(s.dead_balls), 0),
+                COALESCE(MAX(s.dead_balls), 0),
+                COALESCE(SUM(s.runs_scored), 0),
+                0, 0,
+                MIN(s.created_at), MAX(s.created_at)
+            FROM user_match_stats s
+            WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.id = s.match_id)
+              AND NOT EXISTS (SELECT 1 FROM match_history h WHERE h.match_id = s.match_id)
+            GROUP BY s.match_id
             """
         )
 
@@ -413,9 +487,9 @@ def _upsert_match_history(conn: sqlite3.Connection, match: Match) -> None:
             match_id, room_id, join_code, mode, team_a_name, team_b_name,
             team_a_runs, team_a_wickets, team_b_runs, team_b_wickets,
             winner, result_summary, overs, target, deliveries, dead_balls,
-            started_at, completed_at
+            total_runs, score_known, duration_known, started_at, completed_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
         ON CONFLICT(match_id) DO UPDATE SET
             join_code=excluded.join_code,
             mode=excluded.mode,
@@ -433,6 +507,13 @@ def _upsert_match_history(conn: sqlite3.Connection, match: Match) -> None:
                 THEN excluded.deliveries ELSE match_history.deliveries END,
             dead_balls=CASE WHEN excluded.winner IS NOT NULL
                 THEN excluded.dead_balls ELSE match_history.dead_balls END,
+            total_runs=CASE
+                WHEN excluded.winner IS NOT NULL OR match_history.completed_at IS NULL
+                THEN excluded.total_runs ELSE match_history.total_runs END,
+            score_known=CASE WHEN excluded.winner IS NOT NULL
+                THEN 1 ELSE match_history.score_known END,
+            duration_known=CASE WHEN excluded.winner IS NOT NULL
+                THEN 1 ELSE match_history.duration_known END,
             completed_at=COALESCE(match_history.completed_at, excluded.completed_at)
         """,
         (
@@ -452,10 +533,96 @@ def _upsert_match_history(conn: sqlite3.Connection, match: Match) -> None:
             match.target,
             deliveries,
             dead_balls,
+            match.team_a_runs + match.team_b_runs,
             started_at,
             completed_at,
         ),
     )
+
+    if completed:
+        _mirror_completed_history(
+            {
+                "match_id": match.id,
+                "room_id": match.room_id,
+                "join_code": join_code,
+                "mode": mode,
+                "team_a_name": match.team_a_name,
+                "team_b_name": match.team_b_name,
+                "team_a_runs": match.team_a_runs,
+                "team_a_wickets": match.team_a_wickets,
+                "team_b_runs": match.team_b_runs,
+                "team_b_wickets": match.team_b_wickets,
+                "winner": match.winner,
+                "result_summary": match.result_summary,
+                "overs": match.overs,
+                "target": match.target,
+                "deliveries": deliveries,
+                "dead_balls": dead_balls,
+                "total_runs": match.team_a_runs + match.team_b_runs,
+                "score_known": 1,
+                "duration_known": 1,
+                "started_at": started_at,
+                "completed_at": completed_at,
+            }
+        )
+
+
+def _mirror_completed_history(record: dict) -> None:
+    """Best-effort copy of a completed match into Neon Postgres."""
+    try:
+        from . import account_store
+
+        if not account_store.is_postgres():
+            return
+        from . import postgres_history
+
+        postgres_history.upsert_rows([record])
+    except Exception as exc:
+        logger.warning("Could not mirror a completed match into Postgres: %s", exc)
+
+
+def backfill_match_history() -> None:
+    """Public hook used by the boot-time history reconciliation."""
+    _backfill_match_history()
+
+
+def list_match_history() -> list[dict]:
+    with _lock, _get_connection() as conn:
+        rows = conn.execute("SELECT * FROM match_history").fetchall()
+    return [dict(row) for row in rows]
+
+
+def import_match_history(rows: list[dict]) -> int:
+    """Insert durable history rows, upgrading rows that carry no scorecard."""
+    if not rows:
+        return 0
+    columns = (
+        "match_id", "room_id", "join_code", "mode", "team_a_name", "team_b_name",
+        "team_a_runs", "team_a_wickets", "team_b_runs", "team_b_wickets",
+        "winner", "result_summary", "overs", "target", "deliveries", "dead_balls",
+        "total_runs", "score_known", "duration_known", "started_at", "completed_at",
+    )
+    placeholders = ",".join("?" for _ in columns)
+    assignments = ", ".join(
+        f"{column} = excluded.{column}"
+        for column in columns
+        if column not in ("match_id", "completed_at")
+    )
+    inserted = 0
+    with _lock, _get_connection() as conn:
+        for row in rows:
+            cursor = conn.execute(
+                f"INSERT INTO match_history ({','.join(columns)}) "
+                f"VALUES ({placeholders}) "
+                f"ON CONFLICT(match_id) DO UPDATE SET {assignments}, "
+                "completed_at = COALESCE(excluded.completed_at, match_history.completed_at) "
+                "WHERE (excluded.score_known = 1 AND match_history.score_known = 0) "
+                "OR (match_history.completed_at IS NULL "
+                "AND excluded.completed_at IS NOT NULL)",
+                tuple(row.get(column) for column in columns),
+            )
+            inserted += cursor.rowcount
+    return inserted
 
 
 def _migrate_deliveries_rebowl() -> None:

@@ -39,6 +39,18 @@ def create_app(config: type = Config) -> Flask:
                 "Postgres account sync failed; continuing with the local mirror."
             )
 
+    # Completed matches are mirrored into Postgres too, because the local SQLite
+    # file is recreated on every deploy. Merging both stores here keeps all-time
+    # counts complete. A missing or unreachable durable store is not fatal.
+    from .repositories import history_store
+
+    try:
+        history_store.reconcile()
+    except Exception:
+        app.logger.exception(
+            "Lifetime match history sync failed; continuing with local history."
+        )
+
     # Extensions
     if config.CORS_ORIGINS == "*":
         cors.init_app(app, resources={r"/*": {"origins": "*"}})

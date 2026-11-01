@@ -1059,6 +1059,96 @@ button.legendRow:hover {
   gap: 5px;
 }
 
+/* ---------------- Total visits header band ---------------- */
+
+.visitsHero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 26px 22px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(140% 170% at 0% 0%, rgba(45, 212, 191, 0.16), transparent 58%),
+    var(--color-surface);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+.visitsHeroMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.visitsHeroLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.visitsHeroValue {
+  font-family: var(--font-display);
+  font-size: clamp(3.2rem, 9vw, 5.6rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.visitsHeroHint {
+  font-size: 0.86rem;
+  color: var(--color-text-muted);
+}
+
+.visitsHeroAside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: min(280px, 36%);
+  flex-shrink: 0;
+}
+
+.visitsHeroAside .spark {
+  height: 64px;
+}
+
+.visitsHeroCaption {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 620px) {
+  .visitsHero {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 18px 20px;
+  }
+
+  .visitsHeroAside {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .visitsHeroAside .spark {
+    height: 44px;
+  }
+
+  .visitsHeroCaption {
+    text-align: right;
+  }
+}
+
 .kpiTop {
   display: flex;
   align-items: center;
